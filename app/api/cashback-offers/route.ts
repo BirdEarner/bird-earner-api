@@ -6,7 +6,7 @@ export async function GET() {
         const offers = await db
             .selectFrom('cashbackOffers')
             .selectAll()
-            .where('isActive', '=', true)
+            .where('used', '=', false)
             .orderBy('createdAt', 'desc')
             .execute();
 

@@ -25,12 +25,12 @@ export async function getAuthUser(): Promise<AuthUser | null> {
     }
 }
 
-export async function getUserIdFromRequest(): Promise<string | null> {
+export async function getUserIdFromRequest(request?: Request): Promise<string | null> {
     const user = await getAuthUser();
     return user?.id || null;
 }
 
-export async function getAdminUser(): Promise<AdminUser | null> {
+export async function getAdminUser(request?: Request): Promise<AdminUser | null> {
     try {
         const authHeader = (await headers()).get('authorization');
         const token = authHeader?.startsWith('Bearer ')

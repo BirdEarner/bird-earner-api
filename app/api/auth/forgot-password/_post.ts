@@ -42,7 +42,7 @@ export async function POST(request: Request) {
 
         // Generate token and expiry
         const token = crypto.randomBytes(32).toString('hex');
-        const expires = BigInt(Date.now() + 1000 * 60 * 30); // 30 min
+        const expires = String(Date.now() + 1000 * 60 * 30); // 30 min
 
         await db
             .updateTable('users')

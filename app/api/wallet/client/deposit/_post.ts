@@ -38,7 +38,7 @@ export async function POST(request: Request) {
         await db.transaction().execute(async (trx) => {
             await trx
                 .updateTable('clients')
-                .set({ wallet: newBalance, updatedAt: new Date() })
+                .set({ wallet: String(newBalance), updatedAt: new Date() })
                 .where('id', '=', client.id)
                 .execute();
 
@@ -47,12 +47,13 @@ export async function POST(request: Request) {
                 .values({
                     id: uuidv4(),
                     userId,
-                    amount: depositAmount,
+                    userType: 'CLIENT', // Added missing field
+                    amount: String(depositAmount),
                     transactionType: 'DEPOSIT',
                     description: description || 'Wallet deposit',
                     referenceId: referenceId || `DEP-${Date.now()}`,
-                    balanceBefore: currentBalance,
-                    balanceAfter: newBalance,
+                    balanceBefore: String(currentBalance),
+                    balanceAfter: String(newBalance),
                     createdAt: new Date(),
                     updatedAt: new Date()
                 })

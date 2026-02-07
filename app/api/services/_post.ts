@@ -30,12 +30,10 @@ export async function POST(request: Request) {
             .values({
                 id: serviceId,
                 name: data.name,
-                category: data.category,
+                category: data.category.toUpperCase() as any,
                 description: data.description || null,
-                icon: data.icon || null,
                 isActive: data.isActive,
-                platformFee: data.platformFee,
-                priorityConfig: data.priorityConfig ? JSON.stringify(data.priorityConfig) : null,
+                createdAt: new Date(),
                 updatedAt: new Date()
             })
             .execute();

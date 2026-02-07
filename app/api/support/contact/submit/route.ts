@@ -20,9 +20,9 @@ export async function POST(request: Request) {
                 email,
                 subject,
                 message,
-                mobileNumber,
+                phone: mobileNumber, // Use 'phone' instead of 'mobileNumber'
                 ticketId,
-                status: 'pending',
+                status: 'pending', // Lowercase per schema
                 isRead: false,
                 createdAt: new Date(),
                 updatedAt: new Date()

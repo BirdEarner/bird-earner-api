@@ -31,7 +31,7 @@ export async function POST(
             .selectFrom('users')
             .selectAll()
             .where('resetPasswordToken', '=', token)
-            .where('resetPasswordExpires', '>', BigInt(Date.now()))
+            .where('resetPasswordExpires', '>', String(Date.now()))
             .executeTakeFirst();
 
         if (!user) {

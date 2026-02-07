@@ -13,11 +13,10 @@ export async function PUT(
             .updateTable('services')
             .set({
                 name: body.name,
-                category: body.category, // Enum: 'freelance' | 'household'
+                category: body.category ? (body.category.toUpperCase() as any) : undefined,
                 description: body.description,
-                icon: body.icon,
+                imageUrl: body.imageUrl,
                 isActive: body.isActive,
-                platformFee: body.platformFee,
                 priorityConfig: body.priorityConfig ? JSON.stringify(body.priorityConfig) : undefined,
                 updatedAt: new Date()
             })

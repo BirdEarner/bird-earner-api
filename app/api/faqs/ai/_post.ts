@@ -21,7 +21,7 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: validation.error }, { status: 400 });
         }
 
-        const { question, history } = validation.data;
+        const { question, history = [] } = validation.data;
         const chatHistory = history.map((msg, i) => ({
             role: (i % 2 === 0 ? 'user' : 'assistant') as 'user' | 'assistant',
             content: msg,

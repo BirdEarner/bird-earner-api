@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getUserIdFromRequest } from '@/lib/auth';
 import { sendNotification } from '@/lib/services/notifications';
+import { sql } from 'kysely';
 
 export async function PATCH(
     request: Request,
@@ -31,11 +32,7 @@ export async function PATCH(
             return NextResponse.json({ success: false, message: 'Withdrawal request not found' }, { status: 404 });
         }
 
-        // Use Prisma for transaction as Kysely transaction support might be complex here
-        // Wait, I should use the prisma client directly if available or use kysely transaction
-        const prisma = (await import('@/lib/db')).prisma;
-
-        const result = await prisma.$transaction(async (tx) => {
+        const result = await db.transaction().execute(async (trx) => {
             const updateData: any = {
                 status: status as any,
                 updatedAt: new Date(),
@@ -45,27 +42,32 @@ export async function PATCH(
                 updateData.processedAt = new Date();
             }
 
-            const updated = await tx.withdrawalRequest.update({
-                where: { id },
-                data: updateData,
-                include: {
-                    freelancer: true
-                }
-            });
+            const updated = await trx
+                .updateTable('withdrawalRequests')
+                .set(updateData)
+                .where('id', '=', id)
+                .returningAll()
+                .executeTakeFirstOrThrow();
 
             // If rejecting, restore funds
             if (status === 'REJECTED' && currentRequest.status === 'PENDING') {
-                await tx.freelancer.update({
-                    where: { id: currentRequest.freelancerId },
-                    data: {
-                        withdrawableAmount: {
-                            increment: Number(currentRequest.amount)
-                        }
-                    }
-                });
+                await trx
+                    .updateTable('freelancers')
+                    .set({
+                        withdrawableAmount: sql`withdrawableAmount + ${Number(currentRequest.amount)}`
+                    })
+                    .where('id', '=', currentRequest.freelancerId)
+                    .execute();
             }
 
-            return updated;
+            // Get freelancer userId for notification
+            const freelancer = await trx
+                .selectFrom('freelancers')
+                .select('userId')
+                .where('id', '=', currentRequest.freelancerId)
+                .executeTakeFirstOrThrow();
+
+            return { ...updated, freelancer };
         });
 
         // Send notification

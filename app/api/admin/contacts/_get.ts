@@ -20,7 +20,7 @@ export async function GET(request: Request) {
             .selectAll();
 
         if (status) {
-            query = query.where('status', '=', status);
+            query = query.where('status', '=', status as any);
         }
 
         const totalQuery = db
