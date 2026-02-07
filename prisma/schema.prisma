@@ -1,0 +1,652 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+generator kysely {
+  provider = "prisma-kysely"
+  output   = "../../api/types"
+  fileName = "types.ts"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model FAQ {
+  id          Int     @id @default(autoincrement())
+  question    String  @db.Text
+  answer      String  @db.Text
+  keywords    String? @db.Text
+  youtubeLink String? @map("youtubeLink") @db.Text
+
+  @@index([question])
+  @@index([keywords])
+  @@map("faqTable")
+}
+
+model Admin {
+  id               Int       @id @default(autoincrement())
+  name             String    @db.VarChar(100)
+  email            String    @unique @db.VarChar(255)
+  password         String    @db.VarChar(255)
+  role             AdminRole
+  lastLoginAt      DateTime? @map("lastLoginAt")
+  lastLoginIp      String?   @map("lastLoginIp") @db.VarChar(45)
+  createdAt        DateTime  @default(now()) @map("createdAt")
+  updatedAt        DateTime  @updatedAt @map("updatedAt")
+  contactResponses Contact[] @relation("AdminContacts")
+
+  @@map("admins")
+}
+
+model Contact {
+  id            String        @id @db.VarChar(36)
+  ticketId      String        @unique @map("ticketId") @db.VarChar(20)
+  name          String        @db.VarChar(255)
+  email         String        @db.VarChar(255)
+  phone         String?       @db.VarChar(50)
+  subject       String        @db.VarChar(500)
+  message       String        @db.Text
+  isRead        Boolean       @default(false) @map("isRead")
+  status        ContactStatus @default(pending)
+  adminResponse String?       @map("adminResponse") @db.Text
+  adminId       Int?          @map("adminId")
+  createdAt     DateTime      @default(now()) @map("createdAt")
+  updatedAt     DateTime      @updatedAt @map("updatedAt")
+  admin         Admin?        @relation("AdminContacts", fields: [adminId], references: [id])
+
+  @@index([createdAt], map: "contactsCreatedAtIdx")
+  @@index([isRead], map: "contactsIsReadIdx")
+  @@index([email], map: "contactsEmailIdx")
+  @@index([status], map: "contactsStatusIdx")
+  @@index([ticketId], map: "contactsTicketIdIdx")
+  @@index([adminId], map: "contactsAdminIdIdx")
+  @@map("contacts")
+}
+
+model User {
+  id                   String              @id @default(uuid())
+  email                String              @unique
+  password             String
+  fullName             String?             @map("fullName")
+  isTestAccount        Boolean             @default(false) @map("isTestAccount")
+  createdAt            DateTime            @default(now()) @map("createdAt")
+  updatedAt            DateTime            @updatedAt @map("updatedAt")
+  resetPasswordExpires BigInt?             @map("resetPasswordExpires")
+  resetPasswordToken   String?             @map("resetPasswordToken") @db.VarChar(255)
+  bankAccount          BankAccount?
+  client               Client?
+  freelancer           Freelancer?
+  jobBookmarks         JobBookmark[]
+  receivedMessages     Message[]           @relation("UserReceiver")
+  sentMessages         Message[]           @relation("UserSender")
+  walletTransactions   WalletTransaction[]
+  reviewsGiven         Review[]            @relation("UserReviewsGiven")
+  reviewsReceived      Review[]            @relation("UserReviewsReceived")
+
+  @@map("users")
+}
+
+model BankAccount {
+  id                String   @id @default(uuid())
+  userId            String   @unique @map("userId")
+  bankName          String   @map("bankName")
+  accountHolderName String   @map("accountHolderName")
+  accountNumber     String   @map("accountNumber")
+  ifscCode          String   @map("ifscCode")
+  createdAt         DateTime @default(now()) @map("createdAt")
+  updatedAt         DateTime @updatedAt @map("updatedAt")
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("bankAccounts")
+}
+
+model Freelancer {
+  id                    String           @id @default(uuid())
+  userId                String           @unique @map("userId")
+  mobileNumber          String?          @map("mobileNumber")
+  phase1Completed       Boolean          @default(false) @map("phase1Completed")
+  phase2Completed       Boolean          @default(false) @map("phase2Completed")
+  selectedServices      Json?            @map("selectedServices")
+  highestQualification  String?          @map("highestQualification")
+  experience            Int?
+  profileHeading        String?          @map("profileHeading")
+  city                  String?
+  state                 String?
+  zipcode               Int?
+  country               String?
+  gender                String?
+  dob                   DateTime?
+  certifications        Json?
+  socialMediaLinks      Json?            @map("socialMediaLinks")
+  profileDescription    String?          @map("profileDescription") @db.Text
+  profilePhoto          String?          @map("profilePhoto") @db.Text
+  portfolioImages       Json?            @map("portfolioImages")
+  coverPhoto            String?          @map("coverPhoto") @db.Text
+  currentlyAvailable    Boolean?         @default(true) @map("currentlyAvailable")
+  nextAvailable         String?          @map("nextAvailable") @db.Text
+  termsAccepted         Boolean?         @map("termsAccepted")
+  flags                 Json?
+  xp                    Int              @default(0)
+  level                 Int              @default(1)
+  rating                Int?
+  assignedJobs          Json?            @map("assignedJobs")
+  cancelledJobs         Json?            @map("cancelledJobs")
+  totalEarnings         Decimal          @default(0.00) @map("totalEarnings") @db.Decimal(10, 2)
+  monthlyEarnings       Decimal          @default(0.00) @map("monthlyEarnings") @db.Decimal(10, 2)
+  outstandingAmount     Decimal          @default(0.00) @map("outstandingAmount") @db.Decimal(10, 2)
+  withdrawableAmount    Decimal          @default(0.00) @map("withdrawableAmount") @db.Decimal(10, 2)
+  createdAt             DateTime         @default(now()) @map("createdAt")
+  updatedAt             DateTime         @updatedAt @map("updatedAt")
+  availabilityUpdatedAt DateTime?        @map("availabilityUpdatedAt")
+  blockedAsFreelancer   BlockedUser[]    @relation("BlockedFreelancer")
+  blockerAsFreelancer   BlockedUser[]    @relation("BlockerFreelancer")
+  chatThreads           ChatThread[]     @relation("FreelancerChatThreads")
+  earnings              Earning[]
+  user                  User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assignedJobs_rel      Job[]            @relation("AssignedFreelancer")
+  jobsCreated           Job[]            @relation("FreelancerJobs")
+  paymentHistory        PaymentHistory[]
+
+  userEggs           UserEgg[]
+  withdrawalRequests WithdrawalRequest[]
+  reviews            Review[]
+
+  @@map("freelancers")
+}
+
+model Client {
+  id                    String           @id @default(uuid())
+  userId                String           @unique @map("userId")
+  phase1Completed       Boolean          @default(false) @map("phase1Completed")
+  phase2Completed       Boolean          @default(false) @map("phase2Completed")
+  organizationType      String?          @map("organizationType")
+  companyName           String?          @map("companyName")
+  city                  String?
+  state                 String?
+  zipcode               Int?
+  country               String?
+  profileDescription    String?          @map("profileDescription") @db.Text
+  profilePhoto          String?          @map("profilePhoto") @db.Text
+  termsAccepted         Boolean?         @map("termsAccepted")
+  wallet                Decimal          @default(0.00) @db.Decimal(10, 2)
+  createdAt             DateTime         @default(now()) @map("createdAt")
+  updatedAt             DateTime         @updatedAt @map("updatedAt")
+  availableBalance      Decimal          @default(0.00) @map("availableBalance") @db.Decimal(10, 2)
+  reservedAmount        Decimal          @default(0.00) @map("reservedAmount") @db.Decimal(10, 2)
+  availabilityUpdatedAt DateTime?        @map("availabilityUpdatedAt")
+  currentlyAvailable    Boolean?         @default(true) @map("currentlyAvailable")
+  nextAvailable         String?          @map("nextAvailable") @db.Text
+  coverPhoto            String?          @map("coverPhoto") @db.Text
+  blockedAsClient       BlockedUser[]    @relation("BlockedClient")
+  blockerAsClient       BlockedUser[]    @relation("BlockerClient")
+  cashbackOffer         CashbackOffer[]
+  chatThreads           ChatThread[]     @relation("ClientChatThreads")
+  user                  User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  jobsCreated           Job[]            @relation("ClientJobs")
+  paymentHistory        PaymentHistory[]
+
+  reviews Review[]
+
+  @@map("clients")
+}
+
+model Job {
+  id                   String              @id @default(uuid())
+  jobTitle             String              @map("jobTitle")
+  jobDescription       String              @map("jobDescription") @db.Text
+  jobCategory          String              @map("jobCategory")
+  jobSubCategory       String              @map("jobSubCategory")
+  skillsRequired       Json                @map("skillsRequired")
+  projectType          String              @map("projectType")
+  budgetType           String              @map("budgetType")
+  budgetAmount         Decimal             @map("budgetAmount") @db.Decimal(10, 2)
+  clientId             String              @map("clientId")
+  paymentMethod        String              @default("PLATFORM") @map("paymentMethod")
+  birdFeeAmount        Decimal?            @map("birdFeeAmount") @db.Decimal(10, 2)
+  birdFeePaid          Boolean             @default(false) @map("birdFeePaid")
+  assignedFreelancerId String?             @map("assignedFreelancerId")
+  createdBy            String?             @map("createdBy")
+  serviceId            String?             @map("serviceId")
+  jobStatus            JobStatus           @default(OPEN) @map("jobStatus")
+  proposalCount        Int                 @default(0) @map("proposalCount")
+  deadlineDate         DateTime?           @map("deadlineDate")
+  assignedAt           DateTime?           @map("assignedAt")
+  attachedFiles        Json?               @map("attachedFiles")
+  location             String?
+  latitude             Decimal?            @db.Decimal(10, 8)
+  longitude            Decimal?            @db.Decimal(11, 8)
+  isUrgent             Boolean?            @default(false) @map("isUrgent")
+  createdAt            DateTime            @default(now()) @map("createdAt")
+  updatedAt            DateTime            @updatedAt @map("updatedAt")
+  amountPaid           Decimal?            @default(0.00) @map("amountPaid") @db.Decimal(10, 2)
+  isAmountReserved     Boolean             @default(false) @map("isAmountReserved")
+  paymentStatus        PaymentStatus       @default(PENDING) @map("paymentStatus")
+  completedAt          DateTime?           @map("completedAt")
+  chatThreads          ChatThread[]        @relation("JobChatThreads")
+  bookmarks            JobBookmark[]
+  assignedFreelancer   Freelancer?         @relation("AssignedFreelancer", fields: [assignedFreelancerId], references: [id], map: "jobsAssignedFreelancerFkey")
+  client               Client              @relation("ClientJobs", fields: [clientId], references: [id], onDelete: Cascade)
+  createdByFreelancer  Freelancer?         @relation("FreelancerJobs", fields: [createdBy], references: [id], map: "jobsCreatedByFreelancerFkey")
+  service              Service?            @relation("JobService", fields: [serviceId], references: [id], map: "jobsServiceIdFkey")
+  messages             Message[]
+  walletTransactions   WalletTransaction[]
+  reviews              Review[]
+
+  @@index([assignedFreelancerId], map: "jobsAssignedFreelancerIdx")
+  @@index([clientId], map: "jobsClientIdIdx")
+  @@index([createdBy], map: "jobsCreatedByIdx")
+  @@index([serviceId], map: "jobsServiceIdIdx")
+  @@map("jobs")
+}
+
+model Message {
+  id             String      @id @default(uuid())
+  senderId       String      @map("senderId")
+  receiverId     String      @map("receiverId")
+  jobId          String?     @map("jobId")
+  messageContent String      @map("messageContent") @db.Text
+  messageType    String      @default("text") @map("messageType")
+  messageData    Json        @default("{}") @map("messageData")
+  attachments    Json?
+  isRead         Boolean     @default(false) @map("isRead")
+  senderType     String      @map("senderType")
+  createdAt      DateTime    @default(now()) @map("createdAt")
+  updatedAt      DateTime    @updatedAt @map("updatedAt")
+  chatThreadId   String?     @map("chatThreadId")
+  chatThread     ChatThread? @relation("ChatThreadMessages", fields: [chatThreadId], references: [id])
+  job            Job?        @relation(fields: [jobId], references: [id])
+  receiver       User        @relation("UserReceiver", fields: [receiverId], references: [id], onDelete: Cascade)
+  sender         User        @relation("UserSender", fields: [senderId], references: [id], onDelete: Cascade)
+  userMedia      UserMedia[]
+
+  @@index([senderId], map: "messagesSenderIdIdx")
+  @@index([receiverId], map: "messagesReceiverIdIdx")
+  @@index([jobId], map: "messagesJobIdIdx")
+  @@index([createdAt], map: "messagesCreatedAtIdx")
+  @@index([chatThreadId], map: "messagesChatThreadIdIdx")
+  @@map("messages")
+}
+
+model Review {
+  id            String   @id @default(uuid())
+  reviewerId    String   @map("reviewerId")
+  revieweeId    String   @map("revieweeId")
+  jobId         String?  @map("jobId")
+  rating        Int
+  ratingDetails Json?    @map("ratingDetails") // Stores { experience, knowledge, response }
+  reviewText    String?  @map("reviewText") @db.Text
+  reviewType    String   @map("reviewType") // "CLIENT_TO_FREELANCER" or "FREELANCER_TO_CLIENT"
+  createdAt     DateTime @default(now()) @map("createdAt")
+  updatedAt     DateTime @updatedAt @map("updatedAt")
+
+  job          Job?        @relation(fields: [jobId], references: [id])
+  reviewer     User        @relation("UserReviewsGiven", fields: [reviewerId], references: [id], onDelete: Cascade)
+  reviewee     User        @relation("UserReviewsReceived", fields: [revieweeId], references: [id], onDelete: Cascade)
+  freelancer   Freelancer? @relation(fields: [freelancerId], references: [id])
+  freelancerId String?
+  client       Client?     @relation(fields: [clientId], references: [id])
+  clientId     String?
+
+  @@index([reviewerId], map: "reviewsReviewerIdIdx")
+  @@index([revieweeId], map: "reviewsRevieweeIdIdx")
+  @@index([jobId], map: "reviewsJobIdIdx")
+  @@map("reviews")
+}
+
+model Earning {
+  id           String        @id @default(uuid())
+  freelancerId String        @map("freelancerId")
+  jobId        String?       @map("jobId")
+  amount       Decimal       @db.Decimal(10, 2)
+  earningType  String        @map("earningType")
+  description  String?       @db.Text
+  status       EarningStatus @default(PENDING)
+  createdAt    DateTime      @default(now()) @map("createdAt")
+  updatedAt    DateTime      @updatedAt @map("updatedAt")
+  freelancer   Freelancer    @relation(fields: [freelancerId], references: [id], onDelete: Cascade)
+
+  @@index([freelancerId], map: "earningsFreelancerIdIdx")
+  @@index([jobId], map: "earningsJobIdIdx")
+  @@index([status], map: "earningsStatusIdx")
+  @@map("earnings")
+}
+
+model WithdrawalRequest {
+  id           String           @id @default(uuid())
+  freelancerId String           @map("freelancerId")
+  amount       Decimal          @db.Decimal(10, 2)
+  bankDetails  Json             @map("bankDetails")
+  status       WithdrawalStatus @default(PENDING)
+  processedAt  DateTime?        @map("processedAt")
+  notes        String?          @db.Text
+  createdAt    DateTime         @default(now()) @map("createdAt")
+  updatedAt    DateTime         @updatedAt @map("updatedAt")
+  freelancer   Freelancer       @relation(fields: [freelancerId], references: [id], onDelete: Cascade)
+
+  @@index([freelancerId], map: "withdrawalRequestsFreelancerIdIdx")
+  @@index([status], map: "withdrawalRequestsStatusIdx")
+  @@map("withdrawalRequests")
+}
+
+model PaymentHistory {
+  id            String        @id @default(uuid())
+  clientId      String?       @map("clientId")
+  jobId         String?       @map("jobId")
+  amount        Decimal       @db.Decimal(10, 2)
+  paymentMethod String        @map("paymentMethod")
+  transactionId String?       @map("transactionId")
+  status        PaymentStatus @default(PENDING)
+  description   String?       @db.Text
+  createdAt     DateTime      @default(now()) @map("createdAt")
+  updatedAt     DateTime      @updatedAt @map("updatedAt")
+  freelancerId  String?       @map("freelancerId")
+  client        Client?       @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  freelancer    Freelancer?   @relation(fields: [freelancerId], references: [id], onDelete: Cascade)
+
+  @@index([clientId], map: "paymentHistoryClientIdIdx")
+  @@index([freelancerId], map: "paymentHistoryFreelancerIdIdx")
+  @@index([jobId], map: "paymentHistoryJobIdIdx")
+  @@index([status], map: "paymentHistoryStatusIdx")
+  @@map("paymentHistory")
+}
+
+model WalletTransaction {
+  id              String          @id @default(uuid())
+  userId          String          @map("userId")
+  userType        String          @map("userType")
+  jobId           String?         @map("jobId")
+  transactionType TransactionType @map("transactionType")
+  amount          Decimal         @db.Decimal(10, 2)
+  balanceBefore   Decimal         @map("balanceBefore") @db.Decimal(10, 2)
+  balanceAfter    Decimal         @map("balanceAfter") @db.Decimal(10, 2)
+  description     String?         @db.Text
+  referenceId     String?         @map("referenceId")
+  createdAt       DateTime        @default(now()) @map("createdAt")
+  updatedAt       DateTime        @updatedAt @map("updatedAt")
+  job             Job?            @relation(fields: [jobId], references: [id])
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId], map: "walletTransactionsUserIdIdx")
+  @@index([jobId], map: "walletTransactionsJobIdIdx")
+  @@index([transactionType], map: "walletTransactionsTypeIdx")
+  @@map("walletTransactions")
+}
+
+model UserEgg {
+  id           String     @id @default(uuid())
+  freelancerId String     @map("freelancerId")
+  eggType      String     @map("eggType")
+  quantity     Int        @default(1)
+  earnedFrom   String?    @map("earnedFrom")
+  createdAt    DateTime   @default(now()) @map("createdAt")
+  updatedAt    DateTime   @updatedAt @map("updatedAt")
+  freelancer   Freelancer @relation(fields: [freelancerId], references: [id], onDelete: Cascade)
+
+  @@index([freelancerId], map: "userEggsFreelancerIdIdx")
+  @@index([eggType], map: "userEggsEggTypeIdx")
+  @@map("userEggs")
+}
+
+model BlockedUser {
+  id                String      @id @default(uuid())
+  blockerId         String      @map("blockerId")
+  blockedId         String      @map("blockedId")
+  blockerType       String      @map("blockerType")
+  blockedType       String      @map("blockedType")
+  reason            String?     @db.Text
+  createdAt         DateTime    @default(now()) @map("createdAt")
+  blockedClient     Client?     @relation("BlockedClient", fields: [blockedId], references: [id], onDelete: Cascade, map: "blockedUsersBlockedClientFkey")
+  blockedFreelancer Freelancer? @relation("BlockedFreelancer", fields: [blockedId], references: [id], onDelete: Cascade, map: "blockedUsersBlockedFreelancerFkey")
+  blockerClient     Client?     @relation("BlockerClient", fields: [blockerId], references: [id], onDelete: Cascade, map: "blockedUsersBlockerClientFkey")
+  blockerFreelancer Freelancer? @relation("BlockerFreelancer", fields: [blockerId], references: [id], onDelete: Cascade, map: "blockedUsersBlockerFreelancerFkey")
+
+  @@unique([blockerId, blockedId], map: "uniqueBlockRelationship")
+  @@index([blockerId], map: "blockedUsersBlockerIdIdx")
+  @@index([blockedId], map: "blockedUsersBlockedIdIdx")
+  @@map("blockedUsers")
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String   @map("userId")
+  userType  String   @map("userType")
+  title     String
+  message   String   @db.Text
+  type      String
+  data      Json?
+  isRead    Boolean  @default(false) @map("isRead")
+  createdAt DateTime @default(now()) @map("createdAt")
+  updatedAt DateTime @updatedAt @map("updatedAt")
+
+  @@index([userId], map: "notificationsUserIdIdx")
+  @@index([isRead], map: "notificationsIsReadIdx")
+  @@index([createdAt], map: "notificationsCreatedAtIdx")
+  @@map("notifications")
+}
+
+model PushToken {
+  id        String   @id @default(uuid())
+  userId    String   @map("userId")
+  userType  String   @map("userType")
+  token     String   @unique
+  platform  String
+  isActive  Boolean  @default(true) @map("isActive")
+  createdAt DateTime @default(now()) @map("createdAt")
+  updatedAt DateTime @updatedAt @map("updatedAt")
+
+  @@index([userId], map: "pushTokensUserIdIdx")
+  @@index([token], map: "pushTokensTokenIdx")
+  @@map("pushTokens")
+}
+
+model FileManagement {
+  id           String   @id @default(uuid())
+  fileName     String   @map("fileName")
+  originalName String   @map("originalName")
+  fileUrl      String   @map("fileUrl") @db.Text
+  fileSize     Int      @map("fileSize")
+  mimeType     String   @map("mimeType")
+  uploadedBy   String   @map("uploadedBy")
+  uploaderType String   @map("uploaderType")
+  category     String?
+  isActive     Boolean  @default(true) @map("isActive")
+  createdAt    DateTime @default(now()) @map("createdAt")
+  updatedAt    DateTime @updatedAt @map("updatedAt")
+
+  @@index([uploadedBy], map: "fileManagementUploadedByIdx")
+  @@index([category], map: "fileManagementCategoryIdx")
+  @@index([createdAt], map: "fileManagementCreatedAtIdx")
+  @@map("fileManagement")
+}
+
+model JobBookmark {
+  id        String   @id @default(uuid())
+  userId    String   @map("userId")
+  jobId     String   @map("jobId")
+  createdAt DateTime @default(now()) @map("createdAt")
+  updatedAt DateTime @updatedAt @map("updatedAt")
+  job       Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, jobId], map: "uniqueUserJobBookmark")
+  @@index([userId], map: "jobBookmarksUserIdIdx")
+  @@index([jobId], map: "jobBookmarksJobIdIdx")
+  @@map("jobBookmarks")
+}
+
+model DeleteRequest {
+  id          String              @id @default(uuid())
+  userId      String              @map("userId")
+  userType    String              @map("userType")
+  reason      String?             @db.Text
+  status      DeleteRequestStatus @default(PENDING)
+  processedAt DateTime?           @map("processedAt")
+  processedBy String?             @map("processedBy")
+  createdAt   DateTime            @default(now()) @map("createdAt")
+  updatedAt   DateTime            @updatedAt @map("updatedAt")
+
+  @@index([userId], map: "deleteRequestsUserIdIdx")
+  @@index([status], map: "deleteRequestsStatusIdx")
+  @@map("deleteRequests")
+}
+
+model Service {
+  id             String          @id @default(uuid())
+  name           String          @unique
+  category       ServiceCategory
+  description    String?         @db.Text
+  imageUrl       String?         @map("imageUrl") @db.Text
+  isActive       Boolean         @default(true) @map("isActive")
+  priorityConfig Json?           @map("priorityConfig")
+  birdFee        Json?           @map("birdFee")
+  createdAt      DateTime        @default(now()) @map("createdAt")
+  updatedAt      DateTime        @updatedAt @map("updatedAt")
+  jobs           Job[]           @relation("JobService")
+
+  @@index([category], map: "servicesServiceCategoryIdx")
+  @@index([isActive], map: "servicesServiceActiveIdx")
+  @@map("services")
+}
+
+model ChatThread {
+  id             String     @id @default(uuid())
+  jobId          String     @map("jobId")
+  freelancerId   String     @map("freelancerId")
+  clientId       String     @map("clientId")
+  characterLimit Int        @default(200) @map("characterLimit")
+  isAccepted     Boolean    @default(false) @map("isAccepted")
+  status         ChatStatus @default(PENDING)
+  createdAt      DateTime   @default(now()) @map("createdAt")
+  deadline       DateTime?  @map("deadline")
+  updatedAt      DateTime   @updatedAt @map("updatedAt")
+  usedStorage    BigInt     @default(0) @map("usedStorage")
+  storageLimit   BigInt     @default(3221225472) @map("storageLimit")
+  client         Client     @relation("ClientChatThreads", fields: [clientId], references: [id])
+  freelancer     Freelancer @relation("FreelancerChatThreads", fields: [freelancerId], references: [id])
+  job            Job        @relation("JobChatThreads", fields: [jobId], references: [id])
+  messages       Message[]  @relation("ChatThreadMessages")
+
+  @@unique([jobId, freelancerId, clientId], map: "uniqueJobFreelancerClientThread")
+  @@index([jobId], map: "chatThreadsJobIdIdx")
+  @@index([freelancerId], map: "chatThreadsFreelancerIdIdx")
+  @@index([clientId], map: "chatThreadsClientIdIdx")
+  @@map("chatThreads")
+}
+
+model UserMedia {
+  id         String   @id @default(uuid())
+  fileName   String   @map("fileName")
+  fileSize   Int      @map("fileSize")
+  mimeType   String   @map("mimeType")
+  location   String
+  path       String
+  uploaderId String   @map("uploaderId")
+  threadId   String   @map("threadId")
+  messageId  String   @map("messageId")
+  expiresAt  DateTime @map("expiresAt")
+  isExpired  Boolean  @default(false) @map("isExpired")
+  createdAt  DateTime @default(now()) @map("createdAt")
+  updatedAt  DateTime @updatedAt @map("updatedAt")
+  message    Message  @relation(fields: [messageId], references: [id])
+
+  @@index([expiresAt])
+  @@index([threadId])
+  @@index([messageId])
+  @@map("userMedia")
+}
+
+model CashbackOffer {
+  id         String                  @id
+  amount     Float
+  amountType CashbackOfferAmountType
+  discovered Boolean                 @default(false)
+  used       Boolean                 @default(false)
+  createdAt  DateTime                @default(now()) @map("createdAt")
+  updatedAt  DateTime                @map("updatedAt")
+  clientId   String                  @map("clientId")
+  clients    Client                  @relation(fields: [clientId], references: [id], onDelete: Cascade, map: "CashbackOfferClientIdFkey")
+
+  @@index([clientId], map: "CashbackOfferClientIdIdx")
+  @@map("cashbackOffers")
+}
+
+enum AdminRole {
+  admin
+  superadmin
+}
+
+enum ContactStatus {
+  pending
+  in_progress
+  resolved
+  closed
+}
+
+enum JobStatus {
+  OPEN
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  PAUSED
+}
+
+enum EarningStatus {
+  PENDING
+  APPROVED
+  PAID
+  CANCELLED
+}
+
+enum WithdrawalStatus {
+  PENDING
+  APPROVED
+  PROCESSED
+  REJECTED
+}
+
+enum PaymentStatus {
+  PENDING
+  RESERVED
+  COMPLETED
+  FAILED
+  REFUNDED
+  CANCELLED
+}
+
+enum TransactionType {
+  DEPOSIT
+  WITHDRAWAL
+  JOB_PAYMENT
+  JOB_REFUND
+  JOB_RESERVE
+  JOB_RELEASE
+  PENALTY
+  BONUS
+  PLATFORM_FEE
+}
+
+enum ServiceCategory {
+  FREELANCE
+  HOUSEHOLD
+}
+
+enum ChatStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  COMPLETED
+  BLOCKED
+}
+
+enum DeleteRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum CashbackOfferAmountType {
+  LUMPSUM
+  PERCENT
+}
