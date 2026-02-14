@@ -40,7 +40,7 @@ export async function POST(request: Request) {
                 ...chatHistory,
                 { role: 'user' as const, content: `User question: "${question}"` },
             ],
-            model: 'llama3-8b-8192',
+            model: 'llama-3.1-8b-instant',
             temperature: 0.5,
         });
 
@@ -90,7 +90,7 @@ export async function POST(request: Request) {
                     content: `User question: "${question}"\n\nAvailable:\n${context}`,
                 },
             ],
-            model: 'llama3-8b-8192',
+            model: 'llama-3.1-8b-instant',
             temperature: 0.5,
         });
 
@@ -123,7 +123,7 @@ export async function POST(request: Request) {
                     content: `User question: "${question}"\nSelected answer: "${selectedFaq.answer}"`,
                 },
             ],
-            model: 'llama3-8b-8192',
+            model: 'llama-3.1-8b-instant',
             temperature: 0.5,
         });
 
