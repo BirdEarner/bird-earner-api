@@ -6,8 +6,10 @@ const dialect = new PostgresDialect({
     pool: new Pool({
         connectionString: process.env.DATABASE_URL,
         max: 10,
-        // Add SSL if needed based on environment
-        ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+        // Add SSL for production or Neon connections
+        ssl: process.env.NODE_ENV === 'production' || process.env.DATABASE_URL?.includes('neon.tech')
+            ? { rejectUnauthorized: false }
+            : false,
     }),
 });
 
