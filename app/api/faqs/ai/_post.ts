@@ -32,16 +32,16 @@ export async function POST(request: Request) {
             messages: [
                 {
                     role: 'system' as const,
-                    content: `You are a helpful assistant for an app named BirdEarner. Your job is to answer questions on behalf of the user. Follow these rules strictly:
-          1. If the question is simple and unrelated to the app (e.g., general knowledge), answer directly starting with "Answer:".
-          2. If the question is related to the app (e.g., job postings, freelancers, clients), start your response with "Search Query:" followed by relevant keywords.
-          3. Do not answer app-related questions directly. Always use the database for app-related queries.`,
+                    content: `You are a helpful assistant for an app named BirdEarner. Follow these rules strictly:
+1. If the question is a general greeting or unrelated to the app (e.g., "Hi", "How are you?"), answer directly starting with "Answer:".
+2. If the question is related to BirdEarner (jobs, freelancers, earnings, profiles, etc.), respond ONLY with "Search Query:" followed by 3-5 specific, relevant keywords.
+3. Keep the search query concise and focused on the core intent of the question.`,
                 },
                 ...chatHistory,
                 { role: 'user' as const, content: `User question: "${question}"` },
             ],
             model: 'llama-3.1-8b-instant',
-            temperature: 0.5,
+            temperature: 0.3,
         });
 
         const groqResponse = initialCompletion.choices[0]?.message?.content?.trim();
@@ -62,12 +62,18 @@ export async function POST(request: Request) {
 
         // Step 2: Database Search
         const allFaqs = await db.selectFrom('faqTable')
-            .select(['id', 'question', 'keywords'])
+            .select(['id', 'question', 'keywords', 'answer'])
             .execute();
 
         const fuse = new Fuse(allFaqs, {
-            keys: ['question', 'keywords'],
-            threshold: 0.4,
+            keys: [
+                { name: 'question', weight: 0.5 },
+                { name: 'keywords', weight: 0.3 },
+                { name: 'answer', weight: 0.2 }
+            ],
+            threshold: 0.5, // Slightly more lenient
+            distance: 100,
+            ignoreLocation: true,
         });
 
         const topResults = fuse.search(refinedQuery).slice(0, 5).map(res => res.item);
@@ -77,21 +83,21 @@ export async function POST(request: Request) {
         }
 
         // Step 3: Select best answer
-        const context = topResults.map(faq => `ID: ${faq.id}, Question: ${faq.question}`).join('\n');
+        const context = topResults.map(faq => `ID: ${faq.id}, Question: ${faq.question}, Answer Snippet: ${faq.answer.substring(0, 100)}...`).join('\n\n');
         const selection = await groq.chat.completions.create({
             messages: [
                 {
                     role: 'system' as const,
-                    content: "You're a helpful assistant. Choose the best matching ID from the list for the user's question. Only reply with the number.",
+                    content: "You're a helpful assistant. Choose the BEST matching ID from the list for the user's question. If none of them are a good match, respond with '0'. Only reply with the ID number.",
                 },
                 ...chatHistory,
                 {
                     role: 'user' as const,
-                    content: `User question: "${question}"\n\nAvailable:\n${context}`,
+                    content: `User question: "${question}"\n\nPotential Answers:\n${context}`,
                 },
             ],
             model: 'llama-3.1-8b-instant',
-            temperature: 0.5,
+            temperature: 0.1, // Lower temperature for more consistent selection
         });
 
         const selectedIdMatch = selection.choices[0]?.message?.content?.match(/\d+/);
