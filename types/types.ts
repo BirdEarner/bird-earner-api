@@ -199,9 +199,10 @@ export type Earning = {
     updatedAt: Timestamp;
 };
 export type FAQ = {
-    id: Generated<number>;
+    id: string;
     question: string;
     answer: string;
+    category: Generated<string>;
     keywords: string | null;
     youtubeLink: string | null;
 };

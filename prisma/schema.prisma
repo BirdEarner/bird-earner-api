@@ -14,9 +14,10 @@ datasource db {
 }
 
 model FAQ {
-  id          Int     @id @default(autoincrement())
+  id          String  @id
   question    String  @db.Text
   answer      String  @db.Text
+  category    String  @default("General") @db.VarChar(50)
   keywords    String? @db.Text
   youtubeLink String? @map("youtubeLink") @db.Text
 

@@ -4,7 +4,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
 const paramsSchema = z.object({
-    id: z.string().transform((val) => parseInt(val, 10)),
+    id: z.string(),
 });
 
 export async function DELETE(

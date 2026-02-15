@@ -6,12 +6,13 @@ import { z } from 'zod';
 const updateFaqSchema = z.object({
     question: z.string().min(1, 'Question is required'),
     answer: z.string().min(1, 'Answer is required'),
+    category: z.string().min(1, 'Category is required'),
     keywords: z.string().optional().nullable(),
     youtubeLink: z.string().optional().nullable(),
 });
 
 const paramsSchema = z.object({
-    id: z.string().transform((val) => parseInt(val, 10)),
+    id: z.string(),
 });
 
 export async function PUT(
@@ -37,6 +38,7 @@ export async function PUT(
             .set({
                 question: validation.data.question,
                 answer: validation.data.answer,
+                category: validation.data.category,
                 keywords: validation.data.keywords,
                 youtubeLink: validation.data.youtubeLink,
             })
