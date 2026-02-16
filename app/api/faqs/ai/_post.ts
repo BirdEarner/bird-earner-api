@@ -100,10 +100,10 @@ export async function POST(request: Request) {
             temperature: 0.1, // Lower temperature for more consistent selection
         });
 
-        const selectedIdMatch = selection.choices[0]?.message?.content?.match(/\d+/);
-        const selectedId = selectedIdMatch ? parseInt(selectedIdMatch[0], 10) : null;
+        const selectedIdMatch = selection.choices[0]?.message?.content?.trim();
+        const selectedId = selectedIdMatch || null;
 
-        if (!selectedId) {
+        if (!selectedId || selectedId === '0') {
             return NextResponse.json({ error: 'The assistant could not determine a suitable answer.' }, { status: 500 });
         }
 
