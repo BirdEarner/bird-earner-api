@@ -31,23 +31,21 @@ export async function POST(request: Request) {
             return NextResponse.json({ success: false, message: 'Invalid email or password' }, { status: 401 });
         }
 
-        // Get role from profile tables if needed, or if it's in the user table
-        // The current schema has a 'role' in User table (as an enum in Prisma)
-        // Wait, let's check the Prisma schema again for the User table.
+        // Detect role
+        const freelancerProfile = await db.selectFrom('freelancers').select('id').where('userId', '=', user.id).executeTakeFirst();
+        const clientProfile = await db.selectFrom('clients').select('id').where('userId', '=', user.id).executeTakeFirst();
 
-        // In Bird Earner, the 'role' seems to be determined by the existence of profile.
-        // However, the Express model showed `normalizedRole = userData.role ? userData.role.toUpperCase() : 'FREELANCER';`
-        // Wait, let's check the Prisma schema created in Step 103/104.
+        const role = freelancerProfile ? 'freelancer' : (clientProfile ? 'client' : 'USER');
 
         const token = generateToken({
             id: user.id,
             email: user.email,
-            role: 'USER', // Basic role, actual role details come from profiles
+            role,
         });
 
         const { password: _, ...userWithoutPassword } = user;
 
-        return NextResponse.json({
+        const response = NextResponse.json({
             success: true,
             message: 'Login successful',
             data: {
@@ -55,6 +53,19 @@ export async function POST(request: Request) {
                 token,
             },
         });
+
+        // Set the token in a cookie
+        response.cookies.set({
+            name: 'token',
+            value: token,
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax',
+            path: '/',
+            maxAge: 60 * 60 * 24, // 24 hours
+        });
+
+        return response;
     } catch (error) {
         console.error('Login error:', error);
         return NextResponse.json({ success: false, message: 'Internal server error' }, { status: 500 });

@@ -216,6 +216,8 @@ export type FileManagement = {
     uploadedBy: string;
     uploaderType: string;
     category: string | null;
+    receiverId: string | null;
+    jobId: string | null;
     isActive: Generated<boolean>;
     createdAt: Generated<Timestamp>;
     updatedAt: Timestamp;
@@ -322,6 +324,8 @@ export type Notification = {
     message: string;
     type: string;
     data: unknown | null;
+    status: Generated<string>;
+    scheduledAt: Timestamp | null;
     isRead: Generated<boolean>;
     createdAt: Generated<Timestamp>;
     updatedAt: Timestamp;

@@ -17,6 +17,8 @@ const uploadCategories: Record<string, string> = {
     job_portfolios: "bird_earner/job_portfolios",
     service_images: "bird_earner/service_images",
     chat_media: "bird_earner/chat_media",
+    file_manager: "bird_earner/file_manager",
+    notification_images: "bird_earner/notification_images",
 };
 
 export async function POST(request: Request) {

@@ -167,6 +167,7 @@ export async function getConversations(userId: string, role: 'CLIENT' | 'FREELAN
             'chatThreads.status',
             'chatThreads.isAccepted',
             'chatThreads.updatedAt',
+            'chatThreads.characterLimit',
             'jobs.jobTitle',
             'jobs.jobStatus',
             'jobs.deadlineDate',

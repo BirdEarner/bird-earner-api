@@ -47,13 +47,29 @@ export async function POST(request: Request) {
             role: admin.role as 'admin' | 'superadmin',
         });
 
-        return NextResponse.json({
-            token,
-            role: admin.role,
-            id: admin.id,
-            name: admin.name,
-            email: admin.email,
+        const response = NextResponse.json({
+            success: true,
+            data: {
+                token,
+                role: admin.role,
+                id: admin.id,
+                name: admin.name,
+                email: admin.email,
+            }
         });
+
+        // Set the token in a cookie
+        response.cookies.set({
+            name: 'token',
+            value: token,
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax',
+            path: '/',
+            maxAge: 60 * 60 * 24, // 24 hours
+        });
+
+        return response;
     } catch (error) {
         console.error('Admin login error:', error);
         return NextResponse.json({ error: 'Server error' }, { status: 500 });
