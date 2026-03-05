@@ -1,26 +1,30 @@
-import { createRouteHandler } from '../../core/route-handler';
-import { db } from '../../../../database/kysely';
-import { verifyAuth } from '../../middleware/verify-auth';
-import { jsonResponse } from '../../utils/json-response';
+import { db } from '@/lib/db';
+import { getAuthUser } from '@/lib/auth';
+import { NextResponse } from 'next/server';
 
-export const GET = createRouteHandler(async (request) => {
-    const auth = await verifyAuth(request);
-
-    if (!auth.isAuthenticated || !auth.user) {
-        return jsonResponse({ success: false, message: 'Unauthorized' }, 401);
-    }
-
-    const { user } = auth;
-
-    // Only freelancers should access this to upload files to clients
-    if (user.role !== 'freelancer' && !user.isFreelancer) {
-        return jsonResponse({ success: false, message: 'Only freelancers can access this endpoint' }, 403);
-    }
-
-    // Fetch active jobs assigned to this freelancer
-    // Active means not COMPLETED and not CANCELLED
-    // And has an assigned freelancer (which is checked by where clause)
+export async function GET() {
     try {
+        const user = await getAuthUser();
+
+        if (!user) {
+            return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
+        }
+
+        // Detect freelancer profile for this user
+        const freelancer = await db
+            .selectFrom('freelancers')
+            .select('id')
+            .where('userId', '=', user.id)
+            .executeTakeFirst();
+
+        if (!freelancer) {
+            return NextResponse.json({ success: false, message: 'Only freelancers can access this endpoint' }, { status: 403 });
+        }
+
+        const freelancerId = freelancer.id;
+
+        // Fetch active jobs assigned to this freelancer
+        // Active means not COMPLETED and not CANCELLED
         const activeJobs = await db
             .selectFrom('jobs')
             .innerJoin('clients', 'jobs.clientId', 'clients.id')
@@ -36,7 +40,7 @@ export const GET = createRouteHandler(async (request) => {
                 'clients.organizationType',
                 'clients.companyName'
             ])
-            .where('jobs.assignedFreelancerId', '=', user.freelancerId!)
+            .where('jobs.assignedFreelancerId', '=', freelancerId)
             .where('jobs.jobStatus', 'not in', ['COMPLETED', 'CANCELLED'])
             .execute();
 
@@ -51,7 +55,7 @@ export const GET = createRouteHandler(async (request) => {
                 email: job.clientEmail,
                 organizationType: job.organizationType
             },
-            // Legacy support fields for frontend compatibility if needed
+            // Legacy support fields for frontend compatibility
             job_created_by: job.clientId,
             user: {
                 $id: job.clientId,
@@ -59,13 +63,13 @@ export const GET = createRouteHandler(async (request) => {
             }
         }));
 
-        return jsonResponse({
+        return NextResponse.json({
             success: true,
             data: formattedJobs
         });
 
     } catch (error) {
         console.error('Error fetching active jobs:', error);
-        return jsonResponse({ success: false, message: 'Failed to fetch active jobs' }, 500);
+        return NextResponse.json({ success: false, message: 'Failed to fetch active jobs' }, { status: 500 });
     }
-});
+}
