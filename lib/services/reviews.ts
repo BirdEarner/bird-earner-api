@@ -135,6 +135,10 @@ export const createReview = async (data: CreateReviewData) => {
                 try {
                     const content = JSON.parse(message.messageContent);
                     content.status = 'completed';
+                    content.rating = rating;
+                    content.reviewText = reviewText;
+                    content.ratingDetails = ratingDetails;
+
                     await trx
                         .updateTable('messages')
                         .set({
