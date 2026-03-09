@@ -42,8 +42,10 @@ export async function GET(request: Request) {
                 'jobs.isUrgent',
                 'jobs.deadlineDate',
                 'users.fullName as clientName',
+                'users.id as clientUserId',
                 'clients.companyName',
-                'clients.profilePhoto as clientPhoto'
+                'clients.profilePhoto as clientPhoto',
+                'clients.id as clientId'
             ]);
 
         if (filters.status) query = query.where('jobs.jobStatus', '=', filters.status as any);

@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
 // Explicitly define Category type aligning with DB/Zod 
-const CategoryEnum = z.enum(['freelance', 'household']);
+const CategoryEnum = z.enum(['FREELANCE', 'HOUSEHOLD']);
 
 export async function GET(
     request: Request,
@@ -13,10 +13,10 @@ export async function GET(
         const { category } = await params;
 
         // Validation (manual check as param is string)
-        if (!['freelance', 'household'].includes(category)) {
+        if (!['FREELANCE', 'HOUSEHOLD'].includes(category)) {
             return NextResponse.json({
                 success: false,
-                message: 'Invalid category. Must be either "freelance" or "household"'
+                message: 'Invalid category. Must be either "FREELANCE" or "HOUSEHOLD"'
             }, { status: 400 });
         }
 

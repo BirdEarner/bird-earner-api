@@ -164,6 +164,8 @@ export async function getConversations(userId: string, role: 'CLIENT' | 'FREELAN
         .select([
             'chatThreads.id',
             'chatThreads.jobId',
+            'chatThreads.clientId',
+            'chatThreads.freelancerId',
             'chatThreads.status',
             'chatThreads.isAccepted',
             'chatThreads.updatedAt',
@@ -190,8 +192,32 @@ export async function getConversations(userId: string, role: 'CLIENT' | 'FREELAN
             .orderBy('createdAt', 'desc')
             .executeTakeFirst();
 
+        let otherUser = null;
+        if (role === 'CLIENT') {
+            otherUser = {
+                id: thread.freelancerId,
+                userId: thread.freelancerUserId,
+                profilePhoto: thread.freelancerPhoto,
+                user: {
+                    id: thread.freelancerUserId,
+                    fullName: thread.freelancerName || 'Unknown Freelancer'
+                }
+            };
+        } else {
+            otherUser = {
+                id: thread.clientId,
+                userId: thread.clientUserId,
+                profilePhoto: thread.clientPhoto,
+                user: {
+                    id: thread.clientUserId,
+                    fullName: thread.clientName || 'Unknown Client'
+                }
+            };
+        }
+
         return {
             ...thread,
+            otherUser,
             lastMessage: lastMessage?.messageContent || 'No messages yet',
             lastMessageAt: lastMessage?.createdAt || thread.updatedAt
         };
