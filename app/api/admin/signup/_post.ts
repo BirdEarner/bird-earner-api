@@ -1,6 +1,6 @@
 import { db } from '@/lib/db';
 import { validateBody } from '@/lib/validation';
-import { generateToken } from '@/lib/auth';
+import { generateToken, getAdminUser } from '@/lib/auth';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import bcrypt from 'bcryptjs';
@@ -14,6 +14,11 @@ const adminSignupSchema = z.object({
 
 export async function POST(request: Request) {
     try {
+        const adminUser = await getAdminUser();
+        if (!adminUser || adminUser.role !== 'superadmin') {
+            return NextResponse.json({ message: 'Unauthorized. Only superadmins can create new admins.' }, { status: 403 });
+        }
+
         const body = await request.json();
         const validation = validateBody(body, adminSignupSchema);
 

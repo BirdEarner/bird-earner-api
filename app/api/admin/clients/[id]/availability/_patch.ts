@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { getUserIdFromRequest } from '@/lib/auth';
+import { getAdminUser } from '@/lib/auth';
 
 export async function PATCH(
     request: Request,
@@ -8,8 +8,8 @@ export async function PATCH(
 ) {
     try {
         const { id: clientId } = await params;
-        const adminId = await getUserIdFromRequest(request);
-        if (!adminId) {
+        const admin = await getAdminUser();
+        if (!admin) {
             return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
         }
 

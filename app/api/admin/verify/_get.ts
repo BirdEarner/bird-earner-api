@@ -16,12 +16,15 @@ export async function GET() {
             .executeTakeFirst();
 
         if (!admin) {
-            return NextResponse.json({ message: 'User not found' }, { status: 401 });
+            return NextResponse.json({ success: false, message: 'Admin not found' }, { status: 401 });
         }
 
-        return NextResponse.json(admin);
+        return NextResponse.json({
+            success: true,
+            data: admin
+        });
     } catch (error) {
         console.error('Verify admin error:', error);
-        return NextResponse.json({ error: 'Server error' }, { status: 500 });
+        return NextResponse.json({ success: false, message: 'Server error' }, { status: 500 });
     }
 }

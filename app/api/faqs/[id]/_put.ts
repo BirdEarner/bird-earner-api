@@ -2,6 +2,7 @@ import { db } from '@/lib/db';
 import { validateBody, validateParams } from '@/lib/validation';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
+import { getAdminUser } from '@/lib/auth';
 
 const updateFaqSchema = z.object({
     question: z.string().min(1, 'Question is required'),
@@ -20,6 +21,11 @@ export async function PUT(
     { params }: { params: Promise<{ id: string }> }
 ) {
     try {
+        const admin = await getAdminUser();
+        if (!admin) {
+            return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
+        }
+
         const paramValidation = await validateParams(params, paramsSchema);
         if (!paramValidation.success) {
             return NextResponse.json({ error: paramValidation.error }, { status: 400 });

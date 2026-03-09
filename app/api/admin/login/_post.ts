@@ -27,7 +27,11 @@ export async function POST(request: Request) {
             .where('email', '=', email)
             .executeTakeFirst();
 
-        if (!admin || !(await bcrypt.compare(password, admin.password))) {
+        if (!admin) {
+            return NextResponse.json({ message: 'Invalid credentials' }, { status: 400 });
+        }
+
+        if (!(await bcrypt.compare(password, admin.password))) {
             return NextResponse.json({ message: 'Invalid credentials' }, { status: 400 });
         }
 

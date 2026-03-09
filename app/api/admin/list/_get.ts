@@ -15,6 +15,7 @@ export async function GET() {
             .orderBy('createdAt', 'desc')
             .execute();
 
+
         return NextResponse.json(admins);
     } catch (error) {
         console.error('Get all admins error:', error);

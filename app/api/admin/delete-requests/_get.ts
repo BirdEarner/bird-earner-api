@@ -1,13 +1,12 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { getUserIdFromRequest } from '@/lib/auth';
+import { getAdminUser } from '@/lib/auth';
 import { sql } from 'kysely';
 
 export async function GET(request: Request) {
     try {
-        // Verify admin authentication
-        const userId = await getUserIdFromRequest(request);
-        if (!userId) {
+        const admin = await getAdminUser();
+        if (!admin) {
             return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
         }
 
@@ -33,17 +32,21 @@ export async function GET(request: Request) {
                 'users.email'
             ]);
 
-        if (status) {
-            query = query.where('deleteRequests.status', '=', status as any);
-        }
-
         const totalQuery = db
-            .selectFrom('deleteRequests')
-            .select(sql<number>`count(*)`.as('count'));
+            .selectFrom('deleteRequests');
+
+        const filterQuery = (qb: any) => {
+            if (status) {
+                return qb.where('status', '=', status as any);
+            }
+            return qb;
+        };
 
         const [totalResult, requests] = await Promise.all([
-            totalQuery.executeTakeFirst(),
-            query
+            filterQuery(totalQuery)
+                .select(sql<number>`count(*)`.as('count'))
+                .executeTakeFirst(),
+            filterQuery(query)
                 .orderBy('deleteRequests.createdAt', 'desc')
                 .offset((page - 1) * pageSize)
                 .limit(pageSize)

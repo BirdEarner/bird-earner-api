@@ -1,13 +1,12 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { getUserIdFromRequest } from '@/lib/auth';
+import { getAdminUser } from '@/lib/auth';
 import { sql } from 'kysely';
 
 export async function GET(request: Request) {
     try {
-        // Verify admin authentication
-        const userId = await getUserIdFromRequest(request);
-        if (!userId) {
+        const admin = await getAdminUser();
+        if (!admin) {
             return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
         }
 
@@ -37,23 +36,27 @@ export async function GET(request: Request) {
                 sql<string>`case when clients.id is not null then 'CLIENT' when freelancers.id is not null then 'FREELANCER' else 'USER' end`.as('userType')
             ]);
 
-        if (search) {
-            query = query.where((eb) =>
-                eb.or([
-                    eb('users.fullName', 'ilike', `%${search}%`),
-                    eb('walletTransactions.referenceId', 'ilike', `%${search}%`)
-                ])
-            );
-        }
-
         const totalQuery = db
             .selectFrom('walletTransactions')
-            .innerJoin('users', 'walletTransactions.userId', 'users.id')
-            .select(sql<number>`count(*)`.as('count'));
+            .innerJoin('users', 'walletTransactions.userId', 'users.id');
+
+        const filterQuery = (qb: any) => {
+            if (search) {
+                return qb.where((eb: any) =>
+                    eb.or([
+                        eb('users.fullName', 'ilike', `%${search}%`),
+                        eb('walletTransactions.referenceId', 'ilike', `%${search}%`)
+                    ])
+                );
+            }
+            return qb;
+        };
 
         const [totalResult, transactions] = await Promise.all([
-            totalQuery.executeTakeFirst(),
-            query
+            filterQuery(totalQuery)
+                .select(sql<number>`count(*)`.as('count'))
+                .executeTakeFirst(),
+            filterQuery(query)
                 .orderBy('walletTransactions.createdAt', 'desc')
                 .offset((page - 1) * pageSize)
                 .limit(pageSize)
@@ -65,7 +68,7 @@ export async function GET(request: Request) {
             total: Number(totalResult?.count || 0),
             page,
             pageSize,
-            payments: transactions.map((t) => ({
+            payments: transactions.map((t: any) => ({
                 id: t.id,
                 transactionId: t.referenceId || `TXN-${t.id.slice(-8)}`,
                 amount: t.amount,

@@ -2,6 +2,7 @@ import { db } from '@/lib/db';
 import { validateBody } from '@/lib/validation';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
+import { getAdminUser } from '@/lib/auth';
 
 const createFaqSchema = z.object({
     question: z.string().min(1, 'Question is required'),
@@ -13,6 +14,11 @@ const createFaqSchema = z.object({
 
 export async function POST(request: Request) {
     try {
+        const admin = await getAdminUser();
+        if (!admin) {
+            return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
+        }
+
         const body = await request.json();
         const validation = validateBody(body, createFaqSchema);
 

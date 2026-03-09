@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { getUserIdFromRequest } from '@/lib/auth';
+import { getAdminUser } from '@/lib/auth';
 import { sql } from 'kysely';
 
 export async function GET(request: Request) {
     try {
-        const userId = await getUserIdFromRequest(request);
-        if (!userId) {
+        const admin = await getAdminUser();
+        if (!admin) {
             return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
         }
 
@@ -15,21 +15,25 @@ export async function GET(request: Request) {
         const pageSize = Number(searchParams.get('pageSize')) || 10;
         const status = searchParams.get('status');
 
-        let query = db
+        const query = db
             .selectFrom('contacts')
             .selectAll();
 
-        if (status) {
-            query = query.where('status', '=', status as any);
-        }
-
         const totalQuery = db
-            .selectFrom('contacts')
-            .select(sql<number>`count(*)`.as('count'));
+            .selectFrom('contacts');
+
+        const filterQuery = (qb: any) => {
+            if (status) {
+                return qb.where('status', '=', status as any);
+            }
+            return qb;
+        };
 
         const [totalResult, contacts] = await Promise.all([
-            totalQuery.executeTakeFirst(),
-            query
+            filterQuery(totalQuery)
+                .select(sql<number>`count(*)`.as('count'))
+                .executeTakeFirst(),
+            filterQuery(query)
                 .orderBy('createdAt', 'desc')
                 .offset((page - 1) * pageSize)
                 .limit(pageSize)

@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { getUserIdFromRequest } from '@/lib/auth';
+import { getAdminUser } from '@/lib/auth';
 import { sql } from 'kysely';
 
 export async function GET(request: Request) {
     try {
-        const userId = await getUserIdFromRequest(request);
-        if (!userId) {
+        const admin = await getAdminUser();
+        if (!admin) {
             return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
         }
 
@@ -19,19 +19,24 @@ export async function GET(request: Request) {
             .selectFrom('clients')
             .innerJoin('users', 'clients.userId', 'users.id')
             .select([
+                'clients.id as $id',
                 'clients.id',
                 'clients.userId',
-                'clients.organizationType',
-                'clients.companyName',
-                'clients.profilePhoto',
+                'clients.organizationType as organization_type',
+                'clients.companyName as company_name',
+                'clients.profilePhoto as profile_photo',
                 'clients.city',
                 'clients.state',
                 'clients.country',
-                'clients.currentlyAvailable',
+                'clients.currentlyAvailable as currently_available',
                 'clients.wallet',
+                'clients.createdAt as $createdAt',
                 'clients.createdAt',
-                'users.fullName',
-                'users.email'
+                'users.fullName as full_name',
+                'users.email',
+                sql<string | null>`NULL`.as('mobile_number'),
+                sql<number>`1`.as('level'),
+                sql<number>`0`.as('XP')
             ]);
 
         if (search) {
@@ -45,12 +50,25 @@ export async function GET(request: Request) {
 
         const totalQuery = db
             .selectFrom('clients')
-            .innerJoin('users', 'clients.userId', 'users.id')
-            .select(sql<number>`count(*)`.as('count'));
+            .innerJoin('users', 'clients.userId', 'users.id');
+
+        const filterQuery = (qb: any) => {
+            if (search) {
+                return qb.where((eb: any) =>
+                    eb.or([
+                        eb('users.fullName', 'ilike', `%${search}%`),
+                        eb('users.email', 'ilike', `%${search}%`)
+                    ])
+                );
+            }
+            return qb;
+        };
 
         const [totalResult, clients] = await Promise.all([
-            totalQuery.executeTakeFirst(),
-            query
+            filterQuery(totalQuery)
+                .select(sql<number>`count(*)`.as('count'))
+                .executeTakeFirst(),
+            filterQuery(query)
                 .orderBy('clients.createdAt', 'desc')
                 .offset((page - 1) * pageSize)
                 .limit(pageSize)

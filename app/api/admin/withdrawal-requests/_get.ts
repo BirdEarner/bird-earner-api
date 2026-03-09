@@ -1,13 +1,12 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { getUserIdFromRequest } from '@/lib/auth';
+import { getAdminUser } from '@/lib/auth';
 import { sql } from 'kysely';
 
 export async function GET(request: Request) {
     try {
-        // Verify admin authentication
-        const userId = await getUserIdFromRequest(request);
-        if (!userId) {
+        const admin = await getAdminUser();
+        if (!admin) {
             return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
         }
 
@@ -35,23 +34,27 @@ export async function GET(request: Request) {
                 'bankAccounts.ifscCode'
             ]);
 
-        if (status && status !== 'all') {
-            query = query.where('withdrawalRequests.status', '=', status as any);
-        }
-
-        if (search) {
-            query = query.where('users.fullName', 'ilike', `%${search}%`);
-        }
-
         const totalQuery = db
             .selectFrom('withdrawalRequests')
             .innerJoin('freelancers', 'withdrawalRequests.freelancerId', 'freelancers.id')
-            .innerJoin('users', 'freelancers.userId', 'users.id')
-            .select(sql<number>`count(*)`.as('count'));
+            .innerJoin('users', 'freelancers.userId', 'users.id');
+
+        const filterQuery = (qb: any) => {
+            let filtered = qb;
+            if (status && status !== 'all') {
+                filtered = filtered.where('withdrawalRequests.status', '=', status as any);
+            }
+            if (search) {
+                filtered = filtered.where('users.fullName', 'ilike', `%${search}%`);
+            }
+            return filtered;
+        };
 
         const [totalResult, requests] = await Promise.all([
-            totalQuery.executeTakeFirst(),
-            query
+            filterQuery(totalQuery)
+                .select(sql<number>`count(*)`.as('count'))
+                .executeTakeFirst(),
+            filterQuery(query)
                 .orderBy('withdrawalRequests.createdAt', 'desc')
                 .offset((page - 1) * pageSize)
                 .limit(pageSize)
@@ -63,7 +66,7 @@ export async function GET(request: Request) {
             total: Number(totalResult?.count || 0),
             page,
             pageSize,
-            requests: requests.map(r => ({
+            requests: requests.map((r: any) => ({
                 id: r.id,
                 amount: r.amount,
                 status: r.status,

@@ -1,28 +1,13 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { getUserIdFromRequest } from '@/lib/auth';
+import { getAdminUser } from '@/lib/auth';
 import { sql } from 'kysely';
 
 export async function GET(request: Request) {
     try {
-        // Verify admin authentication
-        const userId = await getUserIdFromRequest(request);
-        if (!userId) {
-            return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
-        }
-
-        // Verify admin role
-        const admin = await db
-            .selectFrom('admins')
-            .select(['id', 'role'])
-            .where('email', '=', (await db.selectFrom('users').select('email').where('id', '=', userId).executeTakeFirst())?.email || '')
-            .executeTakeFirst();
-
-        // If not in admins table, check if user has admin role in users table (if applicable)
-        // Legacy: User model doesn't have role, but some logic suggests checking admins table.
+        const admin = await getAdminUser();
         if (!admin) {
-            // For now, let's assume we need to be in the admins table
-            // return NextResponse.json({ message: 'Forbidden' }, { status: 403 });
+            return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
         }
 
         // 1. User Stats

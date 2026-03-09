@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { getUserIdFromRequest } from '@/lib/auth';
+import { getAdminUser } from '@/lib/auth';
 import { sql } from 'kysely';
 
 export async function GET(request: Request) {
     try {
-        const userId = await getUserIdFromRequest(request);
-        if (!userId) {
+        const admin = await getAdminUser();
+        if (!admin) {
             return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
         }
 
@@ -18,24 +18,27 @@ export async function GET(request: Request) {
         let query = db
             .selectFrom('freelancers')
             .innerJoin('users', 'freelancers.userId', 'users.id')
-            .leftJoin('bankAccounts', 'users.id', 'bankAccounts.userId')
+            .leftJoin('bankAccounts as ba', 'users.id', 'ba.userId')
             .select([
+                'freelancers.id as $id',
                 'freelancers.id',
                 'freelancers.userId',
-                'freelancers.mobileNumber',
-                'freelancers.profilePhoto',
+                'freelancers.mobileNumber as mobile_number',
+                'freelancers.profilePhoto as profile_photo',
                 'freelancers.city',
                 'freelancers.state',
                 'freelancers.country',
-                'freelancers.currentlyAvailable',
-                'freelancers.totalEarnings',
-                'freelancers.withdrawableAmount',
-                'freelancers.createdAt',
-                'users.fullName',
-                'users.email',
-                'bankAccounts.bankName',
-                'bankAccounts.accountNumber',
-                'bankAccounts.ifscCode'
+                'freelancers.currentlyAvailable as currently_available',
+                'freelancers.totalEarnings as total_earnings',
+                'freelancers.monthlyEarnings as monthly_earnings',
+                'freelancers.withdrawableAmount as withdrawable_amount',
+                'freelancers.selectedServices as role_designation',
+                'freelancers.highestQualification as highest_qualification',
+                'ba.bankName',
+                'ba.accountNumber',
+                'ba.ifscCode',
+                'users.fullName as full_name',
+                'users.email'
             ]);
 
         if (search) {
@@ -49,12 +52,25 @@ export async function GET(request: Request) {
 
         const totalQuery = db
             .selectFrom('freelancers')
-            .innerJoin('users', 'freelancers.userId', 'users.id')
-            .select(sql<number>`count(*)`.as('count'));
+            .innerJoin('users', 'freelancers.userId', 'users.id');
+
+        const filterQuery = (qb: any) => {
+            if (search) {
+                return qb.where((eb: any) =>
+                    eb.or([
+                        eb('users.fullName', 'ilike', `%${search}%`),
+                        eb('users.email', 'ilike', `%${search}%`)
+                    ])
+                );
+            }
+            return qb;
+        };
 
         const [totalResult, freelancers] = await Promise.all([
-            totalQuery.executeTakeFirst(),
-            query
+            filterQuery(totalQuery)
+                .select(sql<number>`count(*)`.as('count'))
+                .executeTakeFirst(),
+            filterQuery(query)
                 .orderBy('freelancers.createdAt', 'desc')
                 .offset((page - 1) * pageSize)
                 .limit(pageSize)
