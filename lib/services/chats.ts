@@ -187,10 +187,36 @@ export async function getConversations(userId: string, role: 'CLIENT' | 'FREELAN
     const conversations = await Promise.all(threads.map(async (thread) => {
         const lastMessage = await db
             .selectFrom('messages')
-            .select(['messageContent', 'createdAt'])
+            .select(['messageContent', 'messageType', 'createdAt'])
             .where('chatThreadId', '=', thread.id)
             .orderBy('createdAt', 'desc')
             .executeTakeFirst();
+
+        let displayMessage = lastMessage?.messageContent || 'No messages yet';
+
+        // Format message preview based on type
+        if (lastMessage) {
+            try {
+                if (lastMessage.messageType === 'review_request') {
+                    const content = JSON.parse(lastMessage.messageContent);
+                    displayMessage = content.status === 'completed' ? 'Review submitted' : 'Review requested';
+                } else if (lastMessage.messageType === 'completion_request') {
+                    const content = JSON.parse(lastMessage.messageContent);
+                    displayMessage = content.status === 'confirmed' ? 'Project completed' : 'Completion requested';
+                } else if (lastMessage.messageType === 'cash_payment') {
+                    const content = JSON.parse(lastMessage.messageContent);
+                    displayMessage = content.step === 'completed' ? 'Payment completed' : 'Cash payment process';
+                } else if (lastMessage.messageType === 'image') {
+                    displayMessage = '📷 Image';
+                } else if (lastMessage.messageType === 'attachment') {
+                    displayMessage = '📎 Attachment';
+                } else if (lastMessage.messageType === 'notification') {
+                    displayMessage = lastMessage.messageContent;
+                }
+            } catch (e) {
+                // If parsing fails or it's just text, keep original content
+            }
+        }
 
         let otherUser = null;
         if (role === 'CLIENT') {
@@ -218,7 +244,7 @@ export async function getConversations(userId: string, role: 'CLIENT' | 'FREELAN
         return {
             ...thread,
             otherUser,
-            lastMessage: lastMessage?.messageContent || 'No messages yet',
+            lastMessage: displayMessage,
             lastMessageAt: lastMessage?.createdAt || thread.updatedAt
         };
     }));

@@ -45,6 +45,7 @@ export async function GET(
                 'clients.id as clientId',
                 'freeUser.fullName as freelancerName',
                 'freeUser.email as freelancerEmail',
+                'freeUser.id as freelancerUserId',
                 'freelancers.id as freelancerId',
                 'services.name as serviceName'
             ])
@@ -55,9 +56,29 @@ export async function GET(
             return NextResponse.json({ success: false, message: 'Job not found' }, { status: 404 });
         }
 
+        const data = {
+            ...job,
+            client: {
+                id: job.clientId,
+                user: {
+                    fullName: job.clientName,
+                    email: job.clientEmail
+                }
+            },
+            assignedFreelancer: job.assignedFreelancerId ? {
+                id: job.freelancerId,
+                userId: job.freelancerUserId,
+                user: {
+                    id: job.freelancerUserId,
+                    fullName: job.freelancerName,
+                    email: job.freelancerEmail
+                }
+            } : null
+        };
+
         return NextResponse.json({
             success: true,
-            data: job
+            data
         });
     } catch (error) {
         console.error('Get job error:', error);

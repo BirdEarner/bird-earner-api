@@ -33,9 +33,25 @@ export async function GET(
             .where('chatThreads.jobId', '=', id)
             .execute();
 
+        const data = applicants.map(app => ({
+            id: app.id,
+            userId: app.userId,
+            profilePhoto: app.profilePhoto,
+            profileHeading: app.profileHeading,
+            experience: app.experience,
+            rating: app.rating,
+            level: app.level,
+            isAccepted: app.isAccepted,
+            user: {
+                id: app.userId,
+                fullName: app.fullName,
+                email: app.email
+            }
+        }));
+
         return NextResponse.json({
             success: true,
-            data: applicants
+            data
         });
     } catch (error: any) {
         console.error('Get applicants error:', error);

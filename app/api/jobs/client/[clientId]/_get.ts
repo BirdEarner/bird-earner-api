@@ -58,6 +58,7 @@ export async function GET(
                         .innerJoin("users as u", "u.id", "fp.userId")
                         .select([
                             "fp.id",
+                            "u.id as userId",
                             "u.fullName",
                             "u.email",
                             "fp.rating",
@@ -69,7 +70,10 @@ export async function GET(
 
                     if (freelancerResult) {
                         assignedFreelancer = {
+                            id: freelancerResult.id,
+                            userId: freelancerResult.userId,
                             user: {
+                                id: freelancerResult.userId,
                                 fullName: freelancerResult.fullName,
                                 email: freelancerResult.email
                             },
