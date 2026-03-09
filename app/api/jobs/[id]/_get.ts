@@ -39,6 +39,7 @@ export async function GET(
                 'jobs.attachedFiles',
                 'jobs.location',
                 'jobs.createdAt',
+                'jobs.assignedFreelancerId',
                 'clientUser.fullName as clientName',
                 'clientUser.email as clientEmail',
                 'clients.id as clientId',

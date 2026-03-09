@@ -38,7 +38,8 @@ export async function GET() {
                 'users.fullName as clientName',
                 'users.email as clientEmail',
                 'clients.organizationType',
-                'clients.companyName'
+                'clients.companyName',
+                'jobs.assignedFreelancerId'
             ])
             .where('jobs.assignedFreelancerId', '=', freelancerId)
             .where('jobs.jobStatus', 'not in', ['COMPLETED', 'CANCELLED'])
@@ -49,6 +50,7 @@ export async function GET() {
             title: job.jobTitle,
             status: job.jobStatus,
             createdAt: job.createdAt,
+            assignedFreelancerId: job.assignedFreelancerId,
             client: {
                 id: job.clientId,
                 name: job.companyName || job.clientName,

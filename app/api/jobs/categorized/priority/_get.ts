@@ -40,6 +40,7 @@ export async function GET(request: Request) {
                 'jobs.jobStatus',
                 'jobs.createdAt',
                 'jobs.isUrgent',
+                'jobs.assignedFreelancerId',
                 'jobs.deadlineDate',
                 'users.fullName as clientName',
                 'users.id as clientUserId',

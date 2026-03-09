@@ -39,6 +39,7 @@ export async function GET(request: Request) {
                 'jobs.budgetAmount',
                 'jobs.jobStatus',
                 'jobs.createdAt',
+                'jobs.assignedFreelancerId',
                 'jobs.isUrgent',
                 'users.fullName as clientName',
                 'clients.companyName',
