@@ -24,10 +24,18 @@ export async function GET(
         // Remove password from response
         const { password, ...userWithoutPassword } = user;
 
+        // Fetch related profiles
+        const freelancerProfile = await db.selectFrom('freelancers').selectAll().where('userId', '=', id).executeTakeFirst();
+        const clientProfile = await db.selectFrom('clients').selectAll().where('userId', '=', id).executeTakeFirst();
+
         return NextResponse.json({
             success: true,
             message: 'User retrieved successfully',
-            data: userWithoutPassword
+            data: {
+                ...userWithoutPassword,
+                ...(freelancerProfile ? { freelancer: freelancerProfile } : {}),
+                ...(clientProfile ? { client: clientProfile } : {})
+            }
         });
 
     } catch (error: any) {

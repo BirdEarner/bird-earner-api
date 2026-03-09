@@ -45,11 +45,17 @@ export async function POST(request: Request) {
 
         const { password: _, ...userWithoutPassword } = user;
 
+        // Fetch related profiles
+        const fullFreelancerProfile = await db.selectFrom('freelancers').selectAll().where('userId', '=', user.id).executeTakeFirst();
+        const fullClientProfile = await db.selectFrom('clients').selectAll().where('userId', '=', user.id).executeTakeFirst();
+
         const response = NextResponse.json({
             success: true,
             message: 'Login successful',
             data: {
                 ...userWithoutPassword,
+                ...(fullFreelancerProfile ? { freelancer: fullFreelancerProfile } : {}),
+                ...(fullClientProfile ? { client: fullClientProfile } : {}),
                 token,
             },
         });
