@@ -38,12 +38,23 @@ export async function POST(request: Request) {
         }
 
         const { email, password, full_name, profileImage, coverImage, ...profileData } = validation.data;
+        const emailLower = email.toLowerCase();
+
+        const otpRecord = await db
+            .selectFrom('otpVerifications')
+            .select(['id', 'verified'])
+            .where('email', '=', emailLower)
+            .executeTakeFirst();
+
+        if (!otpRecord || !otpRecord.verified) {
+            return NextResponse.json({ success: false, message: 'Please verify your email first' }, { status: 400 });
+        }
 
         // Extract URI if image is an object
         const profilePhoto = typeof profileImage === 'object' && profileImage?.uri ? profileImage.uri : (typeof profileImage === 'string' ? profileImage : null);
         const coverPhoto = typeof coverImage === 'object' && coverImage?.uri ? coverImage.uri : (typeof coverImage === 'string' ? coverImage : null);
 
-        const existingUser = await db.selectFrom('users').select('id').where('email', '=', email).executeTakeFirst();
+        const existingUser = await db.selectFrom('users').select('id').where('email', '=', emailLower).executeTakeFirst();
         if (existingUser) {
             return NextResponse.json({ success: false, message: 'Email already exists' }, { status: 400 });
         }
@@ -54,7 +65,7 @@ export async function POST(request: Request) {
         const result = await db.transaction().execute(async (trx) => {
             const user = await trx.insertInto('users').values({
                 id: userId,
-                email,
+                email: emailLower,
                 password: hashedPassword,
                 fullName: full_name,
                 updatedAt: new Date(),
@@ -94,6 +105,11 @@ export async function POST(request: Request) {
         });
 
         const { password: _, ...userWithoutPassword } = result.user;
+
+        // Clean up OTP verification record
+        await db.deleteFrom('otpVerifications')
+            .where('email', '=', emailLower)
+            .execute();
 
         // Mirroring legacy response structure
         return NextResponse.json({

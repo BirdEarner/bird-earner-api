@@ -17,14 +17,29 @@ export async function POST(request: Request) {
         }
 
         const { email } = validation.data;
+        const emailLower = email.toLowerCase();
 
         const user = await db
             .selectFrom('users')
             .select('id')
-            .where('email', '=', email)
+            .where('email', '=', emailLower)
             .executeTakeFirst();
 
-        return NextResponse.json({ success: true, exists: !!user });
+        if (user) {
+            return NextResponse.json({ success: false, message: 'Email already registered' }, { status: 400 });
+        }
+
+        const otpRecord = await db
+            .selectFrom('otpVerifications')
+            .select(['id', 'verified'])
+            .where('email', '=', emailLower)
+            .executeTakeFirst();
+
+        if (otpRecord && !otpRecord.verified) {
+            return NextResponse.json({ success: false, message: 'Please verify your email first' }, { status: 400 });
+        }
+
+        return NextResponse.json({ success: true, exists: false });
     } catch (error) {
         console.error('Check email error:', error);
         return NextResponse.json({ success: false, message: 'Internal server error' }, { status: 500 });
