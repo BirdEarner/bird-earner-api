@@ -34,7 +34,7 @@ export async function POST(request: Request) {
         }
 
         const now = new Date();
-        if (new Date(otpRecord.expiresAt) <= now) {
+        if (!otpRecord.expiresAt || new Date(otpRecord.expiresAt) <= now) {
             return NextResponse.json({ success: false, message: 'OTP has expired. Please request a new one.' }, { status: 400 });
         }
 

@@ -216,11 +216,11 @@ export type FileManagement = {
     uploadedBy: string;
     uploaderType: string;
     category: string | null;
-    receiverId: string | null;
-    jobId: string | null;
     isActive: Generated<boolean>;
     createdAt: Generated<Timestamp>;
     updatedAt: Timestamp;
+    jobId: string | null;
+    receiverId: string | null;
 };
 export type Freelancer = {
     id: string;
@@ -324,9 +324,18 @@ export type Notification = {
     message: string;
     type: string;
     data: unknown | null;
-    status: Generated<string>;
-    scheduledAt: Timestamp | null;
     isRead: Generated<boolean>;
+    createdAt: Generated<Timestamp>;
+    updatedAt: Timestamp;
+    scheduledAt: Timestamp | null;
+    status: Generated<string>;
+};
+export type OtpVerification = {
+    id: string;
+    email: string;
+    code: string | null;
+    expiresAt: Timestamp | null;
+    verified: Generated<boolean>;
     createdAt: Generated<Timestamp>;
     updatedAt: Timestamp;
 };
@@ -456,6 +465,7 @@ export type DB = {
     jobs: Job;
     messages: Message;
     notifications: Notification;
+    otpVerifications: OtpVerification;
     paymentHistory: PaymentHistory;
     pushTokens: PushToken;
     reviews: Review;

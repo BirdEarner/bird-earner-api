@@ -34,9 +34,8 @@ export async function POST(request: Request) {
         if (existingOtp && !existingOtp.verified) {
             const isExpired = !existingOtp.expiresAt || new Date(existingOtp.expiresAt) <= now;
             
-            if (!isExpired) {
-                const otp = existingOtp.code;
-                await sendVerificationEmail(emailLower, otp);
+            if (!isExpired && existingOtp.code) {
+                await sendVerificationEmail(emailLower, existingOtp.code);
                 return NextResponse.json({ success: true, message: 'OTP sent successfully' });
             } else {
                 const newOtp = generateOtp();
