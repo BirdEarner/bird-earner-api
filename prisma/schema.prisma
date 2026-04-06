@@ -396,9 +396,7 @@ model BlockedUser {
   reason            String?
   createdAt         DateTime   @default(now()) @map("createdAt")
   blockedFreelancer Client     @relation("BlockedFreelancer", fields: [blockedId], references: [id], onDelete: Cascade, map: "blockedUsersBlockedFreelancerFkey")
-  blockedFreelancer Freelancer @relation("BlockedFreelancer", fields: [blockedId], references: [id], onDelete: Cascade, map: "blockedUsersBlockedFreelancerFkey")
   blockerFreelancer Client     @relation("BlockerFreelancer", fields: [blockerId], references: [id], onDelete: Cascade, map: "blockedUsersBlockerFreelancerFkey")
-  blockerFreelancer Freelancer @relation("BlockerFreelancer", fields: [blockerId], references: [id], onDelete: Cascade, map: "blockedUsersBlockerFreelancerFkey")
 
   @@unique([blockerId, blockedId], map: "uniqueBlockRelationship")
   @@index([blockerId], map: "blockedUsersBlockerIdIdx")
