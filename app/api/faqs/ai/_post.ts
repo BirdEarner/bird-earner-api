@@ -3,14 +3,37 @@ import { validateBody } from '@/lib/validation';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import Fuse from 'fuse.js';
-import Groq from 'groq-sdk';
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 
 const aiFaqSchema = z.object({
     question: z.string().min(1, 'Question is required'),
     history: z.array(z.string()).optional().default([]),
 });
+
+async function callOpenRouter(messages: any[], model: string = 'google/gemini-2.0-flash-001') {
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+            'HTTP-Referer': process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000',
+            'X-OpenRouter-Title': 'BirdEarner',
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            model,
+            messages,
+        }),
+    });
+
+    if (!response.ok) {
+        const error = await response.json();
+        console.error('OpenRouter Error:', error);
+        throw new Error('Failed to fetch from OpenRouter');
+    }
+
+    return response.json();
+}
 
 export async function POST(request: Request) {
     try {
@@ -28,37 +51,33 @@ export async function POST(request: Request) {
         }));
 
         // Step 1: Initial classification/search query generation
-        const initialCompletion = await groq.chat.completions.create({
-            messages: [
-                {
-                    role: 'system' as const,
-                    content: `You are a helpful assistant for an app named BirdEarner. Follow these rules strictly:
+        const initialCompletion = await callOpenRouter([
+            {
+                role: 'system',
+                content: `You are a helpful assistant for an app named BirdEarner. Follow these rules strictly:
 1. If the question is a general greeting or unrelated to the app (e.g., "Hi", "How are you?"), answer directly starting with "Answer:".
 2. If the question is related to BirdEarner (jobs, freelancers, earnings, profiles, etc.), respond ONLY with "Search Query:" followed by 3-5 specific, relevant keywords.
 3. Keep the search query concise and focused on the core intent of the question.`,
-                },
-                ...chatHistory,
-                { role: 'user' as const, content: `User question: "${question}"` },
-            ],
-            model: 'llama-3.1-8b-instant',
-            temperature: 0.3,
-        });
+            },
+            ...chatHistory,
+            { role: 'user', content: `User question: "${question}"` },
+        ]);
 
-        const groqResponse = initialCompletion.choices[0]?.message?.content?.trim();
+        const openRouterResponse = initialCompletion.choices[0]?.message?.content?.trim();
 
-        if (!groqResponse) {
+        if (!openRouterResponse) {
             return NextResponse.json({ error: 'The assistant could not process the request.' }, { status: 500 });
         }
 
-        if (groqResponse.startsWith('Answer:')) {
-            return NextResponse.json({ answer: groqResponse.replace('Answer:', '').trim() });
+        if (openRouterResponse.startsWith('Answer:')) {
+            return NextResponse.json({ answer: openRouterResponse.replace('Answer:', '').trim() });
         }
 
-        if (!groqResponse.startsWith('Search Query:')) {
+        if (!openRouterResponse.startsWith('Search Query:')) {
             return NextResponse.json({ error: 'Invalid assistant response format.' }, { status: 500 });
         }
 
-        const refinedQuery = `${question} ${groqResponse.replace('Search Query:', '').trim()}`;
+        const refinedQuery = `${question} ${openRouterResponse.replace('Search Query:', '').trim()}`;
 
         // Step 2: Database Search
         const allFaqs = await db.selectFrom('faqTable')
@@ -84,21 +103,17 @@ export async function POST(request: Request) {
 
         // Step 3: Select best answer
         const context = topResults.map(faq => `ID: ${faq.id}, Question: ${faq.question}, Answer Snippet: ${faq.answer.substring(0, 100)}...`).join('\n\n');
-        const selection = await groq.chat.completions.create({
-            messages: [
-                {
-                    role: 'system' as const,
-                    content: "You're a helpful assistant. Choose the BEST matching ID from the list for the user's question. If none of them are a good match, respond with '0'. Only reply with the ID number.",
-                },
-                ...chatHistory,
-                {
-                    role: 'user' as const,
-                    content: `User question: "${question}"\n\nPotential Answers:\n${context}`,
-                },
-            ],
-            model: 'llama-3.1-8b-instant',
-            temperature: 0.1, // Lower temperature for more consistent selection
-        });
+        const selection = await callOpenRouter([
+            {
+                role: 'system',
+                content: "You're a helpful assistant. Choose the BEST matching ID from the list for the user's question. If none of them are a good match, respond with '0'. Only reply with the ID number.",
+            },
+            ...chatHistory,
+            {
+                role: 'user',
+                content: `User question: "${question}"\n\nPotential Answers:\n${context}`,
+            },
+        ]);
 
         const selectedIdMatch = selection.choices[0]?.message?.content?.trim();
         const selectedId = selectedIdMatch || null;
@@ -117,21 +132,17 @@ export async function POST(request: Request) {
         }
 
         // Step 4: Restructure answer
-        const restructure = await groq.chat.completions.create({
-            messages: [
-                {
-                    role: 'system' as const,
-                    content: 'Restructure the answer to suit the original question. Return only the improved answer, wrapped in double quotes.',
-                },
-                ...chatHistory,
-                {
-                    role: 'user' as const,
-                    content: `User question: "${question}"\nSelected answer: "${selectedFaq.answer}"`,
-                },
-            ],
-            model: 'llama-3.1-8b-instant',
-            temperature: 0.5,
-        });
+        const restructure = await callOpenRouter([
+            {
+                role: 'system',
+                content: 'Restructure the answer to suit the original question. Return only the improved answer, wrapped in double quotes.',
+            },
+            ...chatHistory,
+            {
+                role: 'user',
+                content: `User question: "${question}"\nSelected answer: "${selectedFaq.answer}"`,
+            },
+        ]);
 
         const finalAnswerText = restructure.choices[0]?.message?.content?.trim();
         const finalAnswerMatch = finalAnswerText?.match(/"(.*)"/s);
