@@ -18,14 +18,20 @@ export async function GET(request: Request) {
 
         if (!deleteRequest) {
             return NextResponse.json({
-                success: false,
+                success: true,
+                data: {
+                    hasPendingRequest: false
+                },
                 message: 'No delete request found'
-            }, { status: 404 });
+            });
         }
 
         return NextResponse.json({
             success: true,
-            data: deleteRequest
+            data: {
+                ...deleteRequest,
+                hasPendingRequest: true
+            }
         });
 
     } catch (error: any) {
