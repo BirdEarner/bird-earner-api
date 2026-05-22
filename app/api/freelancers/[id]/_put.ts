@@ -64,10 +64,6 @@ export async function PUT(
         if (freelancerUpdateData.nextAvailable !== undefined) updatePayload.nextAvailable = freelancerUpdateData.nextAvailable;
         if (freelancerUpdateData.termsAccepted !== undefined) updatePayload.termsAccepted = freelancerUpdateData.termsAccepted;
         if (freelancerUpdateData.flags !== undefined) updatePayload.flags = safeStringify(freelancerUpdateData.flags);
-        if (freelancerUpdateData.totalEarnings !== undefined) updatePayload.totalEarnings = freelancerUpdateData.totalEarnings.toString();
-        if (freelancerUpdateData.monthlyEarnings !== undefined) updatePayload.monthlyEarnings = freelancerUpdateData.monthlyEarnings.toString();
-        if (freelancerUpdateData.outstandingAmount !== undefined) updatePayload.outstandingAmount = freelancerUpdateData.outstandingAmount.toString();
-        if (freelancerUpdateData.withdrawableAmount !== undefined) updatePayload.withdrawableAmount = freelancerUpdateData.withdrawableAmount.toString();
 
 
         if (Object.keys(updatePayload).length > 1) { // 1 because updatedAt is always there

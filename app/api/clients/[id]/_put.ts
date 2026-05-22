@@ -49,9 +49,6 @@ export async function PUT(
         if (clientUpdateData.currentlyAvailable !== undefined) updatePayload.currentlyAvailable = clientUpdateData.currentlyAvailable;
         if (clientUpdateData.nextAvailable !== undefined) updatePayload.nextAvailable = clientUpdateData.nextAvailable;
         if (clientUpdateData.coverPhoto !== undefined) updatePayload.coverPhoto = clientUpdateData.coverPhoto;
-        if (clientUpdateData.wallet !== undefined) updatePayload.wallet = clientUpdateData.wallet.toString();
-        if (clientUpdateData.availableBalance !== undefined) updatePayload.availableBalance = clientUpdateData.availableBalance.toString();
-        if (clientUpdateData.reservedAmount !== undefined) updatePayload.reservedAmount = clientUpdateData.reservedAmount.toString();
 
 
         if (Object.keys(updatePayload).length > 1) { // 1 because updatedAt is always there
