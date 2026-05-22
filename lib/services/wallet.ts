@@ -372,6 +372,24 @@ export async function settleFreelancerBalance(
     referenceId: string | null = null
 ) {
     return await db.transaction().execute(async (trx) => {
+        // Idempotency check: Check if transaction already exists for this payment reference
+        if (referenceId) {
+            const existingTx = await trx
+                .selectFrom('walletTransactions')
+                .select('id')
+                .where('referenceId', '=', referenceId)
+                .executeTakeFirst();
+            
+            if (existingTx) {
+                return {
+                    success: true,
+                    message: 'Transaction already processed',
+                    transactionId: existingTx.id,
+                    duplicate: true
+                };
+            }
+        }
+
         const freelancer = await trx
             .selectFrom('freelancers')
             .select(['id', 'withdrawableAmount'])
@@ -538,6 +556,83 @@ export async function updateReservedAmountForBudgetChange(
             success: true,
             budgetDifference,
             newReservedAmount: actualNewReserved,
+            transactionId: transaction.id
+        };
+    });
+}
+
+/**
+ * Deposit funds into client wallet
+ */
+export async function depositClientFunds(
+    userId: string,
+    amount: number,
+    description = 'Wallet deposit',
+    referenceId: string | null = null
+) {
+    return await db.transaction().execute(async (trx) => {
+        // Idempotency check: Check if transaction already exists for this payment reference
+        if (referenceId) {
+            const existingTx = await trx
+                .selectFrom('walletTransactions')
+                .select('id')
+                .where('referenceId', '=', referenceId)
+                .executeTakeFirst();
+            
+            if (existingTx) {
+                return {
+                    success: true,
+                    message: 'Transaction already processed',
+                    transactionId: existingTx.id,
+                    duplicate: true
+                };
+            }
+        }
+
+        const client = await trx
+            .selectFrom('clients')
+            .select(['id', 'wallet'])
+            .where('userId', '=', userId)
+            .executeTakeFirst();
+
+        if (!client) {
+            throw new Error('Client not found');
+        }
+
+        const currentWallet = parseFloat(client.wallet);
+        const newWallet = currentWallet + amount;
+
+        // Update client wallet
+        await trx
+            .updateTable('clients')
+            .set({
+                wallet: newWallet.toString(),
+                updatedAt: new Date()
+            })
+            .where('id', '=', client.id)
+            .execute();
+
+        // Create wallet transaction record
+        const transaction = await trx
+            .insertInto('walletTransactions')
+            .values({
+                id: crypto.randomUUID(),
+                userId,
+                userType: 'CLIENT',
+                transactionType: 'DEPOSIT',
+                amount: amount.toString(),
+                balanceBefore: currentWallet.toString(),
+                balanceAfter: newWallet.toString(),
+                description,
+                referenceId,
+                updatedAt: new Date()
+            })
+            .returningAll()
+            .executeTakeFirstOrThrow();
+
+        return {
+            success: true,
+            newBalance: newWallet,
             transactionId: transaction.id
         };
     });
