@@ -54,7 +54,8 @@ export async function POST(request: Request) {
             .execute();
 
         // Send email
-        const resetUrl = `${process.env.FRONTEND_URL || 'https://app.birdearner.com'}/auth/reset-password/${token}`;
+        const frontendUrl = 'https://birdearner.com';
+        const resetUrl = `${frontendUrl.replace(/\/$/, '')}/auth/reset-password/${token}`;
 
         try {
             await sendResetEmail(email, resetUrl);
