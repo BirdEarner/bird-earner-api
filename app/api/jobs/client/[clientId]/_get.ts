@@ -48,6 +48,26 @@ export async function GET(
         const total = Number(totalResult?.count || 0);
         const totalPages = Math.ceil(total / limit);
 
+        // Live applicant counts from chat threads (proposalCount column is not maintained)
+        const jobIds = jobs.map((job) => job.id);
+        const applicantCountRows = jobIds.length
+            ? await db
+                .selectFrom("chatThreads")
+                .select(["jobId", db.fn.count("id").as("count")])
+                .where("jobId", "in", jobIds)
+                .groupBy("jobId")
+                .execute()
+            : [];
+        const applicantCountsByJobId = applicantCountRows.reduce<Record<string, number>>(
+            (acc, row) => {
+                if (row.jobId) {
+                    acc[row.jobId] = Number(row.count || 0);
+                }
+                return acc;
+            },
+            {}
+        );
+
         // Fetch related data for all jobs
         const enhancedJobs = await Promise.all(
             jobs.map(async (job) => {
@@ -100,8 +120,12 @@ export async function GET(
                         .executeTakeFirst() || null;
                 }
 
+                const proposalCount = applicantCountsByJobId[job.id] ?? 0;
+
                 return {
                     ...job,
+                    proposalCount,
+                    applicantsCount: proposalCount,
                     assignedFreelancer,
                     service
                 };
