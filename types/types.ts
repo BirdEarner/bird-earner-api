@@ -399,6 +399,23 @@ export type User = {
     resetPasswordExpires: string | null;
     resetPasswordToken: string | null;
 };
+export type UserAddress = {
+    id: string;
+    userId: string;
+    label: string;
+    line1: string;
+    line2: string | null;
+    city: string | null;
+    state: string | null;
+    zipcode: string | null;
+    country: Generated<string | null>;
+    latitude: string | null;
+    longitude: string | null;
+    isDefault: Generated<boolean>;
+    lastUsedAt: Timestamp | null;
+    createdAt: Generated<Timestamp>;
+    updatedAt: Timestamp;
+};
 export type UserEgg = {
     id: string;
     freelancerId: string;
@@ -470,6 +487,7 @@ export type DB = {
     pushTokens: PushToken;
     reviews: Review;
     services: Service;
+    userAddresses: UserAddress;
     userEggs: UserEgg;
     userMedia: UserMedia;
     users: User;
