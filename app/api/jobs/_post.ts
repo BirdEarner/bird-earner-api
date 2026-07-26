@@ -6,13 +6,19 @@ import { z } from 'zod';
 import { validateParams } from '@/lib/validation';
 
 const createJobSchema = z.object({
-    jobTitle: z.string().min(5),
-    jobDescription: z.string().min(20),
-    jobCategory: z.string(),
-    jobSubCategory: z.string(),
-    skillsRequired: z.array(z.string()).optional(),
-    projectType: z.string(),
-    budgetType: z.string(),
+    jobTitle: z
+        .string()
+        .trim()
+        .min(5, 'Job title must be at least 5 characters'),
+    jobDescription: z
+        .string()
+        .trim()
+        .min(20, 'Job description must be at least 20 characters'),
+    jobCategory: z.string().min(1, 'Job category is required'),
+    jobSubCategory: z.string().min(1, 'Job subcategory is required'),
+    skillsRequired: z.array(z.string().trim().min(1, 'Skills cannot be empty')).optional(),
+    projectType: z.string().min(1, 'Project type is required'),
+    budgetType: z.string().min(1, 'Budget type is required'),
     budgetAmount: z.union([z.number(), z.string()]).transform(v => parseFloat(v.toString())),
     serviceId: z.string().optional(),
     deadlineDate: z.string().optional(),

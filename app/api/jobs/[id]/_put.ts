@@ -5,11 +5,15 @@ import { z } from 'zod';
 import { validateParams } from '@/lib/validation';
 
 const updateJobSchema = z.object({
-    jobTitle: z.string().min(5).optional(),
-    jobDescription: z.string().min(20).optional(),
+    jobTitle: z.string().trim().min(5, 'Job title must be at least 5 characters').optional(),
+    jobDescription: z
+        .string()
+        .trim()
+        .min(20, 'Job description must be at least 20 characters')
+        .optional(),
     jobCategory: z.string().optional(),
     jobSubCategory: z.string().optional(),
-    skillsRequired: z.array(z.string()).optional(),
+    skillsRequired: z.array(z.string().trim().min(1)).optional(),
     projectType: z.string().optional(),
     budgetType: z.string().optional(),
     budgetAmount: z.union([z.number(), z.string()]).transform(v => parseFloat(v.toString())).optional(),
