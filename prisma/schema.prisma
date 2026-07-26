@@ -530,10 +530,43 @@ model Service {
   createdAt      DateTime        @default(now()) @map("createdAt")
   updatedAt      DateTime        @updatedAt @map("updatedAt")
   jobs           Job[]           @relation("JobService")
+  homePromos     HomePromo[]
 
   @@index([category], map: "servicesServiceCategoryIdx")
   @@index([isActive], map: "servicesServiceActiveIdx")
   @@map("services")
+}
+
+model HomePromo {
+  id                    String              @id @default(uuid())
+  placement             HomePromoPlacement
+  title                 String              @db.VarChar(200)
+  subtitle              String?             @db.Text
+  badge                 String?             @db.VarChar(50)
+  ctaLabel              String?             @map("ctaLabel") @db.VarChar(80)
+  imageUrl              String?             @map("imageUrl") @db.Text
+  backgroundColor       String?             @map("backgroundColor") @db.VarChar(20)
+  textColor             String?             @map("textColor") @db.VarChar(20)
+  accentColor           String?             @map("accentColor") @db.VarChar(20)
+  sortOrder             Int                 @default(0) @map("sortOrder")
+  isActive              Boolean             @default(true) @map("isActive")
+  startsAt              DateTime?           @map("startsAt")
+  endsAt                DateTime?           @map("endsAt")
+  serviceId             String?             @map("serviceId")
+  serviceType           String?             @map("serviceType") @db.VarChar(20)
+  prefillJobTitle       String?             @map("prefillJobTitle") @db.VarChar(200)
+  prefillJobDescription String?             @map("prefillJobDescription") @db.Text
+  prefillBudget         String?             @map("prefillBudget") @db.VarChar(40)
+  prefillJobType        String?             @map("prefillJobType") @db.VarChar(20)
+  prefillPaymentMethod  String?             @map("prefillPaymentMethod") @db.VarChar(20)
+  prefillSkills         Json?               @map("prefillSkills")
+  createdAt             DateTime            @default(now()) @map("createdAt")
+  updatedAt             DateTime            @updatedAt @map("updatedAt")
+  service               Service?            @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+
+  @@index([placement, isActive, sortOrder], map: "homePromosPlacementActiveSortIdx")
+  @@index([serviceId], map: "homePromosServiceIdIdx")
+  @@map("homePromos")
 }
 
 model ChatThread {
@@ -689,4 +722,9 @@ enum DeleteRequestStatus {
 enum CashbackOfferAmountType {
   LUMPSUM
   PERCENT
+}
+
+enum HomePromoPlacement {
+  BANNER
+  OFFER_CARD
 }

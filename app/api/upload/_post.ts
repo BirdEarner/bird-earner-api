@@ -19,6 +19,7 @@ const uploadCategories: Record<string, string> = {
     chat_media: "bird_earner/chat_media",
     file_manager: "bird_earner/file_manager",
     notification_images: "bird_earner/notification_images",
+    home_promo_images: "bird_earner/home_promo_images",
 };
 
 export async function POST(request: Request) {

@@ -83,6 +83,11 @@ export const CashbackOfferAmountType = {
     PERCENT: "PERCENT"
 } as const;
 export type CashbackOfferAmountType = (typeof CashbackOfferAmountType)[keyof typeof CashbackOfferAmountType];
+export const HomePromoPlacement = {
+    BANNER: "BANNER",
+    OFFER_CARD: "OFFER_CARD"
+} as const;
+export type HomePromoPlacement = (typeof HomePromoPlacement)[keyof typeof HomePromoPlacement];
 export type Admin = {
     id: Generated<number>;
     name: string;
@@ -260,6 +265,32 @@ export type Freelancer = {
     createdAt: Generated<Timestamp>;
     updatedAt: Timestamp;
     availabilityUpdatedAt: Timestamp | null;
+};
+export type HomePromo = {
+    id: string;
+    placement: HomePromoPlacement;
+    title: string;
+    subtitle: string | null;
+    badge: string | null;
+    ctaLabel: string | null;
+    imageUrl: string | null;
+    backgroundColor: string | null;
+    textColor: string | null;
+    accentColor: string | null;
+    sortOrder: Generated<number>;
+    isActive: Generated<boolean>;
+    startsAt: Timestamp | null;
+    endsAt: Timestamp | null;
+    serviceId: string | null;
+    serviceType: string | null;
+    prefillJobTitle: string | null;
+    prefillJobDescription: string | null;
+    prefillBudget: string | null;
+    prefillJobType: string | null;
+    prefillPaymentMethod: string | null;
+    prefillSkills: unknown | null;
+    createdAt: Generated<Timestamp>;
+    updatedAt: Timestamp;
 };
 export type Job = {
     id: string;
@@ -478,6 +509,7 @@ export type DB = {
     faqTable: FAQ;
     fileManagement: FileManagement;
     freelancers: Freelancer;
+    homePromos: HomePromo;
     jobBookmarks: JobBookmark;
     jobs: Job;
     messages: Message;
