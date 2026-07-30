@@ -104,6 +104,7 @@ export async function POST(request: Request) {
             message: 'Client registered successfully',
             data: {
                 ...userWithoutPassword,
+                role: 'CLIENT',
                 client: result.client,
                 token,
             },

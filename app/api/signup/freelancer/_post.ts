@@ -117,6 +117,7 @@ export async function POST(request: Request) {
             message: 'Freelancer registered successfully',
             data: {
                 ...userWithoutPassword,
+                role: 'FREELANCER',
                 freelancer: result.freelancer,
                 token,
             },

@@ -35,7 +35,7 @@ export async function POST(request: Request) {
         const freelancerProfile = await db.selectFrom('freelancers').select('id').where('userId', '=', user.id).executeTakeFirst();
         const clientProfile = await db.selectFrom('clients').select('id').where('userId', '=', user.id).executeTakeFirst();
 
-        const role = freelancerProfile ? 'freelancer' : (clientProfile ? 'client' : 'USER');
+        const role = freelancerProfile ? 'FREELANCER' : (clientProfile ? 'CLIENT' : 'USER');
 
         const token = generateToken({
             id: user.id,
@@ -54,6 +54,7 @@ export async function POST(request: Request) {
             message: 'Login successful',
             data: {
                 ...userWithoutPassword,
+                role,
                 ...(fullFreelancerProfile ? { freelancer: fullFreelancerProfile } : {}),
                 ...(fullClientProfile ? { client: fullClientProfile } : {}),
                 token,
