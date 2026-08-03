@@ -16,6 +16,7 @@ const clientSignupSchema = z.object({
     zipCode: z.string().or(z.number().transform(n => n.toString())).optional().nullable(),
     country: z.string().optional().nullable(),
     bio: z.string().optional().nullable(),
+    dob: z.string().optional().nullable(),
     // Legacy support for image objects { uri: '...' } or direct strings
     profileImage: z.any().optional().nullable(),
     coverImage: z.any().optional().nullable(),
