@@ -147,6 +147,56 @@ export async function assignFreelancer(jobId: string, freelancerId: string, clie
 }
 
 /**
+ * Reject a freelancer application for a job
+ */
+export async function rejectFreelancer(jobId: string, freelancerId: string, threadId: string, clientUserId: string) {
+    return await db.transaction().execute(async (trx) => {
+        const job = await trx
+            .selectFrom('jobs')
+            .innerJoin('clients', 'clients.id', 'jobs.clientId')
+            .select(['jobs.id', 'clients.userId as clientUserId'])
+            .where('jobs.id', '=', jobId)
+            .executeTakeFirst();
+
+        if (!job) throw new Error('Job not found');
+        if (job.clientUserId !== clientUserId) throw new Error('Unauthorized');
+
+        let threadQuery = trx
+            .updateTable('chatThreads')
+            .set({ status: 'REJECTED', updatedAt: new Date() })
+            .where('jobId', '=', jobId)
+            .where('freelancerId', '=', freelancerId);
+
+        if (threadId) {
+            threadQuery = threadQuery.where('id', '=', threadId);
+        }
+
+        const thread = await threadQuery
+            .returningAll()
+            .executeTakeFirstOrThrow();
+
+        const freelancer = await trx
+            .selectFrom('freelancers')
+            .select('userId')
+            .where('id', '=', freelancerId)
+            .executeTakeFirst();
+
+        if (freelancer) {
+            sendNotification(
+                freelancer.userId,
+                'FREELANCER',
+                'Application Rejected',
+                `Your application for job ${jobId} has been rejected.`,
+                'APPLICATION_REJECTED',
+                { jobId }
+            );
+        }
+
+        return thread;
+    });
+}
+
+/**
  * Complete a job
  */
 export async function completeJob(jobId: string, clientUserId: string) {
