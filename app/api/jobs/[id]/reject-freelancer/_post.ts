@@ -28,7 +28,16 @@ export async function POST(
         }
 
         const { freelancerId, threadId } = validation.data;
+       
+
         const thread = await rejectFreelancer(id, freelancerId, threadId, user.id);
+
+        console.log('Reject freelancer success:', {
+            jobId: id,
+            freelancerId,
+            threadId,
+            returnedThread: thread,
+        });
 
         return NextResponse.json({
             success: true,

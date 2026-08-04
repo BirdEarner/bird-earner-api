@@ -151,6 +151,7 @@ export async function assignFreelancer(jobId: string, freelancerId: string, clie
  */
 export async function rejectFreelancer(jobId: string, freelancerId: string, threadId: string, clientUserId: string) {
     return await db.transaction().execute(async (trx) => {
+        // Verify job exists and belongs to this client
         const job = await trx
             .selectFrom('jobs')
             .innerJoin('clients', 'clients.id', 'jobs.clientId')
@@ -161,19 +162,27 @@ export async function rejectFreelancer(jobId: string, freelancerId: string, thre
         if (!job) throw new Error('Job not found');
         if (job.clientUserId !== clientUserId) throw new Error('Unauthorized');
 
-        let threadQuery = trx
+        // Update all matching chat threads for this job + freelancer
+        await trx
             .updateTable('chatThreads')
             .set({ status: 'REJECTED', updatedAt: new Date() })
             .where('jobId', '=', jobId)
-            .where('freelancerId', '=', freelancerId);
+            .where('freelancerId', '=', freelancerId)
+            .execute();
 
-        if (threadId) {
-            threadQuery = threadQuery.where('id', '=', threadId);
-        }
+        // Fetch the job and its chat threads to return
+        const updatedJob = await trx
+            .selectFrom('jobs')
+            .selectAll()
+            .where('id', '=', jobId)
+            .executeTakeFirst();
 
-        const thread = await threadQuery
-            .returningAll()
-            .executeTakeFirstOrThrow();
+        const threads = await trx
+            .selectFrom('chatThreads')
+            .selectAll()
+            .where('jobId', '=', jobId)
+            .where('freelancerId', '=', freelancerId)
+            .execute();
 
         const freelancer = await trx
             .selectFrom('freelancers')
@@ -192,7 +201,11 @@ export async function rejectFreelancer(jobId: string, freelancerId: string, thre
             );
         }
 
-        return thread;
+        // Return job along with the affected threads
+        return {
+            ...updatedJob,
+            chatThreads: threads,
+        } as any;
     });
 }
 
