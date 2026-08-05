@@ -37,7 +37,19 @@ export async function POST(request: Request) {
                 throw new Error('Completion request message not found');
             }
 
-            const messageData = JSON.parse(message.messageData as string || '{}');
+            let messageData: any = {};
+            try {
+                if (typeof message.messageData === 'string') {
+                    messageData = JSON.parse(message.messageData || '{}');
+                } else if (message.messageData == null) {
+                    messageData = {};
+                } else {
+                    messageData = message.messageData;
+                }
+            } catch (parseError) {
+                throw new Error('Invalid message data');
+            }
+
             if (messageData.status !== 'pending') {
                 throw new Error('This completion request is no longer active');
             }
@@ -51,7 +63,7 @@ export async function POST(request: Request) {
 
             await trx
                 .updateTable('messages')
-                .set({ messageData: JSON.stringify(messageData), updatedAt: new Date() })
+                .set({ messageData: messageData, updatedAt: new Date() })
                 .where('id', '=', messageId)
                 .execute();
 
@@ -86,13 +98,13 @@ export async function POST(request: Request) {
                         messageContent: 'Project completion confirmed. Cash payment process initiated.',
                         messageType: 'cash_payment',
                         senderType: 'SYSTEM',
-                        messageData: JSON.stringify({
+                        messageData: {
                             amount: budgetAmount,
                             step: 'initial',
                             clientConfirmed: false,
                             freelancerConfirmed: false,
                             jobId: jobId
-                        }),
+                        },
                         updatedAt: new Date()
                     })
                     .returningAll()
@@ -147,11 +159,11 @@ export async function POST(request: Request) {
                             messageContent: JSON.stringify({ status: 'pending' }),
                             messageType: 'review_request',
                             senderType: 'SYSTEM',
-                            messageData: JSON.stringify({
+                            messageData: {
                                 jobId: jobId,
                                 freelancerId: job.freelancerUserId,
                                 clientId: job.clientId
-                            }),
+                            },
                             updatedAt: new Date()
                         })
                         .execute();

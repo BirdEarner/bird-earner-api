@@ -36,12 +36,24 @@ export async function POST(request: Request) {
                 throw new Error('Cash payment message not found');
             }
 
-            const messageData = JSON.parse(message.messageData as string || '{}');
+            let messageData: any = {};
+            try {
+                if (typeof message.messageData === 'string') {
+                    messageData = JSON.parse(message.messageData || '{}');
+                } else if (message.messageData == null) {
+                    messageData = {};
+                } else {
+                    messageData = message.messageData;
+                }
+            } catch (parseError) {
+                throw new Error('Invalid message data');
+            }
+
             messageData.clientConfirmed = true;
 
             await trx
                 .updateTable('messages')
-                .set({ messageData: JSON.stringify(messageData), updatedAt: new Date() })
+                .set({ messageData: messageData, updatedAt: new Date() })
                 .where('id', '=', messageId)
                 .execute();
 

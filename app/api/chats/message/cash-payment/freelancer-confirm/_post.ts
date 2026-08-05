@@ -37,7 +37,19 @@ export async function POST(request: Request) {
                 throw new Error('Cash payment message not found');
             }
 
-            const messageData = JSON.parse(message.messageData as string || '{}');
+            let messageData: any = {};
+            try {
+                if (typeof message.messageData === 'string') {
+                    messageData = JSON.parse(message.messageData || '{}');
+                } else if (message.messageData == null) {
+                    messageData = {};
+                } else {
+                    messageData = message.messageData;
+                }
+            } catch (parseError) {
+                throw new Error('Invalid message data');
+            }
+
             if (!messageData.clientConfirmed) {
                 throw new Error('Client must confirm payment first');
             }
@@ -47,7 +59,7 @@ export async function POST(request: Request) {
 
             await trx
                 .updateTable('messages')
-                .set({ messageData: JSON.stringify(messageData), updatedAt: new Date() })
+                .set({ messageData: messageData, updatedAt: new Date() })
                 .where('id', '=', messageId)
                 .execute();
 
@@ -143,11 +155,11 @@ export async function POST(request: Request) {
                     messageContent: JSON.stringify({ status: 'pending' }),
                     messageType: 'review_request',
                     senderType: 'SYSTEM',
-                    messageData: JSON.stringify({
+                    messageData: {
                         jobId: thread.jobId,
                         freelancerId: thread.freelancerId,
                         clientId: message.senderId
-                    }),
+                    },
                     updatedAt: new Date()
                 })
                 .execute();

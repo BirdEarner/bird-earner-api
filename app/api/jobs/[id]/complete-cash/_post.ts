@@ -72,13 +72,13 @@ export async function POST(
                 messageContent: 'Project completion and cash payment required',
                 messageType: 'cash_payment',
                 senderType: userRole ? userRole.toUpperCase() : 'CLIENT',
-                messageData: JSON.stringify({
-                    amount: budgetAmount,
-                    step: 'initial',
-                    clientConfirmed: false,
-                    freelancerConfirmed: false,
-                    jobId: id
-                }),
+                    messageData: {
+                        amount: budgetAmount,
+                        step: 'initial',
+                        clientConfirmed: false,
+                        freelancerConfirmed: false,
+                        jobId: id
+                    },
                 updatedAt: new Date()
             })
             .returningAll()

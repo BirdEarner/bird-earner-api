@@ -49,7 +49,7 @@ export async function POST(request: Request) {
             await trx
                 .updateTable('messages')
                 .set({
-                    messageData: sql`jsonb_set(message_data::jsonb, '{status}', '"closed"'::jsonb)::text`,
+                    messageData: sql`jsonb_set("messageData"::jsonb, '{status}', '"closed"'::jsonb)`,
                     updatedAt: new Date()
                 } as any)
                 .where('chatThreadId', '=', threadId)
@@ -66,13 +66,13 @@ export async function POST(request: Request) {
                     messageContent: 'Client has requested project completion confirmation',
                     messageType: 'completion_request',
                     senderType: 'CLIENT',
-                    messageData: JSON.stringify({
+                    messageData: {
                         requestedBy: 'client',
                         jobId: jobId,
                         status: 'pending',
                         paymentMethod: job.paymentMethod,
                         budgetAmount: job.budgetAmount.toString()
-                    }),
+                    },
                     updatedAt: new Date()
                 })
                 .returningAll()

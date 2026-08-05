@@ -3,6 +3,7 @@ import { getAuthUser } from '@/lib/auth';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { validateParams } from '@/lib/validation';
+import { sql } from 'kysely';
 
 const requestSchema = z.object({
     threadId: z.string(),
@@ -47,7 +48,7 @@ export async function POST(request: Request) {
             await trx
                 .updateTable('messages')
                 .set({
-                    messageData: sql`jsonb_set(message_data::jsonb, '{status}', '"closed"'::jsonb)::text`,
+                    messageData: sql`jsonb_set("messageData"::jsonb, '{status}', '"closed"'::jsonb)`,
                     updatedAt: new Date()
                 } as any)
                 .where('chatThreadId', '=', threadId)
@@ -64,13 +65,13 @@ export async function POST(request: Request) {
                     messageContent: 'Freelancer has requested project completion confirmation',
                     messageType: 'completion_request',
                     senderType: 'FREELANCER',
-                    messageData: JSON.stringify({
+                    messageData: {
                         requestedBy: 'freelancer',
                         jobId: jobId,
                         status: 'pending',
                         paymentMethod: job.paymentMethod,
                         budgetAmount: job.budgetAmount.toString()
-                    }),
+                    },
                     updatedAt: new Date()
                 })
                 .returningAll()
@@ -91,4 +92,4 @@ export async function POST(request: Request) {
     }
 }
 
-import { sql } from 'kysely';
+
