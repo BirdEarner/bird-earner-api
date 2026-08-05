@@ -4,6 +4,32 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { validateBody, validateParams } from '@/lib/validation';
 
+const birdFeeBracketSchema = z.object({
+    minBudget: z.number().nonnegative({ message: 'Bracket Minimum Budget must be 0 or greater' }),
+    maxBudget: z.number().nonnegative({ message: 'Bracket Maximum Budget must be 0 or greater' }),
+    feeType: z.enum(['FIXED', 'PERCENTAGE']),
+    feeValue: z.number().nonnegative({ message: 'Fee value must be 0 or greater' }),
+}).refine((data) => data.maxBudget === 0 || data.maxBudget >= data.minBudget, {
+    message: 'Bracket Maximum Budget must be greater than or equal to Minimum Budget',
+});
+
+const birdFeeSchema = z.preprocess((value) => {
+    if (typeof value === 'string') {
+        try {
+            return JSON.parse(value);
+        } catch {
+            return value;
+        }
+    }
+    return value;
+}, z.object({
+    minimumBudget: z.number().nonnegative({ message: 'Minimum Budget (Global) must be 0 or greater' }).optional().default(0),
+    maximumBudget: z.number().nonnegative({ message: 'Maximum Budget (Global) must be 0 or greater' }).optional().default(0),
+    feeStructure: z.array(birdFeeBracketSchema).optional().default([]),
+}).refine((data) => data.maximumBudget === 0 || data.maximumBudget >= data.minimumBudget, {
+    message: 'Maximum Budget (Global) must be greater than or equal to Minimum Budget (Global)',
+}));
+
 // Schema for listing services
 const listServicesSchema = z.object({
     page: z.string().optional().transform(v => parseInt(v || '1', 10)),
@@ -20,7 +46,7 @@ const createServiceSchema = z.object({
     imageUrl: z.string().optional(),
     isActive: z.boolean().optional().default(true),
     priorityConfig: z.any().optional(),
-    birdFee: z.any().optional(),
+    birdFee: birdFeeSchema.optional(),
 });
 
 export async function GET(request: NextRequest) {
