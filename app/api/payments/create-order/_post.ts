@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getUserIdFromRequest } from '@/lib/auth';
-import { createRazorpayOrder } from '@/lib/services/razorpay';
+import { createRazorpayOrder, razorpayKeyId } from '@/lib/services/razorpay';
 import { z } from 'zod';
 import { validateBody } from '@/lib/validation';
 
@@ -43,7 +43,7 @@ export async function POST(request: Request) {
         id: order.id,
         amount: order.amount,
         currency: order.currency,
-        key: process.env.RAZORPAY_KEY_ID // Share public key with frontend
+        key: razorpayKeyId // Share public key with frontend
       }
     });
 

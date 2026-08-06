@@ -6,17 +6,6 @@ import { DB } from '../../types/types';
  * Create or get a chat thread
  */
 export async function createOrGetThread(jobId: string, freelancerId: string, clientId: string) {
-    // Check if freelancer has a negative balance
-    const freelancer = await db
-        .selectFrom('freelancers')
-        .select('withdrawableAmount')
-        .where('id', '=', freelancerId)
-        .executeTakeFirst();
-
-    if (freelancer && parseFloat(freelancer.withdrawableAmount) < 0) {
-        throw new Error('You have an outstanding negative balance. Please settle your fees before applying for new jobs.');
-    }
-
     let thread = await db
         .selectFrom('chatThreads')
         .selectAll()
@@ -26,6 +15,17 @@ export async function createOrGetThread(jobId: string, freelancerId: string, cli
         .executeTakeFirst();
 
     if (!thread) {
+        // Check if freelancer has a negative balance before creating a new thread
+        const freelancer = await db
+            .selectFrom('freelancers')
+            .select('withdrawableAmount')
+            .where('id', '=', freelancerId)
+            .executeTakeFirst();
+
+        if (freelancer && parseFloat(freelancer.withdrawableAmount) < 0) {
+            throw new Error('You have an outstanding negative balance. Please settle your fees before applying for new jobs.');
+        }
+
         thread = await db
             .insertInto('chatThreads')
             .values({

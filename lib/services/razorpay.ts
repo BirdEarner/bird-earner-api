@@ -1,13 +1,26 @@
 import Razorpay from 'razorpay';
 import crypto from 'crypto';
 
-/**
- * Initialize Razorpay instance
- * Ensure RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET are in environment variables
- */
+const razorpayMode = process.env.RAZORPAY_MODE?.trim().toUpperCase() ||
+    (process.env.NODE_ENV === 'production' ? 'LIVE' : 'TEST');
+
+const testKeyId = process.env.RAZORPAY_TEST_KEY || process.env.RAZORPAY_TEST_KEY_ID || '';
+const testKeySecret = process.env.RAZORPAY_TEST_SECRET || process.env.RAZORPAY_TEST_KEY_SECRET || '';
+const liveKeyId = process.env.RAZORPAY_KEY_ID || process.env.RAZORPAY_LIVE_KEY || '';
+const liveKeySecret = process.env.RAZORPAY_KEY_SECRET || process.env.RAZORPAY_LIVE_SECRET || '';
+
+export const razorpayKeyId = razorpayMode === 'TEST' ? testKeyId : liveKeyId;
+const razorpayKeySecret = razorpayMode === 'TEST' ? testKeySecret : liveKeySecret;
+
+if (!razorpayKeyId || !razorpayKeySecret) {
+    console.error(`Razorpay ${razorpayMode} credentials are not configured. key_id=${Boolean(razorpayKeyId)}, key_secret=${Boolean(razorpayKeySecret)}`);
+}
+
+console.info(`Razorpay mode=${razorpayMode}, using ${razorpayMode === 'TEST' ? 'TEST' : 'LIVE'} credentials`);
+
 const razorpay = new Razorpay({
-    key_id: process.env.RAZORPAY_KEY_ID || '',
-    key_secret: process.env.RAZORPAY_KEY_SECRET || '',
+    key_id: razorpayKeyId,
+    key_secret: razorpayKeySecret,
 });
 
 export default razorpay;
@@ -23,6 +36,14 @@ export async function createRazorpayOrder(
     receipt?: string,
     notes?: Record<string, string>
 ) {
+    if (!razorpayKeyId || !razorpayKeySecret) {
+        const missingFields = [
+            !razorpayKeyId && 'key_id',
+            !razorpayKeySecret && 'key_secret',
+        ].filter(Boolean);
+        throw new Error(`Razorpay ${razorpayMode} credentials are missing: ${missingFields.join(', ')}. Set the corresponding environment variables for ${razorpayMode.toLowerCase()} mode.`);
+    }
+
     const options = {
         amount: Math.round(amount * 100), // Razorpay expects amount in paise (1 INR = 100 paise)
         currency: 'INR',
@@ -33,9 +54,9 @@ export async function createRazorpayOrder(
     try {
         const order = await razorpay.orders.create(options);
         return order;
-    } catch (error) {
+    } catch (error: any) {
         console.error('Error creating Razorpay order:', error);
-        throw new Error('Failed to create Razorpay order');
+        throw new Error(error?.description || error?.message || 'Failed to create Razorpay order');
     }
 }
 
@@ -50,7 +71,7 @@ export function verifyRazorpaySignature(
     paymentId: string,
     signature: string
 ) {
-    const secret = process.env.RAZORPAY_KEY_SECRET || '';
+    const secret = razorpayKeySecret || '';
     const body = orderId + '|' + paymentId;
 
     const expectedSignature = crypto
