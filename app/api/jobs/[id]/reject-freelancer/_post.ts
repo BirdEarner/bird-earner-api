@@ -28,9 +28,8 @@ export async function POST(
         }
 
         const { freelancerId, threadId } = validation.data;
-       
 
-        const thread = await rejectFreelancer(id, freelancerId, threadId, user.id);
+        const thread = await rejectFreelancer(id, freelancerId, user.id);
 
         console.log('Reject freelancer success:', {
             jobId: id,

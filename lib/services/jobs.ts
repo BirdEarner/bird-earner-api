@@ -149,7 +149,7 @@ export async function assignFreelancer(jobId: string, freelancerId: string, clie
 /**
  * Reject a freelancer application for a job
  */
-export async function rejectFreelancer(jobId: string, freelancerId: string, threadId: string, clientUserId: string) {
+export async function rejectFreelancer(jobId: string, freelancerId: string, clientUserId: string) {
     return await db.transaction().execute(async (trx) => {
         // Verify job exists and belongs to this client
         const job = await trx
