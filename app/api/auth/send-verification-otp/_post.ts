@@ -1,11 +1,11 @@
 import { db } from '@/lib/db';
 import { validateBody } from '@/lib/validation';
-import { sendVerificationEmail } from '@/lib/services/email';
+import { sendSmsOtp } from '@/lib/services/sms';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
 const sendOtpSchema = z.object({
-    email: z.string().email(),
+    mobile: z.string().min(10).max(15),
 });
 
 function generateOtp(): string {
@@ -21,12 +21,11 @@ export async function POST(request: Request) {
             return NextResponse.json({ success: false, message: validation.error }, { status: 400 });
         }
 
-        const { email } = validation.data;
-        const emailLower = email.toLowerCase();
+        const { mobile } = validation.data;
 
         const existingOtp = await db.selectFrom('otpVerifications')
             .select(['id', 'code', 'expiresAt', 'verified'])
-            .where('email', '=', emailLower)
+            .where('mobile', '=', mobile)
             .executeTakeFirst();
 
         const now = new Date();
@@ -35,7 +34,7 @@ export async function POST(request: Request) {
             const isExpired = !existingOtp.expiresAt || new Date(existingOtp.expiresAt) <= now;
             
             if (!isExpired && existingOtp.code) {
-                await sendVerificationEmail(emailLower, existingOtp.code);
+                await sendSmsOtp(mobile, existingOtp.code);
                 return NextResponse.json({ success: true, message: 'OTP sent successfully' });
             } else {
                 const newOtp = generateOtp();
@@ -47,10 +46,10 @@ export async function POST(request: Request) {
                         expiresAt: expiresAt,
                         updatedAt: now,
                     })
-                    .where('email', '=', emailLower)
+                    .where('mobile', '=', mobile)
                     .execute();
 
-                await sendVerificationEmail(emailLower, newOtp);
+                await sendSmsOtp(mobile, newOtp);
                 return NextResponse.json({ success: true, message: 'OTP sent successfully' });
             }
         }
@@ -66,13 +65,13 @@ export async function POST(request: Request) {
                     verified: false,
                     updatedAt: now,
                 })
-                .where('email', '=', emailLower)
+                .where('mobile', '=', mobile)
                 .execute();
         } else {
             await db.insertInto('otpVerifications')
                 .values({
                     id: crypto.randomUUID(),
-                    email: emailLower,
+                    mobile: mobile,
                     code: otp,
                     expiresAt: expiresAt,
                     verified: false,
@@ -82,7 +81,7 @@ export async function POST(request: Request) {
                 .execute();
         }
 
-        await sendVerificationEmail(emailLower, otp);
+        await sendSmsOtp(mobile, otp);
 
         return NextResponse.json({ success: true, message: 'OTP sent successfully' });
 

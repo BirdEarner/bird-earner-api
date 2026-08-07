@@ -1,6 +1,7 @@
 import { db } from '@/lib/db';
 import { validateBody } from '@/lib/validation';
 import { generateToken } from '@/lib/auth';
+import { sendEmailVerificationLink } from '@/lib/services/email';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import bcrypt from 'bcryptjs';
@@ -9,6 +10,7 @@ const freelancerSignupSchema = z.object({
     email: z.string().email(),
     password: z.string().min(6),
     full_name: z.string().min(1),
+    mobile: z.string().min(10).max(15),
     selectedServices: z.array(z.string()).optional().nullable(),
     qualification: z.string().optional().nullable(),
     experience: z.string().or(z.number().transform(n => n.toString())).optional().nullable(),
@@ -37,20 +39,19 @@ export async function POST(request: Request) {
             return NextResponse.json({ success: false, message: validation.error }, { status: 400 });
         }
 
-        const { email, password, full_name, profileImage, coverImage, ...profileData } = validation.data;
+        const { email, password, full_name, mobile, profileImage, coverImage, ...profileData } = validation.data;
         const emailLower = email.toLowerCase();
 
         const otpRecord = await db
             .selectFrom('otpVerifications')
             .select(['id', 'verified'])
-            .where('email', '=', emailLower)
+            .where('mobile', '=', mobile)
             .executeTakeFirst();
 
         if (!otpRecord || !otpRecord.verified) {
-            return NextResponse.json({ success: false, message: 'Please verify your email first' }, { status: 400 });
+            return NextResponse.json({ success: false, message: 'Please verify your mobile number first' }, { status: 400 });
         }
 
-        // Extract URI if image is an object
         const profilePhoto = typeof profileImage === 'object' && profileImage?.uri ? profileImage.uri : (typeof profileImage === 'string' ? profileImage : null);
         const coverPhoto = typeof coverImage === 'object' && coverImage?.uri ? coverImage.uri : (typeof coverImage === 'string' ? coverImage : null);
 
@@ -62,12 +63,18 @@ export async function POST(request: Request) {
         const hashedPassword = await bcrypt.hash(password, 10);
         const userId = crypto.randomUUID();
 
+        const emailVerificationToken = crypto.randomUUID();
+        const emailVerificationExpires = String(Date.now() + 5 * 24 * 60 * 60 * 1000);
+
         const result = await db.transaction().execute(async (trx) => {
             const user = await trx.insertInto('users').values({
                 id: userId,
                 email: emailLower,
+                mobile: mobile,
                 password: hashedPassword,
                 fullName: full_name,
+                emailVerificationToken: emailVerificationToken,
+                emailVerificationExpires: emailVerificationExpires,
                 updatedAt: new Date(),
             }).returningAll().executeTakeFirstOrThrow();
 
@@ -106,12 +113,16 @@ export async function POST(request: Request) {
 
         const { password: _, ...userWithoutPassword } = result.user;
 
-        // Clean up OTP verification record
         await db.deleteFrom('otpVerifications')
-            .where('email', '=', emailLower)
+            .where('mobile', '=', mobile)
             .execute();
 
-        // Mirroring legacy response structure
+        const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+        const verificationUrl = `${baseUrl}/verify-email?token=${emailVerificationToken}`;
+        await sendEmailVerificationLink(emailLower, verificationUrl).catch((err) => {
+            console.error('Failed to send email verification link:', err);
+        });
+
         return NextResponse.json({
             success: true,
             message: 'Freelancer registered successfully',
@@ -124,7 +135,7 @@ export async function POST(request: Request) {
         }, { status: 201 });
 
     } catch (error) {
-        console.error('Legacy freelancer registration error:', error);
+        console.error('Freelancer registration error:', error);
         return NextResponse.json({ success: false, message: 'Internal server error' }, { status: 500 });
     }
 }

@@ -4,7 +4,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
 const verifyOtpSchema = z.object({
-    email: z.string().email(),
+    mobile: z.string().min(10).max(15),
     otp: z.string().length(6),
 });
 
@@ -17,20 +17,19 @@ export async function POST(request: Request) {
             return NextResponse.json({ success: false, message: validation.error }, { status: 400 });
         }
 
-        const { email, otp } = validation.data;
-        const emailLower = email.toLowerCase();
+        const { mobile, otp } = validation.data;
 
         const otpRecord = await db.selectFrom('otpVerifications')
             .select(['id', 'code', 'expiresAt', 'verified'])
-            .where('email', '=', emailLower)
+            .where('mobile', '=', mobile)
             .executeTakeFirst();
 
         if (!otpRecord) {
-            return NextResponse.json({ success: false, message: 'No OTP found for this email' }, { status: 400 });
+            return NextResponse.json({ success: false, message: 'No OTP found for this mobile number' }, { status: 400 });
         }
 
         if (otpRecord.verified) {
-            return NextResponse.json({ success: false, message: 'Email already verified' }, { status: 400 });
+            return NextResponse.json({ success: false, message: 'Mobile number already verified' }, { status: 400 });
         }
 
         const now = new Date();
@@ -49,13 +48,13 @@ export async function POST(request: Request) {
                 expiresAt: null,
                 updatedAt: now,
             })
-            .where('email', '=', emailLower)
+            .where('mobile', '=', mobile)
             .execute();
 
-        return NextResponse.json({ success: true, message: 'Email verified successfully' });
+        return NextResponse.json({ success: true, message: 'Mobile number verified successfully' });
 
     } catch (error) {
-        console.error('Verify email OTP error:', error);
+        console.error('Verify mobile OTP error:', error);
         return NextResponse.json({ success: false, message: 'Internal server error' }, { status: 500 });
     }
 }
