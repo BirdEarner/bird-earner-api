@@ -422,17 +422,17 @@ export type Service = {
 export type User = {
     id: string;
     email: string;
-    mobile: string | null;
     password: string;
     fullName: string | null;
     isTestAccount: Generated<boolean>;
-    isEmailVerified: Generated<boolean>;
-    emailVerificationToken: string | null;
-    emailVerificationExpires: string | null;
     createdAt: Generated<Timestamp>;
     updatedAt: Timestamp;
     resetPasswordExpires: string | null;
     resetPasswordToken: string | null;
+    mobile: string | null;
+    isEmailVerified: Generated<boolean>;
+    emailVerificationToken: string | null;
+    emailVerificationExpires: string | null;
 };
 export type UserAddress = {
     id: string;
