@@ -23,6 +23,11 @@ export async function POST(request: Request) {
 
         const { mobile } = validation.data;
 
+        const existingUser = await db.selectFrom('users').select('id').where('mobile', '=', mobile).executeTakeFirst();
+        if (existingUser) {
+            return NextResponse.json({ success: false, message: 'An account with this mobile number already exists' }, { status: 400 });
+        }
+
         const existingOtp = await db.selectFrom('otpVerifications')
             .select(['id', 'code', 'expiresAt', 'verified'])
             .where('mobile', '=', mobile)

@@ -54,6 +54,11 @@ export async function POST(request: Request) {
             return NextResponse.json({ success: false, message: 'Email already exists' }, { status: 400 });
         }
 
+        const existingMobile = await db.selectFrom('users').select('id').where('mobile', '=', mobile).executeTakeFirst();
+        if (existingMobile) {
+            return NextResponse.json({ success: false, message: 'An account with this mobile number already exists' }, { status: 400 });
+        }
+
         const hashedPassword = await bcrypt.hash(password, 10);
         const userId = crypto.randomUUID();
 
