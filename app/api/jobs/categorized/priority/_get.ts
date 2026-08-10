@@ -10,6 +10,7 @@ const priorityFiltersSchema = z.object({
     clientId: z.string().optional(),
     freelancerId: z.string().optional(),
     serviceId: z.string().optional(),
+    serviceIds: z.string().optional(),
     budgetMin: z.string().optional().transform(v => v ? parseFloat(v) : undefined),
     budgetMax: z.string().optional().transform(v => v ? parseFloat(v) : undefined),
     isUrgent: z.string().optional().transform(v => v === 'true'),
@@ -31,6 +32,7 @@ export async function GET(request: Request) {
             .selectFrom('jobs')
             .innerJoin('clients', 'clients.id', 'jobs.clientId')
             .innerJoin('users', 'users.id', 'clients.userId')
+            .leftJoin('services', 'services.id', 'jobs.serviceId')
             .select([
                 'jobs.id',
                 'jobs.jobTitle',
@@ -42,6 +44,8 @@ export async function GET(request: Request) {
                 'jobs.isUrgent',
                 'jobs.assignedFreelancerId',
                 'jobs.deadlineDate',
+                'jobs.serviceId',
+                'services.name as serviceName',
                 'users.fullName as clientName',
                 'users.id as clientUserId',
                 'clients.companyName',
@@ -56,6 +60,16 @@ export async function GET(request: Request) {
         if (filters.budgetMin) query = query.where('jobs.budgetAmount', '>=', filters.budgetMin.toString());
         if (filters.budgetMax) query = query.where('jobs.budgetAmount', '<=', filters.budgetMax.toString());
         if (filters.isUrgent) query = query.where('jobs.isUrgent', '=', true);
+
+        // Filter by multiple service IDs (comma-separated)
+        if (filters.serviceIds) {
+            const serviceIds = filters.serviceIds.split(',').filter(Boolean);
+            if (serviceIds.length > 0) {
+                query = query.where('jobs.serviceId', 'in', serviceIds);
+            }
+        } else if (filters.serviceId) {
+            query = query.where('jobs.serviceId', '=', filters.serviceId);
+        }
 
         const jobs = await query.orderBy('jobs.createdAt', 'desc').execute();
         const categorized = await categorizeJobsByPriority(jobs, filters.serviceId || null);
