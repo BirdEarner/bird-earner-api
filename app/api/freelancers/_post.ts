@@ -10,6 +10,7 @@ const createFreelancerSchema = z.object({
     full_name: z.string().optional(),
     mobileNumber: z.string().optional(),
     selectedServices: z.any().optional(),
+    suggestedService: z.any().optional().nullable(),
     highestQualification: z.string().optional(),
     experience: z.number().optional().default(0),
     profileHeading: z.string().optional(),
@@ -52,14 +53,57 @@ export async function POST(request: Request) {
                 .execute();
         }
 
-        const { fullName, full_name, ...freelancerData } = data;
+        const { fullName, full_name, suggestedService, ...freelancerData } = data;
+
+        let servicesList: string[] = Array.isArray(freelancerData.selectedServices) ? [...freelancerData.selectedServices] : (typeof freelancerData.selectedServices === 'string' ? JSON.parse(freelancerData.selectedServices) : []);
+
+        if (suggestedService && suggestedService.serviceName) {
+            const suggestedName = suggestedService.serviceName.trim();
+            const matchingService = await db.selectFrom('services')
+                .select('id')
+                .where((eb) => eb.fn('LOWER', ['name']), '=', suggestedName.toLowerCase())
+                .executeTakeFirst();
+
+            if (matchingService) {
+                // @ts-ignore
+                await db.insertInto('suggestedServices').values({
+                    id: uuidv4(),
+                    userId: data.userId,
+                    serviceName: suggestedName,
+                    description: suggestedService.description || null,
+                    images: suggestedService.images ? JSON.stringify(suggestedService.images) : null,
+                    status: 'match',
+                    matchedServiceId: matchingService.id,
+                    updatedAt: new Date(),
+                }).execute();
+
+                if (!servicesList.includes(matchingService.id)) {
+                    servicesList.push(matchingService.id);
+                }
+            } else {
+                const suggestionId = uuidv4();
+                // @ts-ignore
+                await db.insertInto('suggestedServices').values({
+                    id: suggestionId,
+                    userId: data.userId,
+                    serviceName: suggestedName,
+                    description: suggestedService.description || null,
+                    images: suggestedService.images ? JSON.stringify(suggestedService.images) : null,
+                    status: 'pending',
+                    matchedServiceId: null,
+                    updatedAt: new Date(),
+                }).execute();
+
+                servicesList.push(`suggested:${suggestionId}`);
+            }
+        }
 
         await db.insertInto('freelancers')
             .values({
                 id: freelancerId,
                 userId: freelancerData.userId,
                 mobileNumber: freelancerData.mobileNumber || null,
-                selectedServices: freelancerData.selectedServices ? JSON.stringify(freelancerData.selectedServices) : JSON.stringify([]),
+                selectedServices: JSON.stringify(servicesList),
                 highestQualification: freelancerData.highestQualification || null,
                 experience: freelancerData.experience,
                 profileHeading: freelancerData.profileHeading || null,

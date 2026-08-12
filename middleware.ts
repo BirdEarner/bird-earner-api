@@ -18,7 +18,7 @@ export function middleware(request: NextRequest) {
         const response = new NextResponse(null, { status: 204 });
 
         response.headers.set('Access-Control-Allow-Origin', corsOrigin);
-        response.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+        response.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
         response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
         response.headers.set('Access-Control-Allow-Credentials', 'true');
         response.headers.set('Access-Control-Max-Age', '86400');
@@ -29,7 +29,7 @@ export function middleware(request: NextRequest) {
     const response = NextResponse.next();
 
     response.headers.set('Access-Control-Allow-Origin', corsOrigin);
-    response.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    response.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
     response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
     response.headers.set('Access-Control-Allow-Credentials', 'true');
 

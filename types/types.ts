@@ -139,11 +139,11 @@ export type ChatThread = {
     createdAt: Generated<Timestamp>;
     deadline: Timestamp | null;
     updatedAt: Timestamp;
-    usedStorage: Generated<string>;
-    storageLimit: Generated<string>;
     clientOffer: string | null;
     freelancerOffer: string | null;
     agreedAmount: string | null;
+    usedStorage: Generated<string>;
+    storageLimit: Generated<string>;
 };
 export type Client = {
     id: string;
@@ -224,11 +224,11 @@ export type FileManagement = {
     uploadedBy: string;
     uploaderType: string;
     category: string | null;
+    receiverId: string | null;
+    jobId: string | null;
     isActive: Generated<boolean>;
     createdAt: Generated<Timestamp>;
     updatedAt: Timestamp;
-    jobId: string | null;
-    receiverId: string | null;
 };
 export type Freelancer = {
     id: string;
@@ -350,7 +350,7 @@ export type Message = {
     updatedAt: Timestamp;
     chatThreadId: string | null;
 };
-export type negotiationHistory = {
+export type NegotiationHistory = {
     id: string;
     chatThreadId: string;
     jobId: string;
@@ -370,11 +370,11 @@ export type Notification = {
     message: string;
     type: string;
     data: unknown | null;
+    status: Generated<string>;
+    scheduledAt: Timestamp | null;
     isRead: Generated<boolean>;
     createdAt: Generated<Timestamp>;
     updatedAt: Timestamp;
-    scheduledAt: Timestamp | null;
-    status: Generated<string>;
 };
 export type OtpVerification = {
     id: string;
@@ -434,20 +434,31 @@ export type Service = {
     createdAt: Generated<Timestamp>;
     updatedAt: Timestamp;
 };
+export type SuggestedService = {
+    id: string;
+    userId: string;
+    serviceName: string;
+    description: string | null;
+    images: unknown | null;
+    status: Generated<string>;
+    matchedServiceId: string | null;
+    createdAt: Generated<Timestamp>;
+    updatedAt: Timestamp;
+};
 export type User = {
     id: string;
     email: string;
+    mobile: string | null;
     password: string;
     fullName: string | null;
     isTestAccount: Generated<boolean>;
+    isEmailVerified: Generated<boolean>;
+    emailVerificationToken: string | null;
+    emailVerificationExpires: string | null;
     createdAt: Generated<Timestamp>;
     updatedAt: Timestamp;
     resetPasswordExpires: string | null;
     resetPasswordToken: string | null;
-    mobile: string | null;
-    isEmailVerified: Generated<boolean>;
-    emailVerificationToken: string | null;
-    emailVerificationExpires: string | null;
 };
 export type UserAddress = {
     id: string;
@@ -532,13 +543,14 @@ export type DB = {
     jobBookmarks: JobBookmark;
     jobs: Job;
     messages: Message;
-    negotiationHistory: negotiationHistory;
+    negotiationHistory: NegotiationHistory;
     notifications: Notification;
     otpVerifications: OtpVerification;
     paymentHistory: PaymentHistory;
     pushTokens: PushToken;
     reviews: Review;
     services: Service;
+    suggestedServices: SuggestedService;
     userAddresses: UserAddress;
     userEggs: UserEgg;
     userMedia: UserMedia;

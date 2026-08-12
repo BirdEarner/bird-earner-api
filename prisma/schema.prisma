@@ -88,6 +88,7 @@ model User {
   sentMessages             Message[]           @relation("UserSender")
   reviewsReceived          Review[]            @relation("UserReviewsReceived")
   reviewsGiven             Review[]            @relation("UserReviewsGiven")
+  suggestedServices        suggestedServices[]
   addresses                UserAddress[]
   walletTransactions       WalletTransaction[]
 
@@ -207,8 +208,8 @@ model Client {
   currentlyAvailable    Boolean?         @default(true) @map("currentlyAvailable")
   nextAvailable         String?          @map("nextAvailable")
   coverPhoto            String?          @map("coverPhoto")
-  blockedAsClient       BlockedUser[]    @relation("BlockedClient")
-  blockerAsClient       BlockedUser[]    @relation("BlockerClient")
+  blockedAsFreelancer   BlockedUser[]    @relation("BlockedFreelancer")
+  blockerAsFreelancer   BlockedUser[]    @relation("BlockerFreelancer")
   cashbackOffer         CashbackOffer[]
   chatThreads           ChatThread[]     @relation("ClientChatThreads")
   user                  User             @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -423,10 +424,10 @@ model BlockedUser {
   blockedType       String     @map("blockedType")
   reason            String?
   createdAt         DateTime   @default(now()) @map("createdAt")
-  blockedClient     Client?     @relation("BlockedClient", fields: [blockedId], references: [id], onDelete: Cascade, map: "blockedUsersBlockedClientFkey")
-  blockedFreelancer Freelancer? @relation("BlockedFreelancer", fields: [blockedId], references: [id], onDelete: Cascade, map: "blockedUsersBlockedFreelancerFkey")
-  blockerClient     Client?     @relation("BlockerClient", fields: [blockerId], references: [id], onDelete: Cascade, map: "blockedUsersBlockerClientFkey")
-  blockerFreelancer Freelancer? @relation("BlockerFreelancer", fields: [blockerId], references: [id], onDelete: Cascade, map: "blockedUsersBlockerFreelancerFkey")
+  blockedFreelancer Client     @relation("BlockedFreelancer", fields: [blockedId], references: [id], onDelete: Cascade, map: "blockedUsersBlockedFreelancerFkey")
+  blockedFreelancer Freelancer @relation("BlockedFreelancer", fields: [blockedId], references: [id], onDelete: Cascade, map: "blockedUsersBlockedFreelancerFkey")
+  blockerFreelancer Client     @relation("BlockerFreelancer", fields: [blockerId], references: [id], onDelete: Cascade, map: "blockedUsersBlockerFreelancerFkey")
+  blockerFreelancer Freelancer @relation("BlockerFreelancer", fields: [blockerId], references: [id], onDelete: Cascade, map: "blockedUsersBlockerFreelancerFkey")
 
   @@unique([blockerId, blockedId], map: "uniqueBlockRelationship")
   @@index([blockerId], map: "blockedUsersBlockerIdIdx")
@@ -527,18 +528,19 @@ model DeleteRequest {
 }
 
 model Service {
-  id             String          @id @default(uuid())
-  name           String          @unique
-  category       ServiceCategory
-  description    String?
-  imageUrl       String?         @map("imageUrl")
-  isActive       Boolean         @default(true) @map("isActive")
-  priorityConfig Json?           @map("priorityConfig")
-  birdFee        Json?           @map("birdFee")
-  createdAt      DateTime        @default(now()) @map("createdAt")
-  updatedAt      DateTime        @updatedAt @map("updatedAt")
-  homePromos     HomePromo[]
-  jobs           Job[]           @relation("JobService")
+  id                String              @id @default(uuid())
+  name              String              @unique
+  category          ServiceCategory
+  description       String?
+  imageUrl          String?             @map("imageUrl")
+  isActive          Boolean             @default(true) @map("isActive")
+  priorityConfig    Json?               @map("priorityConfig")
+  birdFee           Json?               @map("birdFee")
+  createdAt         DateTime            @default(now()) @map("createdAt")
+  updatedAt         DateTime            @updatedAt @map("updatedAt")
+  homePromos        HomePromo[]
+  jobs              Job[]               @relation("JobService")
+  suggestedServices suggestedServices[]
 
   @@index([category], map: "servicesServiceCategoryIdx")
   @@index([isActive], map: "servicesServiceActiveIdx")
@@ -673,6 +675,24 @@ model negotiationHistory {
   @@index([createdAt], map: "negotiationHistoryCreatedAtIdx")
   @@index([jobId], map: "negotiationHistoryJobIdIdx")
   @@index([chatThreadId], map: "negotiationHistory_chatThreadIdIdx")
+}
+
+model suggestedServices {
+  id               String   @id
+  userId           String
+  serviceName      String
+  description      String?
+  images           Json?
+  status           String   @default("pending")
+  matchedServiceId String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime
+  services         Service? @relation(fields: [matchedServiceId], references: [id])
+  users            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([matchedServiceId], map: "suggestedServicesMatchedServiceIdIdx")
+  @@index([status], map: "suggestedServicesStatusIdx")
+  @@index([userId], map: "suggestedServicesUserIdIdx")
 }
 
 enum AdminRole {

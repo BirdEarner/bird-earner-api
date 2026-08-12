@@ -6,12 +6,19 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import bcrypt from 'bcryptjs';
 
+const suggestedServiceSchema = z.object({
+    serviceName: z.string().min(1, "Service name is required"),
+    description: z.string().optional().nullable(),
+    images: z.array(z.string()).optional().nullable(),
+}).optional().nullable();
+
 const freelancerSignupSchema = z.object({
     email: z.string().email(),
     password: z.string().min(6),
     full_name: z.string().min(1),
     mobile: z.string().min(10).max(15),
     selectedServices: z.array(z.string()).optional().nullable(),
+    suggestedService: suggestedServiceSchema,
     qualification: z.string().optional().nullable(),
     experience: z.string().or(z.number().transform(n => n.toString())).optional().nullable(),
     heading: z.string().optional().nullable(),
@@ -41,6 +48,18 @@ export async function POST(request: Request) {
 
         const { email, password, full_name, mobile, profileImage, coverImage, ...profileData } = validation.data;
         const emailLower = email.toLowerCase();
+
+        // Enforce min 1 and max 5 services (including suggested service)
+        const selectedList: string[] = profileData.selectedServices || [];
+        const hasSuggested = !!(profileData.suggestedService && profileData.suggestedService.serviceName);
+        const totalServicesCount = selectedList.length + (hasSuggested ? 1 : 0);
+
+        if (totalServicesCount < 1) {
+            return NextResponse.json({ success: false, message: 'Please select at least 1 service or suggest a service.' }, { status: 400 });
+        }
+        if (totalServicesCount > 5) {
+            return NextResponse.json({ success: false, message: 'You can select a maximum of 5 services.' }, { status: 400 });
+        }
 
         const otpRecord = await db
             .selectFrom('otpVerifications')
@@ -83,10 +102,63 @@ export async function POST(request: Request) {
                 updatedAt: new Date(),
             }).returningAll().executeTakeFirstOrThrow();
 
+            let finalServicesList: string[] = [...selectedList];
+
+            console.log('Received suggestedService payload:', profileData.suggestedService);
+
+            if (profileData.suggestedService && profileData.suggestedService.serviceName) {
+                const suggestedName = profileData.suggestedService.serviceName.trim();
+                console.log('Processing suggested service insertion:', suggestedName);
+
+                // Check if similar service already exists in services table (case-insensitive)
+                const matchingService = await trx.selectFrom('services')
+                    .select('id')
+                    .where((eb) => eb.fn('LOWER', ['name']), '=', suggestedName.toLowerCase())
+                    .executeTakeFirst();
+
+                if (matchingService) {
+                    console.log('Found existing matching service for suggestion:', matchingService.id);
+                    // Status: match
+                    // @ts-ignore
+                    await trx.insertInto('suggestedServices').values({
+                        id: crypto.randomUUID(),
+                        userId: user.id,
+                        serviceName: suggestedName,
+                        description: profileData.suggestedService.description || null,
+                        images: profileData.suggestedService.images ? JSON.stringify(profileData.suggestedService.images) : null,
+                        status: 'match',
+                        matchedServiceId: matchingService.id,
+                        updatedAt: new Date(),
+                    }).execute();
+
+                    if (!finalServicesList.includes(matchingService.id)) {
+                        finalServicesList.push(matchingService.id);
+                    }
+                } else {
+                    // Status: pending
+                    const suggestionId = crypto.randomUUID();
+                    console.log('Inserting pending suggested service:', suggestionId, suggestedName);
+                    // @ts-ignore
+                    await trx.insertInto('suggestedServices').values({
+                        id: suggestionId,
+                        userId: user.id,
+                        serviceName: suggestedName,
+                        description: profileData.suggestedService.description || null,
+                        images: profileData.suggestedService.images ? JSON.stringify(profileData.suggestedService.images) : null,
+                        status: 'pending',
+                        matchedServiceId: null,
+                        updatedAt: new Date(),
+                    }).execute();
+
+                    finalServicesList.push(`suggested:${suggestionId}`);
+                    console.log('Successfully inserted suggestedService row into suggestedServices table!');
+                }
+            }
+
             const freelancer = await trx.insertInto('freelancers').values({
                 id: crypto.randomUUID(),
                 userId: user.id,
-                selectedServices: profileData.selectedServices ? JSON.stringify(profileData.selectedServices) : null,
+                selectedServices: finalServicesList.length > 0 ? JSON.stringify(finalServicesList) : null,
                 highestQualification: profileData.qualification || null,
                 experience: profileData.experience ? parseInt(profileData.experience.toString(), 10) : null,
                 profileHeading: profileData.heading || null,

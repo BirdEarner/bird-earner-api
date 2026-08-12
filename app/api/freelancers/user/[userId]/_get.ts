@@ -21,6 +21,42 @@ export async function GET(
             }, { status: 404 });
         }
 
+        // Clean up orphaned suggested:<uuid> references
+        if (freelancer.selectedServices) {
+            let services: string[] = [];
+            try {
+                services = typeof freelancer.selectedServices === 'string'
+                    ? JSON.parse(freelancer.selectedServices)
+                    : freelancer.selectedServices;
+            } catch { services = []; }
+
+            const suggestedIds = services
+                .filter(s => s.startsWith('suggested:'))
+                .map(s => s.replace('suggested:', ''));
+
+            if (suggestedIds.length > 0) {
+                const existing = await db
+                    .selectFrom('suggestedServices')
+                    .select('id')
+                    .where('id', 'in', suggestedIds)
+                    .execute();
+
+                const existingIds = new Set(existing.map(e => e.id));
+                const cleaned = services.filter(s => {
+                    if (!s.startsWith('suggested:')) return true;
+                    return existingIds.has(s.replace('suggested:', ''));
+                });
+
+                if (cleaned.length !== services.length) {
+                    await db.updateTable('freelancers')
+                        .set({ selectedServices: JSON.stringify(cleaned), updatedAt: new Date() })
+                        .where('userId', '=', userId)
+                        .execute();
+                    freelancer.selectedServices = JSON.stringify(cleaned);
+                }
+            }
+        }
+
         // Fetch user details to include
         const user = await db
             .selectFrom('users')

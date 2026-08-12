@@ -19,10 +19,10 @@ export async function PUT(
         // if deployed to edge, but fine for Node.js runtime. 
         // For now, mirroring DB updates.
 
-        // Get current freelancer to find userId
+        // Get current freelancer to find userId and current selectedServices
         const currentFreelancer = await db
             .selectFrom('freelancers')
-            .select('userId')
+            .select(['id', 'userId', 'selectedServices'])
             .where('id', '=', id)
             .executeTakeFirst();
 
@@ -43,8 +43,59 @@ export async function PUT(
         // Helper to safe stringify
         const safeStringify = (val: any) => typeof val === 'object' ? JSON.stringify(val) : val;
 
+        // Handle suggestedService if provided
+        if (freelancerUpdateData.suggestedService && freelancerUpdateData.suggestedService.serviceName) {
+            const suggestedName = freelancerUpdateData.suggestedService.serviceName.trim();
+            const matchingService = await db.selectFrom('services')
+                .select('id')
+                .where((eb) => eb.fn('LOWER', ['name']), '=', suggestedName.toLowerCase())
+                .executeTakeFirst();
+
+            let rawServices = freelancerUpdateData.selectedServices !== undefined
+                ? freelancerUpdateData.selectedServices
+                : currentFreelancer.selectedServices;
+
+            const existingServices: string[] = Array.isArray(rawServices)
+                ? [...rawServices]
+                : (typeof rawServices === 'string' && rawServices ? (rawServices.startsWith('[') ? JSON.parse(rawServices) : [rawServices]) : []);
+
+            if (matchingService) {
+                // @ts-ignore
+                await db.insertInto('suggestedServices').values({
+                    id: crypto.randomUUID(),
+                    userId: currentFreelancer.userId,
+                    serviceName: suggestedName,
+                    description: freelancerUpdateData.suggestedService.description || null,
+                    images: freelancerUpdateData.suggestedService.images ? JSON.stringify(freelancerUpdateData.suggestedService.images) : null,
+                    status: 'match',
+                    matchedServiceId: matchingService.id,
+                    updatedAt: new Date(),
+                }).execute();
+
+                if (!existingServices.includes(matchingService.id)) {
+                    existingServices.push(matchingService.id);
+                }
+            } else {
+                const suggestionId = crypto.randomUUID();
+                // @ts-ignore
+                await db.insertInto('suggestedServices').values({
+                    id: suggestionId,
+                    userId: currentFreelancer.userId,
+                    serviceName: suggestedName,
+                    description: freelancerUpdateData.suggestedService.description || null,
+                    images: freelancerUpdateData.suggestedService.images ? JSON.stringify(freelancerUpdateData.suggestedService.images) : null,
+                    status: 'pending',
+                    matchedServiceId: null,
+                    updatedAt: new Date(),
+                }).execute();
+
+                existingServices.push(`suggested:${suggestionId}`);
+            }
+            updatePayload.selectedServices = JSON.stringify(existingServices);
+        } else if (freelancerUpdateData.selectedServices !== undefined) {
+            updatePayload.selectedServices = safeStringify(freelancerUpdateData.selectedServices);
+        }
         if (freelancerUpdateData.mobileNumber !== undefined) updatePayload.mobileNumber = freelancerUpdateData.mobileNumber;
-        if (freelancerUpdateData.selectedServices !== undefined) updatePayload.selectedServices = safeStringify(freelancerUpdateData.selectedServices);
         if (freelancerUpdateData.highestQualification !== undefined) updatePayload.highestQualification = freelancerUpdateData.highestQualification;
         if (freelancerUpdateData.experience !== undefined) updatePayload.experience = freelancerUpdateData.experience;
         if (freelancerUpdateData.profileHeading !== undefined) updatePayload.profileHeading = freelancerUpdateData.profileHeading;

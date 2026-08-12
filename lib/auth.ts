@@ -37,15 +37,22 @@ export async function getAdminUser(request?: Request): Promise<AdminUser | null>
             ? authHeader.substring(7)
             : (await cookies()).get('token')?.value;
 
-        if (!token) return null;
+        if (!token) {
+            console.error('[Auth] No token found. Authorization header:', authHeader || 'missing');
+            return null;
+        }
 
         const decoded = jwt.verify(token, JWT_SECRET) as AdminUser;
 
         // Check if it's an admin role
-        if (decoded.role !== 'admin' && decoded.role !== 'superadmin') return null;
+        if (decoded.role !== 'admin' && decoded.role !== 'superadmin') {
+            console.error('[Auth] Invalid role:', decoded.role);
+            return null;
+        }
 
         return decoded;
-    } catch (error) {
+    } catch (error: any) {
+        console.error('[Auth] JWT verification failed:', error.message);
         return null;
     }
 }
