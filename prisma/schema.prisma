@@ -416,13 +416,13 @@ model UserEgg {
 }
 
 model BlockedUser {
-  id                String      @id @default(uuid())
-  blockerId         String      @map("blockerId")
-  blockedId         String      @map("blockedId")
-  blockerType       String      @map("blockerType")
-  blockedType       String      @map("blockedType")
-  reason            String?     @db.Text
-  createdAt         DateTime    @default(now()) @map("createdAt")
+  id                String     @id @default(uuid())
+  blockerId         String     @map("blockerId")
+  blockedId         String     @map("blockedId")
+  blockerType       String     @map("blockerType")
+  blockedType       String     @map("blockedType")
+  reason            String?
+  createdAt         DateTime   @default(now()) @map("createdAt")
   blockedClient     Client?     @relation("BlockedClient", fields: [blockedId], references: [id], onDelete: Cascade, map: "blockedUsersBlockedClientFkey")
   blockedFreelancer Freelancer? @relation("BlockedFreelancer", fields: [blockedId], references: [id], onDelete: Cascade, map: "blockedUsersBlockedFreelancerFkey")
   blockerClient     Client?     @relation("BlockerClient", fields: [blockerId], references: [id], onDelete: Cascade, map: "blockedUsersBlockerClientFkey")
@@ -578,22 +578,26 @@ model HomePromo {
 }
 
 model ChatThread {
-  id             String     @id @default(uuid())
-  jobId          String     @map("jobId")
-  freelancerId   String     @map("freelancerId")
-  clientId       String     @map("clientId")
-  characterLimit Int        @default(200) @map("characterLimit")
-  isAccepted     Boolean    @default(false) @map("isAccepted")
-  status         ChatStatus @default(PENDING)
-  createdAt      DateTime   @default(now()) @map("createdAt")
-  deadline       DateTime?  @map("deadline")
-  updatedAt      DateTime   @updatedAt @map("updatedAt")
-  usedStorage    BigInt     @default(0) @map("usedStorage")
-  storageLimit   BigInt     @default(3221225472) @map("storageLimit")
-  client         Client     @relation("ClientChatThreads", fields: [clientId], references: [id])
-  freelancer     Freelancer @relation("FreelancerChatThreads", fields: [freelancerId], references: [id])
-  job            Job        @relation("JobChatThreads", fields: [jobId], references: [id])
-  messages       Message[]  @relation("ChatThreadMessages")
+  id                 String               @id @default(uuid())
+  jobId              String               @map("jobId")
+  freelancerId       String               @map("freelancerId")
+  clientId           String               @map("clientId")
+  characterLimit     Int                  @default(200) @map("characterLimit")
+  isAccepted         Boolean              @default(false) @map("isAccepted")
+  status             ChatStatus           @default(PENDING)
+  createdAt          DateTime             @default(now()) @map("createdAt")
+  deadline           DateTime?            @map("deadline")
+  updatedAt          DateTime             @updatedAt @map("updatedAt")
+  usedStorage        BigInt               @default(0) @map("usedStorage")
+  storageLimit       BigInt               @default(3221225472) @map("storageLimit")
+  clientOffer        Decimal?             @db.Decimal(10, 2)
+  freelancerOffer    Decimal?             @db.Decimal(10, 2)
+  agreedAmount       Decimal?             @db.Decimal(10, 2)
+  client             Client               @relation("ClientChatThreads", fields: [clientId], references: [id])
+  freelancer         Freelancer           @relation("FreelancerChatThreads", fields: [freelancerId], references: [id])
+  job                Job                  @relation("JobChatThreads", fields: [jobId], references: [id])
+  messages           Message[]            @relation("ChatThreadMessages")
+  negotiationHistory negotiationHistory[]
 
   @@unique([jobId, freelancerId, clientId], map: "uniqueJobFreelancerClientThread")
   @@index([jobId], map: "chatThreadsJobIdIdx")
@@ -651,6 +655,24 @@ model OtpVerification {
   @@index([expiresAt])
   @@index([mobile])
   @@map("otpVerifications")
+}
+
+model negotiationHistory {
+  id             String     @id
+  chatThreadId   String
+  jobId          String
+  senderId       String
+  senderType     String
+  offerType      String
+  amount         Decimal    @db.Decimal(10, 2)
+  previousAmount Decimal?   @db.Decimal(10, 2)
+  note           String?
+  createdAt      DateTime   @default(now())
+  chatThreads    ChatThread @relation(fields: [chatThreadId], references: [id])
+
+  @@index([createdAt], map: "negotiationHistoryCreatedAtIdx")
+  @@index([jobId], map: "negotiationHistoryJobIdIdx")
+  @@index([chatThreadId], map: "negotiationHistory_chatThreadIdIdx")
 }
 
 enum AdminRole {

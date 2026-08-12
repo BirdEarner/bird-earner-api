@@ -25,11 +25,42 @@ export async function POST(request: Request) {
         const { chatThreadId } = validation.data;
 
         const thread = await db
+            .selectFrom('chatThreads')
+            .selectAll()
+            .where('id', '=', chatThreadId)
+            .executeTakeFirst();
+
+        if (!thread) {
+            return NextResponse.json({ message: 'Chat thread not found' }, { status: 404 });
+        }
+
+        const agreedAmount = thread.agreedAmount || thread.freelancerOffer || thread.clientOffer;
+
+        const updatedThread = await db
             .updateTable('chatThreads')
-            .set({ isAccepted: true, characterLimit: 1000000, updatedAt: new Date() })
+            .set({
+                isAccepted: true,
+                characterLimit: 1000000,
+                agreedAmount: agreedAmount?.toString() || null,
+                status: 'ACCEPTED',
+                updatedAt: new Date()
+            })
             .where('id', '=', chatThreadId)
             .returningAll()
             .executeTakeFirstOrThrow();
+
+        await db.insertInto('negotiationHistory').values({
+            id: crypto.randomUUID(),
+            chatThreadId: chatThreadId,
+            jobId: thread.jobId,
+            senderId: user.id,
+            senderType: user.role || 'CLIENT',
+            offerType: 'ACCEPTED',
+            amount: agreedAmount?.toString() || '0',
+            previousAmount: null,
+            note: 'Negotiation accepted',
+            createdAt: new Date(),
+        }).execute();
 
         return NextResponse.json({
             success: true,

@@ -59,12 +59,27 @@ export async function POST(request: Request) {
         }
 
         const isClient = normalizedRole === 'CLIENT';
+        const previousAmount = isClient ? thread.clientOffer : thread.freelancerOffer;
+
         const updatedThread = await db
             .updateTable('chatThreads')
             .set(isClient ? { clientOffer: amountStr, updatedAt: new Date() } : { freelancerOffer: amountStr, updatedAt: new Date() })
             .where('id', '=', threadId)
             .returningAll()
             .executeTakeFirstOrThrow();
+
+        await db.insertInto('negotiationHistory').values({
+            id: crypto.randomUUID(),
+            chatThreadId: threadId,
+            jobId: thread.jobId,
+            senderId: user.id,
+            senderType: normalizedRole,
+            offerType: 'OFFER',
+            amount: amountStr,
+            previousAmount: previousAmount?.toString() || null,
+            note: null,
+            createdAt: new Date(),
+        }).execute();
 
         // Get receiver user ID
         let receiverUserId = thread.clientId;

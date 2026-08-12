@@ -139,11 +139,11 @@ export type ChatThread = {
     createdAt: Generated<Timestamp>;
     deadline: Timestamp | null;
     updatedAt: Timestamp;
+    usedStorage: Generated<string>;
+    storageLimit: Generated<string>;
     clientOffer: string | null;
     freelancerOffer: string | null;
     agreedAmount: string | null;
-    usedStorage: Generated<string>;
-    storageLimit: Generated<string>;
 };
 export type Client = {
     id: string;
@@ -350,6 +350,18 @@ export type Message = {
     updatedAt: Timestamp;
     chatThreadId: string | null;
 };
+export type negotiationHistory = {
+    id: string;
+    chatThreadId: string;
+    jobId: string;
+    senderId: string;
+    senderType: string;
+    offerType: string;
+    amount: string;
+    previousAmount: string | null;
+    note: string | null;
+    createdAt: Generated<Timestamp>;
+};
 export type Notification = {
     id: string;
     userId: string;
@@ -520,6 +532,7 @@ export type DB = {
     jobBookmarks: JobBookmark;
     jobs: Job;
     messages: Message;
+    negotiationHistory: negotiationHistory;
     notifications: Notification;
     otpVerifications: OtpVerification;
     paymentHistory: PaymentHistory;

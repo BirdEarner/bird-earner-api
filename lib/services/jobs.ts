@@ -94,7 +94,7 @@ export async function assignFreelancer(jobId: string, freelancerId: string, clie
         // Retrieve latest negotiation offers from chat thread
         const thread = await trx
             .selectFrom('chatThreads')
-            .select(['clientOffer', 'freelancerOffer', 'agreedAmount'])
+            .select(['id', 'clientOffer', 'freelancerOffer', 'agreedAmount'])
             .where('jobId', '=', jobId)
             .where('freelancerId', '=', freelancerId)
             .executeTakeFirst();
@@ -133,6 +133,19 @@ export async function assignFreelancer(jobId: string, freelancerId: string, clie
             .where('jobId', '=', jobId)
             .where('freelancerId', '=', freelancerId)
             .execute();
+
+        await trx.insertInto('negotiationHistory').values({
+            id: crypto.randomUUID(),
+            chatThreadId: thread?.id || '',
+            jobId: jobId,
+            senderId: clientUserId,
+            senderType: 'SYSTEM',
+            offerType: 'FINAL_AGREED',
+            amount: finalAmountStr,
+            previousAmount: null,
+            note: 'Freelancer assigned with agreed amount',
+            createdAt: new Date(),
+        }).execute();
 
         await trx
             .updateTable('chatThreads')
