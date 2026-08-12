@@ -91,16 +91,28 @@ export async function assignFreelancer(jobId: string, freelancerId: string, clie
 
         if (!job) throw new Error('Job not found');
 
-        // 1. If not already reserved (e.g. was CASH originally or failed), try to reserve now for PLATFORM
+        // Retrieve latest negotiation offers from chat thread
+        const thread = await trx
+            .selectFrom('chatThreads')
+            .select(['clientOffer', 'freelancerOffer', 'agreedAmount'])
+            .where('jobId', '=', jobId)
+            .where('freelancerId', '=', freelancerId)
+            .executeTakeFirst();
+
+        const finalAmountStr = thread?.agreedAmount || thread?.freelancerOffer || thread?.clientOffer || job.budgetAmount.toString();
+        const finalAmountNum = parseFloat(finalAmountStr);
+
+        // 1. If not already reserved (e.g. was CASH originally or failed), try to reserve now for PLATFORM using finalAmount
         if (!job.isAmountReserved && job.paymentMethod === 'PLATFORM') {
-            await reserveAmountForJobInTransaction(trx, clientUserId, jobId, parseFloat(job.budgetAmount));
+            await reserveAmountForJobInTransaction(trx, clientUserId, jobId, finalAmountNum);
         }
 
-        // 2. Update job assignment
+        // 2. Update job assignment with final negotiated budgetAmount
         const updatedJob = await trx
             .updateTable('jobs')
             .set({
                 assignedFreelancerId: freelancerId,
+                budgetAmount: finalAmountStr,
                 jobStatus: 'IN_PROGRESS',
                 assignedAt: new Date(),
                 updatedAt: new Date()
@@ -109,10 +121,15 @@ export async function assignFreelancer(jobId: string, freelancerId: string, clie
             .returningAll()
             .executeTakeFirstOrThrow();
 
-        // 3. Update related chat threads (if any exist at this point)
+        // 3. Update related chat threads with final agreedAmount
         await trx
             .updateTable('chatThreads')
-            .set({ status: 'ACCEPTED', updatedAt: new Date() })
+            .set({
+                status: 'ACCEPTED',
+                isAccepted: true,
+                agreedAmount: finalAmountStr,
+                updatedAt: new Date()
+            })
             .where('jobId', '=', jobId)
             .where('freelancerId', '=', freelancerId)
             .execute();

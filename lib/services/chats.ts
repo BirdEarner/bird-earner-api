@@ -1,11 +1,31 @@
 import { db } from '../db';
+import { sql } from 'kysely';
 import { sendNotification } from './notifications';
 import { DB } from '../../types/types';
+
+let isMigrated = false;
+
+async function ensureNegotiationColumns() {
+    if (isMigrated) return;
+    try {
+        await sql`
+            ALTER TABLE "chatThreads" 
+            ADD COLUMN IF NOT EXISTS "clientOffer" DECIMAL(10,2),
+            ADD COLUMN IF NOT EXISTS "freelancerOffer" DECIMAL(10,2),
+            ADD COLUMN IF NOT EXISTS "agreedAmount" DECIMAL(10,2);
+        `.execute(db);
+        isMigrated = true;
+    } catch (err) {
+        console.error('Migration execution warning:', err);
+    }
+}
 
 /**
  * Create or get a chat thread
  */
 export async function createOrGetThread(jobId: string, freelancerId: string, clientId: string) {
+    await ensureNegotiationColumns();
+
     let thread = await db
         .selectFrom('chatThreads')
         .selectAll()
@@ -26,6 +46,14 @@ export async function createOrGetThread(jobId: string, freelancerId: string, cli
             throw new Error('You have an outstanding negative balance. Please settle your fees before applying for new jobs.');
         }
 
+        const job = await db
+            .selectFrom('jobs')
+            .select('budgetAmount')
+            .where('id', '=', jobId)
+            .executeTakeFirst();
+
+        const initialBudget = job?.budgetAmount ? job.budgetAmount.toString() : '0';
+
         thread = await db
             .insertInto('chatThreads')
             .values({
@@ -33,6 +61,8 @@ export async function createOrGetThread(jobId: string, freelancerId: string, cli
                 jobId,
                 freelancerId,
                 clientId,
+                clientOffer: initialBudget,
+                freelancerOffer: initialBudget,
                 updatedAt: new Date()
             })
             .returningAll()

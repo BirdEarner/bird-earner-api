@@ -139,6 +139,9 @@ export type ChatThread = {
     createdAt: Generated<Timestamp>;
     deadline: Timestamp | null;
     updatedAt: Timestamp;
+    clientOffer: string | null;
+    freelancerOffer: string | null;
+    agreedAmount: string | null;
     usedStorage: Generated<string>;
     storageLimit: Generated<string>;
 };
