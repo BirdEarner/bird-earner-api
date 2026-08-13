@@ -101,7 +101,7 @@ export async function PATCH(request: NextRequest) {
 
             // Update Freelancer's selectedServices array if freelancer profile exists
             const freelancer = await trx.selectFrom('freelancers')
-                .select(['id', 'selectedServices'])
+                .select(['id', 'userId', 'selectedServices'])
                 .where('userId', '=', suggestion.userId)
                 .executeTakeFirst();
 
@@ -117,11 +117,11 @@ export async function PATCH(request: NextRequest) {
                     }
                 }
 
-                // Remove placeholder suggested:id
+                const beforeCount = servicesArr.length;
                 servicesArr = servicesArr.filter(s => s !== `suggested:${id}`);
 
-                if (finalMatchedId && (action === 'match' || action === 'approve')) {
-                    if (!servicesArr.includes(finalMatchedId)) {
+                if (action === 'match' || action === 'approve') {
+                    if (finalMatchedId && !servicesArr.includes(finalMatchedId)) {
                         servicesArr.push(finalMatchedId);
                     }
                 }
@@ -133,6 +133,12 @@ export async function PATCH(request: NextRequest) {
                     })
                     .where('id', '=', freelancer.id)
                     .execute();
+
+                if (beforeCount !== servicesArr.length) {
+                    console.log(`[SuggestedServices] ${action}: cleaned freelancer ${freelancer.id} selectedServices (${beforeCount} -> ${servicesArr.length})`);
+                }
+            } else {
+                console.warn(`[SuggestedServices] ${action}: freelancer not found for userId ${suggestion.userId}, skipping selectedServices cleanup`);
             }
 
             return updatedSuggestion;
