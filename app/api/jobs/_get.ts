@@ -61,7 +61,24 @@ export async function GET(request: Request) {
 
         const [jobs, totalCountResult] = await Promise.all([
             query.orderBy('jobs.createdAt', 'desc').limit(limit).offset(offset).execute(),
-            query.select(db.fn.count('jobs.id').as('count')).executeTakeFirst()
+            db.selectFrom('jobs')
+                .select(db.fn.count('jobs.id').as('count'))
+                .where((eb) => {
+                    const conditions = [];
+                    if (status) conditions.push(eb('jobs.jobStatus', '=', status as any));
+                    if (category) conditions.push(eb('jobs.jobCategory', '=', category));
+                    if (clientId) conditions.push(eb('jobs.clientId', '=', clientId));
+                    if (freelancerId) conditions.push(eb('jobs.assignedFreelancerId', '=', freelancerId));
+                    if (search) {
+                        conditions.push(eb.or([
+                            eb('jobs.jobTitle', 'ilike', `%${search}%`),
+                            eb('jobs.jobDescription', 'ilike', `%${search}%`)
+                        ]));
+                    }
+                    if (conditions.length === 0) return eb.and([]);
+                    return eb.and(conditions);
+                })
+                .executeTakeFirst()
         ]);
 
         const total = Number(totalCountResult?.count || 0);
