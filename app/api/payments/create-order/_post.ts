@@ -7,7 +7,7 @@ import { validateBody } from '@/lib/validation';
 const createOrderSchema = z.object({
   amount: z.number().positive(),
   description: z.string().optional(),
-  type: z.enum(['WALLET_DEPOSIT', 'SETTLEMENT']).default('WALLET_DEPOSIT'),
+  type: z.enum(['SETTLEMENT']).default('SETTLEMENT'),
 });
 
 export async function POST(request: Request) {
@@ -24,7 +24,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: validationResult.error }, { status: 400 });
     }
 
-    const { amount, description, type = 'WALLET_DEPOSIT' } = validationResult.data;
+    const { amount, description, type = 'SETTLEMENT' } = validationResult.data;
 
     // Create Razorpay Order
     const order = await createRazorpayOrder(

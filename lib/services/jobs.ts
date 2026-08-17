@@ -1,6 +1,5 @@
 import { db } from '../db';
 import { calculateBirdFee } from '../utils/fee';
-import { reserveAmountForJobInTransaction, processJobPaymentInTransaction, releaseReservedAmountInTransaction } from './wallet';
 import { sendNotification } from './notifications';
 import { DB, JobStatus } from '../../types/types';
 import { Transaction } from 'kysely';
@@ -55,22 +54,7 @@ export async function createJob(jobData: any, userId: string, clientId: string) 
             .returningAll()
             .executeTakeFirstOrThrow();
 
-        // 3. Handle Platform Payment Reservation
-        if (job.paymentMethod === 'PLATFORM') {
-            await reserveAmountForJobInTransaction(trx, userId, job.id, budgetAmount);
-
-            // Update job to reserved status
-            return await trx
-                .updateTable('jobs')
-                .set({
-                    isAmountReserved: true,
-                    paymentStatus: 'RESERVED',
-                    updatedAt: new Date()
-                })
-                .where('id', '=', job.id)
-                .returningAll()
-                .executeTakeFirstOrThrow();
-        }
+        return job;
 
         return job;
     });
@@ -100,14 +84,8 @@ export async function assignFreelancer(jobId: string, freelancerId: string, clie
             .executeTakeFirst();
 
         const finalAmountStr = thread?.agreedAmount || thread?.freelancerOffer || thread?.clientOffer || job.budgetAmount.toString();
-        const finalAmountNum = parseFloat(finalAmountStr);
 
-        // 1. If not already reserved (e.g. was CASH originally or failed), try to reserve now for PLATFORM using finalAmount
-        if (!job.isAmountReserved && job.paymentMethod === 'PLATFORM') {
-            await reserveAmountForJobInTransaction(trx, clientUserId, jobId, finalAmountNum);
-        }
-
-        // 2. Update job assignment with final negotiated budgetAmount
+        // 1. Update job assignment with final negotiated budgetAmount
         const updatedJob = await trx
             .updateTable('jobs')
             .set({
@@ -263,10 +241,7 @@ export async function completeJob(jobId: string, clientUserId: string) {
             throw new Error('Unauthorized');
         }
 
-        // 1. Process Payment
-        await processJobPaymentInTransaction(trx, jobId);
-
-        // 2. Update Status
+        // 1. Update Status
         const completedJob = await trx
             .updateTable('jobs')
             .set({
@@ -330,12 +305,7 @@ export async function cancelJob(jobId: string, userId: string) {
             throw new Error('Unauthorized');
         }
 
-        // 1. Release Funds if reserved
-        if (job.isAmountReserved) {
-            await releaseReservedAmountInTransaction(trx, job.clientUserId, jobId);
-        }
-
-        // 2. Update status
+        // 1. Update status
         const cancelledJob = await trx
             .updateTable('jobs')
             .set({
