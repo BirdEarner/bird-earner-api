@@ -631,15 +631,17 @@ model UserMedia {
 }
 
 model CashbackOffer {
-  id         String                  @id
-  amount     Float
-  amountType CashbackOfferAmountType
-  discovered Boolean                 @default(false)
-  used       Boolean                 @default(false)
-  createdAt  DateTime                @default(now()) @map("createdAt")
-  updatedAt  DateTime                @map("updatedAt")
-  clientId   String                  @map("clientId")
-  clients    Client                  @relation(fields: [clientId], references: [id], onDelete: Cascade, map: "CashbackOfferClientIdFkey")
+  id          String                  @id
+  amount      Float
+  amountType  CashbackOfferAmountType
+  minBooking  Float                   @default(0)
+  maxDiscount Float?
+  discovered  Boolean                 @default(false)
+  used        Boolean                 @default(false)
+  createdAt   DateTime                @default(now()) @map("createdAt")
+  updatedAt   DateTime                @map("updatedAt")
+  clientId    String                  @map("clientId")
+  clients     Client                  @relation(fields: [clientId], references: [id], onDelete: Cascade, map: "CashbackOfferClientIdFkey")
 
   @@index([clientId], map: "CashbackOfferClientIdIdx")
   @@map("cashbackOffers")

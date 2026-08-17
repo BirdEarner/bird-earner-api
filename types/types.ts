@@ -122,6 +122,8 @@ export type CashbackOffer = {
     id: string;
     amount: number;
     amountType: CashbackOfferAmountType;
+    minBooking: Generated<number>;
+    maxDiscount: number | null;
     discovered: Generated<boolean>;
     used: Generated<boolean>;
     createdAt: Generated<Timestamp>;
