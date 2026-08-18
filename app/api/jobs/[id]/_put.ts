@@ -40,6 +40,7 @@ export async function PUT(
             .innerJoin('clients', 'clients.id', 'jobs.clientId')
             .select('clients.userId')
             .where('jobs.id', '=', id)
+            .where('jobs.deleted', '=', false)
             .executeTakeFirst();
 
         if (!jobExists || jobExists.userId !== user.id) {

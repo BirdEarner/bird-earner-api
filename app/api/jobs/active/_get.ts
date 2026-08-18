@@ -29,6 +29,7 @@ export async function GET() {
             .selectFrom('jobs')
             .innerJoin('clients', 'jobs.clientId', 'clients.id')
             .innerJoin('users', 'clients.userId', 'users.id')
+            .where('jobs.deleted', '=', false)
             .select([
                 'jobs.id',
                 'jobs.jobTitle',

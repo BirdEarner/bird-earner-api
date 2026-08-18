@@ -50,6 +50,7 @@ export async function GET(request: Request) {
             .selectFrom('jobs')
             .select(['id', 'completedAt', 'budgetAmount'])
             .where('clientId', '=', client.id)
+            .where('deleted', '=', false)
             .where('completedAt', '>=', startOfMonth)
             .where('completedAt', '<=', endOfToday)
             .where('jobStatus', '=', 'COMPLETED')

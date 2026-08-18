@@ -17,12 +17,16 @@ export async function DELETE(
         const jobExists = await db
             .selectFrom('jobs')
             .innerJoin('clients', 'clients.id', 'jobs.clientId')
-            .select(['clients.userId', 'jobs.cashbackOfferId', 'jobs.jobStatus'])
+            .select(['clients.userId', 'jobs.cashbackOfferId', 'jobs.jobStatus', 'jobs.deleted'])
             .where('jobs.id', '=', id)
             .executeTakeFirst();
 
         if (!jobExists || jobExists.userId !== user.id) {
             return NextResponse.json({ message: 'Unauthorized or not found' }, { status: 401 });
+        }
+
+        if (jobExists.deleted) {
+            return NextResponse.json({ message: 'Job already deleted' }, { status: 400 });
         }
 
         if (jobExists.jobStatus !== 'OPEN') {
@@ -39,7 +43,8 @@ export async function DELETE(
             }
 
             await trx
-                .deleteFrom('jobs')
+                .updateTable('jobs')
+                .set({ deleted: true, updatedAt: new Date() })
                 .where('id', '=', id)
                 .execute();
         });

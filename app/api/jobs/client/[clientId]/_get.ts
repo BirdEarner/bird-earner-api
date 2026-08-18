@@ -25,7 +25,8 @@ export async function GET(
         let query = db
             .selectFrom("jobs")
             .selectAll("jobs")
-            .where("clientId", "=", clientId);
+            .where("clientId", "=", clientId)
+            .where("deleted", "=", false);
 
         if (status) {
             query = query.where("jobStatus", "=", status.toUpperCase() as any);
@@ -41,6 +42,7 @@ export async function GET(
                 .selectFrom("jobs")
                 .select(db.fn.count("id").as("count"))
                 .where("clientId", "=", clientId)
+                .where("deleted", "=", false)
                 .$if(!!status, (qb) => qb.where("jobStatus", "=", status?.toUpperCase() as any))
                 .executeTakeFirst(),
         ]);

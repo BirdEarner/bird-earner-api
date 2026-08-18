@@ -34,6 +34,7 @@ export async function PATCH(
             .updateTable('jobs')
             .set({ jobStatus: status, updatedAt: new Date() })
             .where('id', '=', id)
+            .where('deleted', '=', false)
             .returningAll()
             .executeTakeFirstOrThrow();
 
@@ -48,6 +49,7 @@ export async function PATCH(
                 'freelancers.userId as freelancerUserId'
             ])
             .where('jobs.id', '=', id)
+            .where('jobs.deleted', '=', false)
             .executeTakeFirst();
 
         if (jobDetails) {

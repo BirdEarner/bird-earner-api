@@ -41,6 +41,7 @@ export async function POST(
                 'freelancers.userId as freelancerUserId'
             ])
             .where('jobs.id', '=', id)
+            .where('jobs.deleted', '=', false)
             .executeTakeFirst();
 
         if (!job) {

@@ -31,6 +31,7 @@ export async function GET(request: Request) {
             .innerJoin('clients', 'clients.id', 'jobs.clientId')
             .innerJoin('users', 'users.id', 'clients.userId')
             .leftJoin('services', 'services.id', 'jobs.serviceId')
+            .where('jobs.deleted', '=', false)
             .select([
                 'jobs.id',
                 'jobs.jobTitle',
@@ -63,21 +64,15 @@ export async function GET(request: Request) {
             query.orderBy('jobs.createdAt', 'desc').limit(limit).offset(offset).execute(),
             db.selectFrom('jobs')
                 .select(db.fn.count('jobs.id').as('count'))
-                .where((eb) => {
-                    const conditions = [];
-                    if (status) conditions.push(eb('jobs.jobStatus', '=', status as any));
-                    if (category) conditions.push(eb('jobs.jobCategory', '=', category));
-                    if (clientId) conditions.push(eb('jobs.clientId', '=', clientId));
-                    if (freelancerId) conditions.push(eb('jobs.assignedFreelancerId', '=', freelancerId));
-                    if (search) {
-                        conditions.push(eb.or([
-                            eb('jobs.jobTitle', 'ilike', `%${search}%`),
-                            eb('jobs.jobDescription', 'ilike', `%${search}%`)
-                        ]));
-                    }
-                    if (conditions.length === 0) return eb.and([]);
-                    return eb.and(conditions);
-                })
+                .where('jobs.deleted', '=', false)
+                .$if(!!status, (qb) => qb.where('jobs.jobStatus', '=', status as any))
+                .$if(!!category, (qb) => qb.where('jobs.jobCategory', '=', category))
+                .$if(!!clientId, (qb) => qb.where('jobs.clientId', '=', clientId))
+                .$if(!!freelancerId, (qb) => qb.where('jobs.assignedFreelancerId', '=', freelancerId))
+                .$if(!!search, (qb) => qb.where((eb) => eb.or([
+                    eb('jobs.jobTitle', 'ilike', `%${search}%`),
+                    eb('jobs.jobDescription', 'ilike', `%${search}%`)
+                ])))
                 .executeTakeFirst()
         ]);
 

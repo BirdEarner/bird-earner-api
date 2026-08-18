@@ -49,7 +49,8 @@ export async function GET(
     // 2. Aggregate Job Data for the period
     let jobsQuery = db
       .selectFrom('jobs')
-      .where('assignedFreelancerId', '=', freelancer.id);
+      .where('assignedFreelancerId', '=', freelancer.id)
+      .where('deleted', '=', false);
 
     if (period !== 'All Time') {
       if (period === 'April') {

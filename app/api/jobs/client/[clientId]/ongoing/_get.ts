@@ -33,6 +33,7 @@ export async function GET(
                 "services.isActive as serviceIsActive",
             ])
             .where("jobs.clientId", "=", clientId)
+            .where("jobs.deleted", "=", false)
             .where("jobs.jobStatus", "in", ["IN_PROGRESS", "OPEN"])
             .orderBy("jobs.updatedAt", "desc")
             .limit(10)

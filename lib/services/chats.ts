@@ -112,6 +112,7 @@ export async function sendMessage(data: any) {
         .innerJoin('jobs', 'jobs.id', 'chatThreads.jobId')
         .select(['jobs.jobStatus', 'chatThreads.characterLimit'])
         .where('chatThreads.id', '=', chatThreadId)
+        .where('jobs.deleted', '=', false)
         .executeTakeFirst();
 
     if (!thread) throw new Error('Chat thread not found');
@@ -178,7 +179,8 @@ export async function getConversations(userId: string, role: 'CLIENT' | 'FREELAN
         .leftJoin('clients', 'clients.id', 'chatThreads.clientId')
         .leftJoin('users as clientUser', 'clientUser.id', 'clients.userId')
         .leftJoin('freelancers', 'freelancers.id', 'chatThreads.freelancerId')
-        .leftJoin('users as freeUser', 'freeUser.id', 'freelancers.userId');
+        .leftJoin('users as freeUser', 'freeUser.id', 'freelancers.userId')
+        .where('jobs.deleted', '=', false);
 
     if (role === 'CLIENT') {
         const client = await db.selectFrom('clients').select('id').where('userId', '=', userId).executeTakeFirst();

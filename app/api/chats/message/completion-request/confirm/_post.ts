@@ -93,6 +93,7 @@ export async function POST(request: Request) {
                     .selectFrom('jobs')
                     .select(['discountAmount', 'cashbackOfferId'])
                     .where('id', '=', jobId)
+                    .where('deleted', '=', false)
                     .executeTakeFirst();
 
                 const discountAmt = parseFloat(jobData?.discountAmount || '0');
@@ -141,6 +142,7 @@ export async function POST(request: Request) {
                         .leftJoin('freelancers', 'freelancers.id', 'jobs.assignedFreelancerId')
                         .select(['jobs.clientId', 'clients.userId as clientUserId', 'freelancers.userId as freelancerUserId'])
                         .where('jobs.id', '=', jobId)
+                        .where('jobs.deleted', '=', false)
                         .executeTakeFirst();
 
                     if (!job) throw new Error('Job not found');

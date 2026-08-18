@@ -50,6 +50,7 @@ export async function GET(
                 'services.name as serviceName'
             ])
             .where('jobs.id', '=', id)
+            .where('jobs.deleted', '=', false)
             .executeTakeFirst();
 
         if (!job) {

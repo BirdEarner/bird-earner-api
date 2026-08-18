@@ -17,6 +17,7 @@ export async function GET() {
 
         await sql`ALTER TABLE "jobs" ADD COLUMN IF NOT EXISTS "cashbackOfferId" TEXT`.execute(db);
         await sql`ALTER TABLE "jobs" ADD COLUMN IF NOT EXISTS "discountAmount" DECIMAL(10,2) DEFAULT 0`.execute(db);
+        await sql`ALTER TABLE "jobs" ADD COLUMN IF NOT EXISTS "deleted" BOOLEAN NOT NULL DEFAULT false`.execute(db);
 
         return NextResponse.json({ success: true, message: 'Migration executed successfully' });
     } catch (error: any) {

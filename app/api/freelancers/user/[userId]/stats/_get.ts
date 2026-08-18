@@ -41,7 +41,8 @@ export async function GET(
     // 2. Query Jobs to calculate success score and orders completed
     let jobsQuery = db
       .selectFrom('jobs')
-      .where('assignedFreelancerId', '=', freelancer.id);
+      .where('assignedFreelancerId', '=', freelancer.id)
+      .where('deleted', '=', false);
 
     if (period !== 'All Time') {
        jobsQuery = jobsQuery.where('createdAt', '>=', dateFilter);

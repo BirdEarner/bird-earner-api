@@ -37,6 +37,7 @@ export async function POST(request: Request) {
             .selectFrom('jobs')
             .select(['id', 'clientId', 'cashbackOfferId'])
             .where('id', '=', jobId)
+            .where('deleted', '=', false)
             .executeTakeFirst();
 
         if (!job || job.clientId !== client.id) {

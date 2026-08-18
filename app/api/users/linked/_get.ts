@@ -39,6 +39,7 @@ export async function GET() {
                     'jobs.createdAt'
                 ])
                 .where('jobs.clientId', '=', client.id)
+                .where('jobs.deleted', '=', false)
                 .where('jobs.assignedFreelancerId', 'is not', null)
                 .execute();
 
@@ -86,6 +87,7 @@ export async function GET() {
                     'jobs.createdAt'
                 ])
                 .where('jobs.assignedFreelancerId', '=', freelancer.id)
+                .where('jobs.deleted', '=', false)
                 .where('jobs.jobStatus', 'not in', ['COMPLETED', 'CANCELLED'])
                 .execute();
 

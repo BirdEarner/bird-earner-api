@@ -31,6 +31,7 @@ export async function GET(request: Request) {
                 sql<number>`count(case when "jobStatus" = 'CANCELLED' then 1 end)`.as('cancelled'),
                 sql<number>`sum(case when "jobStatus" = 'COMPLETED' then "budgetAmount" else 0 end)`.as('totalCompletedBudget'),
             ])
+            .where('deleted', '=', false)
             .executeTakeFirst();
 
         // 3. Wallet / Earning Stats

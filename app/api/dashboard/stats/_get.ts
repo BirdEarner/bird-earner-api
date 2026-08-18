@@ -34,6 +34,7 @@ export async function GET() {
                     .selectFrom('jobs')
                     .select(['jobStatus'])
                     .where('assignedFreelancerId', '=', freelancer.id)
+                    .where('deleted', '=', false)
                     .execute();
 
                 const completedJobs = jobs.filter(j => j.jobStatus === 'COMPLETED').length;
@@ -44,6 +45,7 @@ export async function GET() {
                     .selectFrom('jobs')
                     .select(['budgetAmount', 'completedAt'])
                     .where('assignedFreelancerId', '=', freelancer.id)
+                    .where('deleted', '=', false)
                     .where('jobStatus', '=', 'COMPLETED')
                     .execute();
 
@@ -88,6 +90,7 @@ export async function GET() {
                     .selectFrom('jobs')
                     .select(['jobStatus', 'budgetAmount', 'completedAt', 'createdAt'])
                     .where('clientId', '=', client.id)
+                    .where('deleted', '=', false)
                     .execute();
 
                 const postedJobs = jobs.length;
