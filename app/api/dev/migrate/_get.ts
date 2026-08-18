@@ -13,6 +13,10 @@ export async function GET() {
 
         await sql`ALTER TABLE "cashbackOffers" ADD COLUMN IF NOT EXISTS "minBooking" DOUBLE PRECISION NOT NULL DEFAULT 0`.execute(db);
         await sql`ALTER TABLE "cashbackOffers" ADD COLUMN IF NOT EXISTS "maxDiscount" DOUBLE PRECISION`.execute(db);
+        await sql`ALTER TABLE "cashbackOffers" ADD COLUMN IF NOT EXISTS "reservedJobId" TEXT`.execute(db);
+
+        await sql`ALTER TABLE "jobs" ADD COLUMN IF NOT EXISTS "cashbackOfferId" TEXT`.execute(db);
+        await sql`ALTER TABLE "jobs" ADD COLUMN IF NOT EXISTS "discountAmount" DECIMAL(10,2) DEFAULT 0`.execute(db);
 
         return NextResponse.json({ success: true, message: 'Migration executed successfully' });
     } catch (error: any) {

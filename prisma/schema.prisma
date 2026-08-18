@@ -252,6 +252,8 @@ model Job {
   isAmountReserved     Boolean             @default(false) @map("isAmountReserved")
   paymentStatus        PaymentStatus       @default(PENDING) @map("paymentStatus")
   completedAt          DateTime?           @map("completedAt")
+  cashbackOfferId      String?             @map("cashbackOfferId")
+  discountAmount       Decimal?            @default(0) @map("discountAmount") @db.Decimal(10, 2)
   chatThreads          ChatThread[]        @relation("JobChatThreads")
   bookmarks            JobBookmark[]
   assignedFreelancer   Freelancer?         @relation("AssignedFreelancer", fields: [assignedFreelancerId], references: [id], map: "jobsAssignedFreelancerFkey")

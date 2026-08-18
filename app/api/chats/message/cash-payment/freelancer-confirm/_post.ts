@@ -73,6 +73,8 @@ export async function POST(request: Request) {
                     'jobs.id as jobId',
                     'jobs.jobTitle',
                     'jobs.budgetAmount',
+                    'jobs.discountAmount',
+                    'jobs.cashbackOfferId',
                     'freelancers.id as freelancerId',
                     'freelancers.userId as freelancerUserId',
                     'freelancers.withdrawableAmount',
@@ -104,7 +106,8 @@ export async function POST(request: Request) {
 
             // Deduct bird fee from freelancer's wallet (ALLOW NEGATIVE)
             const currentBalance = parseFloat(thread.withdrawableAmount);
-            const newBalance = currentBalance - birdFeeAmount;
+            const discountAmt = parseFloat(thread.discountAmount || '0');
+            let newBalance = currentBalance - birdFeeAmount;
 
             await trx
                 .updateTable('freelancers')
@@ -112,7 +115,7 @@ export async function POST(request: Request) {
                 .where('id', '=', thread.freelancerId)
                 .execute();
 
-            // Create wallet transaction record
+            // Create wallet transaction record for platform fee
             await trx
                 .insertInto('walletTransactions')
                 .values({
@@ -129,7 +132,55 @@ export async function POST(request: Request) {
                 })
                 .execute();
 
+            // Credit cashback discount from BirdEarner to freelancer
+            if (discountAmt > 0) {
+                const balanceBeforeCashback = newBalance;
+                newBalance = newBalance + discountAmt;
+
+                await trx
+                    .updateTable('freelancers')
+                    .set({ withdrawableAmount: newBalance.toString(), updatedAt: new Date() })
+                    .where('id', '=', thread.freelancerId)
+                    .execute();
+
+                await trx
+                    .insertInto('walletTransactions')
+                    .values({
+                        id: crypto.randomUUID(),
+                        userId: thread.freelancerUserId,
+                        userType: 'FREELANCER',
+                        jobId: thread.jobId,
+                        amount: discountAmt.toString(),
+                        transactionType: 'DEPOSIT',
+                        balanceBefore: balanceBeforeCashback.toString(),
+                        balanceAfter: newBalance.toString(),
+                        description: `Cashback coupon applied by client - ${thread.jobTitle}`,
+                        updatedAt: new Date()
+                    })
+                    .execute();
+            }
+
+            // Mark coupon as fully used after job completion (outside discount check)
+            if (thread.cashbackOfferId) {
+                await trx
+                    .updateTable('cashbackOffers')
+                    .set({ used: true, reservedJobId: null, updatedAt: new Date() })
+                    .where('id', '=', thread.cashbackOfferId)
+                    .execute();
+            }
+
             // System notification message
+            const budgetAmt = parseFloat(thread.budgetAmount);
+            const clientPays = budgetAmt - discountAmt;
+            let notificationText = `✅ Payment completed!`;
+            if (discountAmt > 0) {
+                notificationText += `\n💰 Client paid: ₹${clientPays}`;
+                notificationText += `\n🎁 BirdEarner paid: ₹${discountAmt} (cashback)`;
+                notificationText += `\nTotal to freelancer: ₹${budgetAmt}`;
+            } else {
+                notificationText += ` Freelancer received ₹${budgetAmt}`;
+            }
+
             await trx
                 .insertInto('messages')
                 .values({
@@ -137,7 +188,7 @@ export async function POST(request: Request) {
                     chatThreadId: threadId,
                     senderId: user.id,
                     receiverId: message.receiverId === user.id ? message.senderId : message.receiverId,
-                    messageContent: `✅ Payment completed! Freelancer received ₹${thread.budgetAmount}`,
+                    messageContent: notificationText,
                     messageType: 'notification',
                     senderType: 'SYSTEM',
                     updatedAt: new Date()

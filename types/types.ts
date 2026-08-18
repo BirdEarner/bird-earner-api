@@ -126,6 +126,7 @@ export type CashbackOffer = {
     maxDiscount: number | null;
     discovered: Generated<boolean>;
     used: Generated<boolean>;
+    reservedJobId: string | null;
     createdAt: Generated<Timestamp>;
     updatedAt: Timestamp;
     clientId: string;
@@ -329,6 +330,8 @@ export type Job = {
     isAmountReserved: Generated<boolean>;
     paymentStatus: Generated<PaymentStatus>;
     completedAt: Timestamp | null;
+    cashbackOfferId: string | null;
+    discountAmount: Generated<string | null>;
 };
 export type JobBookmark = {
     id: string;

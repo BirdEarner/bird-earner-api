@@ -292,6 +292,7 @@ export async function cancelJob(jobId: string, userId: string) {
             .select([
                 'jobs.id',
                 'jobs.isAmountReserved',
+                'jobs.cashbackOfferId',
                 'clients.userId as clientUserId',
                 'freelancers.userId as freelancerUserId'
             ])
@@ -317,6 +318,15 @@ export async function cancelJob(jobId: string, userId: string) {
             .where('id', '=', jobId)
             .returningAll()
             .executeTakeFirstOrThrow();
+
+        // Release reserved coupon if any
+        if (job.cashbackOfferId) {
+            await trx
+                .updateTable('cashbackOffers')
+                .set({ reservedJobId: null, updatedAt: new Date() })
+                .where('id', '=', job.cashbackOfferId)
+                .execute();
+        }
 
         return cancelledJob;
     });

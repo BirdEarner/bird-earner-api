@@ -19,12 +19,15 @@ function calculateEggs(jobs: any[]) {
     return jobs.length;
 }
 
-export async function GET() {
+export async function GET(request: Request) {
     try {
         const user = await getAuthUser();
         if (!user) {
             return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
         }
+
+        const url = new URL(request.url);
+        const jobId = url.searchParams.get('jobId');
 
         const client = await db
             .selectFrom('clients')
@@ -60,8 +63,13 @@ export async function GET() {
             .selectAll()
             .where('clientId', '=', client.id)
             .where('discovered', '=', true)
+            .where('used', '=', false)
             .where('createdAt', '>=', startOfMonth)
             .where('createdAt', '<=', endOfToday)
+            .where((eb) => eb.or([
+                eb('reservedJobId', 'is', null),
+                jobId ? eb('reservedJobId', '=', jobId) : eb('reservedJobId', 'is', null),
+            ]))
             .execute();
 
         const undiscoveredOffers = await db

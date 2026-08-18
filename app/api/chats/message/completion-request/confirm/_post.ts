@@ -88,6 +88,22 @@ export async function POST(request: Request) {
 
             // 3. Payment Processing
             if (paymentMethod === 'CASH') {
+                // Fetch discount info from job
+                const jobData = await trx
+                    .selectFrom('jobs')
+                    .select(['discountAmount', 'cashbackOfferId'])
+                    .where('id', '=', jobId)
+                    .executeTakeFirst();
+
+                const discountAmt = parseFloat(jobData?.discountAmount || '0');
+                const budgetNum = parseFloat(budgetAmount);
+                const clientPays = budgetNum - discountAmt;
+
+                let cashContent = 'Project completion confirmed. Cash payment process initiated.';
+                if (discountAmt > 0) {
+                    cashContent = `Project completion confirmed.\n💰 You pay client: ₹${clientPays}\n🎁 BirdEarner pays you: ₹${discountAmt}\nTotal: ₹${budgetNum}`;
+                }
+
                 const cashMsg = await trx
                     .insertInto('messages')
                     .values({
@@ -95,11 +111,14 @@ export async function POST(request: Request) {
                         chatThreadId: threadId,
                         senderId: user.id,
                         receiverId: message.senderId,
-                        messageContent: 'Project completion confirmed. Cash payment process initiated.',
+                        messageContent: cashContent,
                         messageType: 'cash_payment',
                         senderType: 'SYSTEM',
                         messageData: {
                             amount: budgetAmount,
+                            discountAmount: discountAmt.toString(),
+                            clientPays: clientPays.toString(),
+                            birdEarnerPays: discountAmt.toString(),
                             step: 'initial',
                             clientConfirmed: false,
                             freelancerConfirmed: false,
