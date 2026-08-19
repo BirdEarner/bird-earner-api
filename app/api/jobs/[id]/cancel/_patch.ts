@@ -1,6 +1,12 @@
 import { getAuthUser } from '@/lib/auth';
 import { cancelJob } from '@/lib/services/jobs';
 import { NextResponse } from 'next/server';
+import { z } from 'zod';
+import { validateParams } from '@/lib/validation';
+
+const cancelSchema = z.object({
+    reason: z.string().optional(),
+});
 
 export async function PATCH(
     request: Request,
@@ -13,7 +19,11 @@ export async function PATCH(
         }
 
         const { id } = await params;
-        const job = await cancelJob(id, user.id);
+        const body = await request.json().catch(() => ({}));
+        const validation = await validateParams(Promise.resolve(body), cancelSchema);
+
+        const reason = validation.success ? validation.data.reason : undefined;
+        const job = await cancelJob(id, user.id, reason);
 
         return NextResponse.json({
             success: true,

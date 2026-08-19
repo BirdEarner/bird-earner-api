@@ -25,6 +25,15 @@ export async function createJob(jobData: any, userId: string, clientId: string) 
     }
 
     const result = await db.transaction().execute(async (trx) => {
+        // Check for pending client penalty
+        const client = await trx
+            .selectFrom('clients')
+            .select(['id', 'pendingPenaltyAmount'])
+            .where('id', '=', clientId)
+            .executeTakeFirst();
+
+        const penaltyAmount = parseFloat(client?.pendingPenaltyAmount?.toString() || '0');
+
         // 2. Create the job record
         const job = await trx
             .insertInto('jobs')
@@ -46,6 +55,7 @@ export async function createJob(jobData: any, userId: string, clientId: string) 
                 attachedFiles: JSON.stringify(jobData.attachedFiles || []),
                 location: jobData.location || null,
                 isUrgent: jobData.isUrgent || false,
+                clientPenaltyAmount: penaltyAmount > 0 ? penaltyAmount.toString() : '0',
                 jobStatus: 'OPEN',
                 paymentStatus: 'PENDING',
                 isAmountReserved: false,
@@ -54,7 +64,14 @@ export async function createJob(jobData: any, userId: string, clientId: string) 
             .returningAll()
             .executeTakeFirstOrThrow();
 
-        return job;
+        // Clear client's pending penalty
+        if (penaltyAmount > 0) {
+            await trx
+                .updateTable('clients')
+                .set({ pendingPenaltyAmount: '0', updatedAt: new Date() })
+                .where('id', '=', clientId)
+                .execute();
+        }
 
         return job;
     });
@@ -69,11 +86,13 @@ export async function assignFreelancer(jobId: string, freelancerId: string, clie
     return await db.transaction().execute(async (trx) => {
         const job = await trx
             .selectFrom('jobs')
-            .select(['id', 'budgetAmount', 'paymentMethod', 'isAmountReserved', 'jobTitle'])
+            .select(['id', 'budgetAmount', 'paymentMethod', 'isAmountReserved', 'jobTitle', 'clientPenaltyAmount'])
             .where('id', '=', jobId)
             .executeTakeFirst();
 
         if (!job) throw new Error('Job not found');
+
+        const penaltyAmount = parseFloat(job.clientPenaltyAmount?.toString() || '0');
 
         // Retrieve latest negotiation offers from chat thread
         const thread = await trx
@@ -148,6 +167,32 @@ export async function assignFreelancer(jobId: string, freelancerId: string, clie
                 'JOB_ASSIGNED',
                 { jobId }
             );
+        }
+
+        // Send penalty info message to chat if there is a penalty
+        if (penaltyAmount > 0 && thread?.id) {
+            const freelancerUser = await trx
+                .selectFrom('freelancers')
+                .select('userId')
+                .where('id', '=', freelancerId)
+                .executeTakeFirst();
+
+            if (freelancerUser) {
+                const penaltyMsg = `⚠️ Client Cancellation Penalty\n\nThis job includes a ₹${penaltyAmount.toFixed(2)} client cancellation penalty from a previously cancelled job. This amount will be deducted from your wallet when the job is completed.`;
+
+                await trx.insertInto('messages').values({
+                    id: crypto.randomUUID(),
+                    chatThreadId: thread.id,
+                    senderId: clientUserId,
+                    receiverId: freelancerUser.userId,
+                    messageContent: penaltyMsg,
+                    messageType: 'text',
+                    messageData: JSON.stringify({ penaltyAmount }),
+                    senderType: 'CLIENT',
+                    isRead: false,
+                    updatedAt: new Date()
+                }).execute();
+            }
         }
 
         return updatedJob;
@@ -283,7 +328,7 @@ export async function completeJob(jobId: string, clientUserId: string) {
 /**
  * Cancel a job
  */
-export async function cancelJob(jobId: string, userId: string) {
+export async function cancelJob(jobId: string, userId: string, reason?: string) {
     return await db.transaction().execute(async (trx) => {
         const job = await trx
             .selectFrom('jobs')
@@ -291,10 +336,16 @@ export async function cancelJob(jobId: string, userId: string) {
             .leftJoin('freelancers', 'freelancers.id', 'jobs.assignedFreelancerId')
             .select([
                 'jobs.id',
+                'jobs.budgetAmount',
+                'jobs.assignedFreelancerId',
                 'jobs.isAmountReserved',
                 'jobs.cashbackOfferId',
+                'jobs.clientId',
+                'jobs.jobTitle',
                 'clients.userId as clientUserId',
-                'freelancers.userId as freelancerUserId'
+                'freelancers.id as freelancerId',
+                'freelancers.userId as freelancerUserId',
+                'freelancers.withdrawableAmount'
             ])
             .where('jobs.id', '=', jobId)
             .executeTakeFirst();
@@ -326,6 +377,155 @@ export async function cancelJob(jobId: string, userId: string) {
                 .set({ reservedJobId: null, updatedAt: new Date() })
                 .where('id', '=', job.cashbackOfferId)
                 .execute();
+        }
+
+        const isClientCancelling = job.clientUserId === userId;
+        const isFreelancerCancelling = job.freelancerUserId === userId;
+        const isAssigned = !!job.assignedFreelancerId;
+
+        // Client cancels assigned job → 2% penalty stored as pending for next job
+        if (isClientCancelling && isAssigned) {
+            const budget = parseFloat(job.budgetAmount.toString());
+            const penaltyAmount = budget * 0.02;
+
+            await trx
+                .updateTable('clients')
+                .set((eb) => ({
+                    pendingPenaltyAmount: eb('pendingPenaltyAmount', '+', penaltyAmount.toString()),
+                    updatedAt: new Date()
+                }))
+                .where('id', '=', job.clientId)
+                .execute();
+
+            const cancelMsg = `Job "${job.jobTitle}" has been cancelled by the client.${reason ? ` Reason: ${reason}` : ''}`;
+
+            // Send system message in chat thread
+            const thread = await trx
+                .selectFrom('chatThreads')
+                .select(['id', 'freelancerId'])
+                .where('jobId', '=', jobId)
+                .executeTakeFirst();
+
+            if (thread) {
+                const freelancer = thread.freelancerId ? await trx
+                    .selectFrom('freelancers')
+                    .select('userId')
+                    .where('id', '=', thread.freelancerId)
+                    .executeTakeFirst() : null;
+
+                await trx.insertInto('messages').values({
+                    id: crypto.randomUUID(),
+                    chatThreadId: thread.id,
+                    senderId: job.clientUserId,
+                    receiverId: freelancer?.userId || '',
+                    messageContent: cancelMsg,
+                    messageType: 'text',
+                    messageData: JSON.stringify({ type: 'SYSTEM_CANCEL', cancelledBy: 'client' }),
+                    senderType: 'SYSTEM',
+                    isRead: false,
+                    updatedAt: new Date()
+                }).execute();
+            }
+
+            // Notify freelancer
+            if (job.freelancerUserId) {
+                sendNotification(
+                    job.freelancerUserId,
+                    'FREELANCER',
+                    'Job Cancelled by Client',
+                    cancelMsg,
+                    'JOB_CANCELLED',
+                    { jobId }
+                );
+            }
+
+            // Notify client
+            sendNotification(
+                job.clientUserId,
+                'CLIENT',
+                'Job Cancelled by Client',
+                cancelMsg,
+                'JOB_CANCELLED',
+                { jobId }
+            );
+        }
+
+        // Freelancer cancels assigned job → 2% penalty deducted immediately from wallet
+        if (isFreelancerCancelling && isAssigned && job.freelancerId) {
+            const budget = parseFloat(job.budgetAmount.toString());
+            const penaltyAmount = budget * 0.02;
+            const currentBalance = parseFloat(job.withdrawableAmount?.toString() || '0');
+            const newBalance = currentBalance - penaltyAmount;
+
+            // Deduct penalty from freelancer wallet
+            await trx
+                .updateTable('freelancers')
+                .set({ withdrawableAmount: newBalance.toString(), updatedAt: new Date() })
+                .where('id', '=', job.freelancerId)
+                .execute();
+
+            // Record wallet transaction
+            await trx
+                .insertInto('walletTransactions')
+                .values({
+                    id: crypto.randomUUID(),
+                    userId: job.freelancerUserId!,
+                    userType: 'FREELANCER',
+                    jobId: job.id,
+                    amount: (-penaltyAmount).toString(),
+                    transactionType: 'PLATFORM_FEE',
+                    balanceBefore: currentBalance.toString(),
+                    balanceAfter: newBalance.toString(),
+                    description: `Cancellation penalty (2%) for job: ${job.jobTitle}${reason ? ` - Reason: ${reason}` : ''}`,
+                    updatedAt: new Date()
+                })
+                .execute();
+
+            const cancelMsg = `Job "${job.jobTitle}" has been cancelled by the freelancer. 2% penalty (₹${penaltyAmount.toFixed(2)}) has been deducted from their wallet.${reason ? ` Reason: ${reason}` : ''}`;
+
+            // Send system message in chat thread
+            const thread = await trx
+                .selectFrom('chatThreads')
+                .select(['id'])
+                .where('jobId', '=', jobId)
+                .executeTakeFirst();
+
+            if (thread) {
+                await trx.insertInto('messages').values({
+                    id: crypto.randomUUID(),
+                    chatThreadId: thread.id,
+                    senderId: job.freelancerUserId!,
+                    receiverId: job.clientUserId,
+                    messageContent: cancelMsg,
+                    messageType: 'text',
+                    messageData: JSON.stringify({ type: 'SYSTEM_CANCEL', cancelledBy: 'freelancer', penaltyAmount }),
+                    senderType: 'SYSTEM',
+                    isRead: false,
+                    updatedAt: new Date()
+                }).execute();
+            }
+
+            // Notify freelancer
+            if (job.freelancerUserId) {
+                sendNotification(
+                    job.freelancerUserId,
+                    'FREELANCER',
+                    'Job Cancelled by Freelancer',
+                    cancelMsg,
+                    'JOB_CANCELLED',
+                    { jobId }
+                );
+            }
+
+            // Notify client
+            sendNotification(
+                job.clientUserId,
+                'CLIENT',
+                'Job Cancelled by Freelancer',
+                cancelMsg,
+                'JOB_CANCELLED',
+                { jobId }
+            );
         }
 
         return cancelledJob;

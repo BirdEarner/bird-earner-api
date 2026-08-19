@@ -75,6 +75,7 @@ export async function POST(request: Request) {
                     'jobs.budgetAmount',
                     'jobs.discountAmount',
                     'jobs.cashbackOfferId',
+                    'jobs.clientPenaltyAmount',
                     'freelancers.id as freelancerId',
                     'freelancers.userId as freelancerUserId',
                     'freelancers.withdrawableAmount',
@@ -107,6 +108,7 @@ export async function POST(request: Request) {
             // Deduct bird fee from freelancer's wallet (ALLOW NEGATIVE)
             const currentBalance = parseFloat(thread.withdrawableAmount);
             const discountAmt = parseFloat(thread.discountAmount || '0');
+            const penaltyAmt = parseFloat(thread.clientPenaltyAmount?.toString() || '0');
             let newBalance = currentBalance - birdFeeAmount;
 
             await trx
@@ -131,6 +133,34 @@ export async function POST(request: Request) {
                     updatedAt: new Date()
                 })
                 .execute();
+
+            // Deduct client cancellation penalty from freelancer's wallet
+            if (penaltyAmt > 0) {
+                const balanceBeforePenalty = newBalance;
+                newBalance = newBalance - penaltyAmt;
+
+                await trx
+                    .updateTable('freelancers')
+                    .set({ withdrawableAmount: newBalance.toString(), updatedAt: new Date() })
+                    .where('id', '=', thread.freelancerId)
+                    .execute();
+
+                await trx
+                    .insertInto('walletTransactions')
+                    .values({
+                        id: crypto.randomUUID(),
+                        userId: thread.freelancerUserId,
+                        userType: 'FREELANCER',
+                        jobId: thread.jobId,
+                        amount: (-penaltyAmt).toString(),
+                        transactionType: 'PLATFORM_FEE',
+                        balanceBefore: balanceBeforePenalty.toString(),
+                        balanceAfter: newBalance.toString(),
+                        description: `Client cancellation penalty deducted - ${thread.jobTitle}`,
+                        updatedAt: new Date()
+                    })
+                    .execute();
+            }
 
             // Credit cashback discount from BirdEarner to freelancer
             if (discountAmt > 0) {

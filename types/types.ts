@@ -167,6 +167,7 @@ export type Client = {
     updatedAt: Timestamp;
     availableBalance: Generated<string>;
     reservedAmount: Generated<string>;
+    pendingPenaltyAmount: Generated<string>;
     availabilityUpdatedAt: Timestamp | null;
     currentlyAvailable: Generated<boolean | null>;
     nextAvailable: string | null;
@@ -332,6 +333,8 @@ export type Job = {
     completedAt: Timestamp | null;
     cashbackOfferId: string | null;
     discountAmount: Generated<string | null>;
+    clientPenaltyAmount: Generated<string | null>;
+    deleted: Generated<boolean>;
 };
 export type JobBookmark = {
     id: string;
