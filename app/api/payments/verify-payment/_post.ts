@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getUserIdFromRequest } from '@/lib/auth';
 import razorpay, { verifyRazorpaySignature } from '@/lib/services/razorpay';
-import { settleFreelancerBalance } from '@/lib/services/wallet';
+import { depositClientFunds, settleFreelancerBalance } from '@/lib/services/wallet';
 import { z } from 'zod';
 import { validateBody } from '@/lib/validation';
 
@@ -46,24 +46,30 @@ export async function POST(request: Request) {
         return NextResponse.json({ success: false, message: 'Order ownership mismatch' }, { status: 403 });
     }
 
-    // 3. Settle freelancer balance
-    const amountInInr = Number(order.amount) / 100;
-    const paymentType = order.notes?.type || 'SETTLEMENT';
+    // 3. Deposit funds to wallet or settle balance based on order type
+    const amountInInr = Number(order.amount) / 100; // Razorpay stores in paise
+    const paymentType = order.notes?.type || 'WALLET_DEPOSIT';
     
-    if (paymentType !== 'SETTLEMENT') {
-        return NextResponse.json({ success: false, message: 'Client wallet deposits are not supported. Clients pay in cash.' }, { status: 400 });
+    let result;
+    if (paymentType === 'SETTLEMENT') {
+        result = await settleFreelancerBalance(
+            userId,
+            amountInInr,
+            `Outstanding balance settlement via Razorpay (ID: ${razorpay_payment_id})`,
+            razorpay_payment_id
+        );
+    } else {
+        result = await depositClientFunds(
+            userId,
+            amountInInr,
+            `Wallet deposit via Razorpay (ID: ${razorpay_payment_id})`,
+            razorpay_payment_id
+        );
     }
-
-    const result = await settleFreelancerBalance(
-        userId,
-        amountInInr,
-        `Outstanding balance settlement via Razorpay (ID: ${razorpay_payment_id})`,
-        razorpay_payment_id
-    );
 
     return NextResponse.json({
       success: true,
-      message: 'Balance settled successfully',
+      message: paymentType === 'SETTLEMENT' ? 'Balance settled successfully' : 'Payment verified and wallet updated',
       data: result
     });
 

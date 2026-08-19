@@ -1,5 +1,5 @@
 import { getAuthUser } from '@/lib/auth';
-import { getFreelancerWallet } from '@/lib/services/wallet';
+import { getClientWallet, getFreelancerWallet } from '@/lib/services/wallet';
 import { NextResponse } from 'next/server';
 
 export async function GET(request: Request) {
@@ -9,7 +9,12 @@ export async function GET(request: Request) {
             return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
         }
 
+        let clientWallet = null;
         let freelancerWallet = null;
+
+        try {
+            clientWallet = await getClientWallet(user.id);
+        } catch (e) { }
 
         try {
             freelancerWallet = await getFreelancerWallet(user.id);
@@ -18,7 +23,7 @@ export async function GET(request: Request) {
         return NextResponse.json({
             success: true,
             data: {
-                client: null,
+                client: clientWallet,
                 freelancer: freelancerWallet
             }
         });
