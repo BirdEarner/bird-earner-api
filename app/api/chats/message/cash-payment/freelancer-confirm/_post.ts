@@ -76,6 +76,7 @@ export async function POST(request: Request) {
                     'jobs.discountAmount',
                     'jobs.cashbackOfferId',
                     'jobs.clientPenaltyAmount',
+                    'jobs.clientId',
                     'freelancers.id as freelancerId',
                     'freelancers.userId as freelancerUserId',
                     'freelancers.withdrawableAmount',
@@ -141,7 +142,12 @@ export async function POST(request: Request) {
 
                 await trx
                     .updateTable('freelancers')
-                    .set({ withdrawableAmount: newBalance.toString(), updatedAt: new Date() })
+                    .set((eb) => ({
+                        withdrawableAmount: newBalance.toString(),
+                        totalPenaltyReceived: eb('totalPenaltyReceived', '+', penaltyAmt.toString()),
+                        totalPenaltyDeducted: eb('totalPenaltyDeducted', '+', penaltyAmt.toString()),
+                        updatedAt: new Date()
+                    }))
                     .where('id', '=', thread.freelancerId)
                     .execute();
 
@@ -153,13 +159,41 @@ export async function POST(request: Request) {
                         userType: 'FREELANCER',
                         jobId: thread.jobId,
                         amount: (-penaltyAmt).toString(),
-                        transactionType: 'PLATFORM_FEE',
+                        transactionType: 'PENALTY',
                         balanceBefore: balanceBeforePenalty.toString(),
                         balanceAfter: newBalance.toString(),
                         description: `Client cancellation penalty deducted - ${thread.jobTitle}`,
                         updatedAt: new Date()
                     })
                     .execute();
+
+                // Log penalty received from client
+                await trx.insertInto('penaltyLogs').values({
+                    id: crypto.randomUUID(),
+                    jobId: thread.jobId,
+                    clientId: thread.clientId,
+                    freelancerId: thread.freelancerId,
+                    penaltyType: 'FREELANCER_RECEIVED_FROM_CLIENT',
+                    amount: penaltyAmt.toString(),
+                    status: 'PAID',
+                    description: `Freelancer received ₹${penaltyAmt.toFixed(2)} penalty from client for job "${thread.jobTitle}"`,
+                    createdAt: new Date(),
+                    updatedAt: new Date()
+                }).execute();
+
+                // Log penalty deducted to BirdEarner
+                await trx.insertInto('penaltyLogs').values({
+                    id: crypto.randomUUID(),
+                    jobId: thread.jobId,
+                    clientId: thread.clientId,
+                    freelancerId: thread.freelancerId,
+                    penaltyType: 'FREELANCER_WALLET_DEDUCTED',
+                    amount: penaltyAmt.toString(),
+                    status: 'DEDUCTED',
+                    description: `₹${penaltyAmt.toFixed(2)} penalty deducted from freelancer wallet to BirdEarner for job "${thread.jobTitle}"`,
+                    createdAt: new Date(),
+                    updatedAt: new Date()
+                }).execute();
             }
 
             // Credit cashback discount from BirdEarner to freelancer
@@ -201,9 +235,16 @@ export async function POST(request: Request) {
 
             // System notification message
             const budgetAmt = parseFloat(thread.budgetAmount);
-            const clientPays = budgetAmt - discountAmt;
+            const clientPays = budgetAmt - discountAmt + penaltyAmt;
             let notificationText = `✅ Payment completed!`;
-            if (discountAmt > 0) {
+            if (discountAmt > 0 && penaltyAmt > 0) {
+                notificationText += `\n💰 Client paid: ₹${clientPays} (₹${budgetAmt} budget + ₹${penaltyAmt} penalty)`;
+                notificationText += `\n🎁 BirdEarner paid: ₹${discountAmt} (cashback)`;
+                notificationText += `\n🔻 Penalty ₹${penaltyAmt} deducted from your wallet`;
+            } else if (penaltyAmt > 0) {
+                notificationText += `\n💰 Client paid: ₹${clientPays} (₹${budgetAmt} budget + ₹${penaltyAmt} penalty)`;
+                notificationText += `\n🔻 Penalty ₹${penaltyAmt} deducted from your wallet`;
+            } else if (discountAmt > 0) {
                 notificationText += `\n💰 Client paid: ₹${clientPays}`;
                 notificationText += `\n🎁 BirdEarner paid: ₹${discountAmt} (cashback)`;
                 notificationText += `\nTotal to freelancer: ₹${budgetAmt}`;

@@ -201,6 +201,7 @@ export async function processJobPaymentInTransaction(
             'jobs.jobTitle',
             'jobs.budgetAmount',
             'jobs.birdFeeAmount',
+            'jobs.clientPenaltyAmount',
             'jobs.paymentStatus',
             'jobs.isAmountReserved',
             'clients.id as clientId',
@@ -255,14 +256,16 @@ export async function processJobPaymentInTransaction(
         .execute();
 
     // 2. Add freelancer payment amount to freelancer earnings
+    const penaltyAmount = parseFloat(job.clientPenaltyAmount?.toString() || '0');
     await trx
         .updateTable('freelancers')
-        .set({
+        .set((eb) => ({
             totalEarnings: (freelancerCurrentEarnings + freelancerPaymentAmount).toString(),
             monthlyEarnings: (freelancerCurrentMonthly + freelancerPaymentAmount).toString(),
             withdrawableAmount: (freelancerCurrentWithdrawable + freelancerPaymentAmount).toString(),
+            totalPenaltyReceived: penaltyAmount > 0 ? eb('totalPenaltyReceived', '+', penaltyAmount.toString()) : eb('totalPenaltyReceived', '+', '0'),
             updatedAt: new Date()
-        })
+        }))
         .where('id', '=', job.freelancerId)
         .execute();
 
@@ -319,6 +322,66 @@ export async function processJobPaymentInTransaction(
                 updatedAt: new Date()
             })
             .execute();
+    }
+
+    // 6. Log and deduct penalty if client had cancellation penalty on this job
+    if (penaltyAmount > 0) {
+        // Deduct penalty from freelancer's wallet to BirdEarner
+        const balanceBeforePenalty = freelancerCurrentWithdrawable + freelancerPaymentAmount;
+        const balanceAfterPenalty = balanceBeforePenalty - penaltyAmount;
+
+        await trx
+            .updateTable('freelancers')
+            .set((eb) => ({
+                withdrawableAmount: balanceAfterPenalty.toString(),
+                totalPenaltyReceived: eb('totalPenaltyReceived', '+', penaltyAmount.toString()),
+                totalPenaltyDeducted: eb('totalPenaltyDeducted', '+', penaltyAmount.toString()),
+                updatedAt: new Date()
+            }))
+            .where('id', '=', job.freelancerId)
+            .execute();
+
+        // Wallet transaction for penalty deduction
+        await trx.insertInto('walletTransactions').values({
+            id: crypto.randomUUID(),
+            userId: job.freelancerUserId!,
+            userType: 'FREELANCER',
+            jobId,
+            amount: (-penaltyAmount).toString(),
+            transactionType: 'PENALTY',
+            balanceBefore: balanceBeforePenalty.toString(),
+            balanceAfter: balanceAfterPenalty.toString(),
+            description: `Client cancellation penalty deducted to BirdEarner - ${job.jobTitle}`,
+            updatedAt: new Date()
+        }).execute();
+
+        // Log penalty received from client
+        await trx.insertInto('penaltyLogs').values({
+            id: crypto.randomUUID(),
+            jobId: jobId,
+            clientId: job.clientId,
+            freelancerId: job.freelancerId,
+            penaltyType: 'FREELANCER_RECEIVED_FROM_CLIENT',
+            amount: penaltyAmount.toString(),
+            status: 'PAID',
+            description: `Freelancer received ₹${penaltyAmount.toFixed(2)} penalty from client for job "${job.jobTitle}" (included in budget)`,
+            createdAt: new Date(),
+            updatedAt: new Date()
+        }).execute();
+
+        // Log penalty deducted to BirdEarner
+        await trx.insertInto('penaltyLogs').values({
+            id: crypto.randomUUID(),
+            jobId: jobId,
+            clientId: job.clientId,
+            freelancerId: job.freelancerId,
+            penaltyType: 'FREELANCER_WALLET_DEDUCTED',
+            amount: penaltyAmount.toString(),
+            status: 'DEDUCTED',
+            description: `₹${penaltyAmount.toFixed(2)} penalty deducted from freelancer wallet to BirdEarner for job "${job.jobTitle}"`,
+            createdAt: new Date(),
+            updatedAt: new Date()
+        }).execute();
     }
 
     return {

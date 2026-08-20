@@ -126,7 +126,6 @@ export type CashbackOffer = {
     maxDiscount: number | null;
     discovered: Generated<boolean>;
     used: Generated<boolean>;
-    reservedJobId: string | null;
     createdAt: Generated<Timestamp>;
     updatedAt: Timestamp;
     clientId: string;
@@ -142,11 +141,11 @@ export type ChatThread = {
     createdAt: Generated<Timestamp>;
     deadline: Timestamp | null;
     updatedAt: Timestamp;
+    usedStorage: Generated<string>;
+    storageLimit: Generated<string>;
     clientOffer: string | null;
     freelancerOffer: string | null;
     agreedAmount: string | null;
-    usedStorage: Generated<string>;
-    storageLimit: Generated<string>;
 };
 export type Client = {
     id: string;
@@ -167,11 +166,12 @@ export type Client = {
     updatedAt: Timestamp;
     availableBalance: Generated<string>;
     reservedAmount: Generated<string>;
-    pendingPenaltyAmount: Generated<string>;
     availabilityUpdatedAt: Timestamp | null;
     currentlyAvailable: Generated<boolean | null>;
     nextAvailable: string | null;
     coverPhoto: string | null;
+    pendingPenaltyAmount: Generated<string | null>;
+    totalPenaltyPaid: Generated<string>;
 };
 export type Contact = {
     id: string;
@@ -228,11 +228,11 @@ export type FileManagement = {
     uploadedBy: string;
     uploaderType: string;
     category: string | null;
-    receiverId: string | null;
-    jobId: string | null;
     isActive: Generated<boolean>;
     createdAt: Generated<Timestamp>;
     updatedAt: Timestamp;
+    jobId: string | null;
+    receiverId: string | null;
 };
 export type Freelancer = {
     id: string;
@@ -269,6 +269,8 @@ export type Freelancer = {
     monthlyEarnings: Generated<string>;
     outstandingAmount: Generated<string>;
     withdrawableAmount: Generated<string>;
+    totalPenaltyReceived: Generated<string>;
+    totalPenaltyDeducted: Generated<string>;
     createdAt: Generated<Timestamp>;
     updatedAt: Timestamp;
     availabilityUpdatedAt: Timestamp | null;
@@ -333,8 +335,6 @@ export type Job = {
     completedAt: Timestamp | null;
     cashbackOfferId: string | null;
     discountAmount: Generated<string | null>;
-    clientPenaltyAmount: Generated<string | null>;
-    deleted: Generated<boolean>;
 };
 export type JobBookmark = {
     id: string;
@@ -358,7 +358,7 @@ export type Message = {
     updatedAt: Timestamp;
     chatThreadId: string | null;
 };
-export type NegotiationHistory = {
+export type negotiationHistory = {
     id: string;
     chatThreadId: string;
     jobId: string;
@@ -378,11 +378,11 @@ export type Notification = {
     message: string;
     type: string;
     data: unknown | null;
-    status: Generated<string>;
-    scheduledAt: Timestamp | null;
     isRead: Generated<boolean>;
     createdAt: Generated<Timestamp>;
     updatedAt: Timestamp;
+    scheduledAt: Timestamp | null;
+    status: Generated<string>;
 };
 export type OtpVerification = {
     id: string;
@@ -405,6 +405,19 @@ export type PaymentHistory = {
     createdAt: Generated<Timestamp>;
     updatedAt: Timestamp;
     freelancerId: string | null;
+};
+export type PenaltyLog = {
+    id: string;
+    jobId: string;
+    clientId: string;
+    freelancerId: string;
+    penaltyType: string;
+    amount: string;
+    status: Generated<string>;
+    description: string | null;
+    createdByJobId: string | null;
+    createdAt: Generated<Timestamp>;
+    updatedAt: Timestamp;
 };
 export type PushToken = {
     id: string;
@@ -442,7 +455,7 @@ export type Service = {
     createdAt: Generated<Timestamp>;
     updatedAt: Timestamp;
 };
-export type SuggestedService = {
+export type suggestedServices = {
     id: string;
     userId: string;
     serviceName: string;
@@ -456,17 +469,17 @@ export type SuggestedService = {
 export type User = {
     id: string;
     email: string;
-    mobile: string | null;
     password: string;
     fullName: string | null;
     isTestAccount: Generated<boolean>;
-    isEmailVerified: Generated<boolean>;
-    emailVerificationToken: string | null;
-    emailVerificationExpires: string | null;
     createdAt: Generated<Timestamp>;
     updatedAt: Timestamp;
     resetPasswordExpires: string | null;
     resetPasswordToken: string | null;
+    mobile: string | null;
+    isEmailVerified: Generated<boolean>;
+    emailVerificationToken: string | null;
+    emailVerificationExpires: string | null;
 };
 export type UserAddress = {
     id: string;
@@ -551,14 +564,15 @@ export type DB = {
     jobBookmarks: JobBookmark;
     jobs: Job;
     messages: Message;
-    negotiationHistory: NegotiationHistory;
+    negotiationHistory: negotiationHistory;
     notifications: Notification;
     otpVerifications: OtpVerification;
     paymentHistory: PaymentHistory;
+    penaltyLogs: PenaltyLog;
     pushTokens: PushToken;
     reviews: Review;
     services: Service;
-    suggestedServices: SuggestedService;
+    suggestedServices: suggestedServices;
     userAddresses: UserAddress;
     userEggs: UserEgg;
     userMedia: UserMedia;

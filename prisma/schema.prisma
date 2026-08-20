@@ -167,6 +167,8 @@ model Freelancer {
   monthlyEarnings       Decimal             @default(0.00) @map("monthlyEarnings") @db.Decimal(10, 2)
   outstandingAmount     Decimal             @default(0.00) @map("outstandingAmount") @db.Decimal(10, 2)
   withdrawableAmount    Decimal             @default(0.00) @map("withdrawableAmount") @db.Decimal(10, 2)
+  totalPenaltyReceived  Decimal             @default(0.00) @map("totalPenaltyReceived") @db.Decimal(10, 2)
+  totalPenaltyDeducted  Decimal             @default(0.00) @map("totalPenaltyDeducted") @db.Decimal(10, 2)
   createdAt             DateTime            @default(now()) @map("createdAt")
   updatedAt             DateTime            @updatedAt @map("updatedAt")
   availabilityUpdatedAt DateTime?           @map("availabilityUpdatedAt")
@@ -179,6 +181,7 @@ model Freelancer {
   jobsCreated           Job[]               @relation("FreelancerJobs")
   paymentHistory        PaymentHistory[]
   reviews               Review[]
+  penaltyLogs           PenaltyLog[]
   userEggs              UserEgg[]
   withdrawalRequests    WithdrawalRequest[]
 
@@ -208,13 +211,16 @@ model Client {
   currentlyAvailable    Boolean?         @default(true) @map("currentlyAvailable")
   nextAvailable         String?          @map("nextAvailable")
   coverPhoto            String?          @map("coverPhoto")
-  blockedAsFreelancer   BlockedUser[]    @relation("BlockedFreelancer")
-  blockerAsFreelancer   BlockedUser[]    @relation("BlockerFreelancer")
+  pendingPenaltyAmount  Decimal?         @default(0) @map("pendingPenaltyAmount") @db.Decimal(10, 2)
+  totalPenaltyPaid      Decimal          @default(0.00) @map("totalPenaltyPaid") @db.Decimal(10, 2)
+  blockedAsClient       BlockedUser[]    @relation("BlockedClient")
+  blockerAsClient       BlockedUser[]    @relation("BlockerClient")
   cashbackOffer         CashbackOffer[]
   chatThreads           ChatThread[]     @relation("ClientChatThreads")
   user                  User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   jobsCreated           Job[]            @relation("ClientJobs")
   paymentHistory        PaymentHistory[]
+  penaltyLogs           PenaltyLog[]
   reviews               Review[]
 
   @@map("clients")
@@ -263,6 +269,8 @@ model Job {
   messages             Message[]
   reviews              Review[]
   walletTransactions   WalletTransaction[]
+  penaltyLogs          PenaltyLog[]
+  penaltySourceJobs    PenaltyLog[] @relation("PenaltySourceJob")
 
   @@index([assignedFreelancerId], map: "jobsAssignedFreelancerIdx")
   @@index([clientId], map: "jobsClientIdIdx")
@@ -403,6 +411,30 @@ model WalletTransaction {
   @@map("walletTransactions")
 }
 
+model PenaltyLog {
+  id              String         @id @default(uuid())
+  jobId           String         @map("jobId")
+  clientId        String         @map("clientId")
+  freelancerId    String         @map("freelancerId")
+  penaltyType     String         @map("penaltyType")
+  amount          Decimal        @db.Decimal(10, 2)
+  status          String         @default("PENDING")
+  description     String?        @db.Text
+  createdByJobId  String?        @map("createdByJobId")
+  createdAt       DateTime       @default(now()) @map("createdAt")
+  updatedAt       DateTime       @updatedAt @map("updatedAt")
+  job             Job            @relation(fields: [jobId], references: [id])
+  client          Client         @relation(fields: [clientId], references: [id])
+  freelancer      Freelancer     @relation(fields: [freelancerId], references: [id])
+  sourceJob       Job?           @relation("PenaltySourceJob", fields: [createdByJobId], references: [id])
+
+  @@index([jobId], map: "penaltyLogsJobIdIdx")
+  @@index([clientId], map: "penaltyLogsClientIdIdx")
+  @@index([freelancerId], map: "penaltyLogsFreelancerIdIdx")
+  @@index([penaltyType], map: "penaltyLogsTypeIdx")
+  @@map("penaltyLogs")
+}
+
 model UserEgg {
   id           String     @id @default(uuid())
   freelancerId String     @map("freelancerId")
@@ -426,10 +458,10 @@ model BlockedUser {
   blockedType       String     @map("blockedType")
   reason            String?
   createdAt         DateTime   @default(now()) @map("createdAt")
-  blockedFreelancer Client     @relation("BlockedFreelancer", fields: [blockedId], references: [id], onDelete: Cascade, map: "blockedUsersBlockedFreelancerFkey")
-  blockedFreelancer Freelancer @relation("BlockedFreelancer", fields: [blockedId], references: [id], onDelete: Cascade, map: "blockedUsersBlockedFreelancerFkey")
-  blockerFreelancer Client     @relation("BlockerFreelancer", fields: [blockerId], references: [id], onDelete: Cascade, map: "blockedUsersBlockerFreelancerFkey")
-  blockerFreelancer Freelancer @relation("BlockerFreelancer", fields: [blockerId], references: [id], onDelete: Cascade, map: "blockedUsersBlockerFreelancerFkey")
+  blockedAsClient       Client       @relation("BlockedClient", fields: [blockedId], references: [id], onDelete: Cascade, map: "blockedUsers_blockedId_client_fkey")
+  blockedAsFreelancer   Freelancer   @relation("BlockedFreelancer", fields: [blockedId], references: [id], onDelete: Cascade, map: "blockedUsers_blockedId_freelancer_fkey")
+  blockerAsClient       Client       @relation("BlockerClient", fields: [blockerId], references: [id], onDelete: Cascade, map: "blockedUsers_blockerId_client_fkey")
+  blockerAsFreelancer   Freelancer   @relation("BlockerFreelancer", fields: [blockerId], references: [id], onDelete: Cascade, map: "blockedUsers_blockerId_freelancer_fkey")
 
   @@unique([blockerId, blockedId], map: "uniqueBlockRelationship")
   @@index([blockerId], map: "blockedUsersBlockerIdIdx")

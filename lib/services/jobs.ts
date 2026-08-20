@@ -203,7 +203,7 @@ export async function assignFreelancer(jobId: string, freelancerId: string, clie
                 .executeTakeFirst();
 
             if (freelancerUser) {
-                const penaltyMsg = `⚠️ Client Cancellation Penalty\n\nThis job includes a ₹${penaltyAmount.toFixed(2)} client cancellation penalty from a previously cancelled job. This amount will be deducted from your wallet when the job is completed.`;
+                const penaltyMsg = `⚠️ Client Cancellation Penalty\n\nThis job includes a ₹${penaltyAmount.toFixed(2)} client cancellation penalty from a previously cancelled job. The client will pay this penalty amount to you along with the job payment. When the job is completed and payment is received, this penalty amount will be deducted from the total as the client has already paid it to you separately.`;
 
                 await trx.insertInto('messages').values({
                     id: crypto.randomUUID(),
@@ -425,12 +425,27 @@ export async function cancelJob(jobId: string, userId: string, reason?: string) 
                 .updateTable('clients')
                 .set((eb) => ({
                     pendingPenaltyAmount: eb('pendingPenaltyAmount', '+', penaltyAmount.toString()),
+                    totalPenaltyPaid: eb('totalPenaltyPaid', '+', penaltyAmount.toString()),
                     updatedAt: new Date()
                 }))
                 .where('id', '=', job.clientId)
                 .execute();
 
-            const cancelMsg = `Job "${job.jobTitle}" has been cancelled by the client.${reason ? ` Reason: ${reason}` : ''}`;
+            // Log penalty for client cancellation
+            await trx.insertInto('penaltyLogs').values({
+                id: crypto.randomUUID(),
+                jobId: jobId,
+                clientId: job.clientId,
+                freelancerId: job.assignedFreelancerId || '',
+                penaltyType: 'CLIENT_CANCEL',
+                amount: penaltyAmount.toString(),
+                status: 'PENDING',
+                description: `Client cancelled job "${job.jobTitle}". 2% penalty of ₹${penaltyAmount.toFixed(2)} will be charged on next job.`,
+                createdAt: new Date(),
+                updatedAt: new Date()
+            }).execute();
+
+            const cancelMsg = `Job "${job.jobTitle}" has been cancelled by the client.`;
 
             // Send system message in chat thread
             const thread = await trx
@@ -490,10 +505,14 @@ export async function cancelJob(jobId: string, userId: string, reason?: string) 
             const currentBalance = parseFloat(job.withdrawableAmount?.toString() || '0');
             const newBalance = currentBalance - penaltyAmount;
 
-            // Deduct penalty from freelancer wallet
+            // Deduct penalty from freelancer wallet and update penalty tracking
             await trx
                 .updateTable('freelancers')
-                .set({ withdrawableAmount: newBalance.toString(), updatedAt: new Date() })
+                .set((eb) => ({
+                    withdrawableAmount: newBalance.toString(),
+                    totalPenaltyDeducted: eb('totalPenaltyDeducted', '+', penaltyAmount.toString()),
+                    updatedAt: new Date()
+                }))
                 .where('id', '=', job.freelancerId)
                 .execute();
 
@@ -506,7 +525,7 @@ export async function cancelJob(jobId: string, userId: string, reason?: string) 
                     userType: 'FREELANCER',
                     jobId: job.id,
                     amount: (-penaltyAmount).toString(),
-                    transactionType: 'PLATFORM_FEE',
+                    transactionType: 'PENALTY',
                     balanceBefore: currentBalance.toString(),
                     balanceAfter: newBalance.toString(),
                     description: `Cancellation penalty (2%) for job: ${job.jobTitle}${reason ? ` - Reason: ${reason}` : ''}`,
@@ -514,7 +533,21 @@ export async function cancelJob(jobId: string, userId: string, reason?: string) 
                 })
                 .execute();
 
-            const cancelMsg = `Job "${job.jobTitle}" has been cancelled by the freelancer. 2% penalty (₹${penaltyAmount.toFixed(2)}) has been deducted from their wallet.${reason ? ` Reason: ${reason}` : ''}`;
+            // Log penalty for freelancer cancellation
+            await trx.insertInto('penaltyLogs').values({
+                id: crypto.randomUUID(),
+                jobId: jobId,
+                clientId: job.clientId,
+                freelancerId: job.freelancerId,
+                penaltyType: 'FREELANCER_WALLET_DEDUCTED',
+                amount: penaltyAmount.toString(),
+                status: 'DEDUCTED',
+                description: `Freelancer cancelled job "${job.jobTitle}". 2% penalty of ₹${penaltyAmount.toFixed(2)} deducted from wallet.`,
+                createdAt: new Date(),
+                updatedAt: new Date()
+            }).execute();
+
+            const cancelMsg = `Job "${job.jobTitle}" has been cancelled by the freelancer.`;
 
             // Send system message in chat thread
             const thread = await trx

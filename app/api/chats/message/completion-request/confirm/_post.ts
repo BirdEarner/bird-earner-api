@@ -88,21 +88,26 @@ export async function POST(request: Request) {
 
             // 3. Payment Processing
             if (paymentMethod === 'CASH') {
-                // Fetch discount info from job
+                // Fetch discount and penalty info from job
                 const jobData = await trx
                     .selectFrom('jobs')
-                    .select(['discountAmount', 'cashbackOfferId'])
+                    .select(['discountAmount', 'cashbackOfferId', 'clientPenaltyAmount'])
                     .where('id', '=', jobId)
                     .where('deleted', '=', false)
                     .executeTakeFirst();
 
                 const discountAmt = parseFloat(jobData?.discountAmount || '0');
+                const penaltyAmt = parseFloat(jobData?.clientPenaltyAmount?.toString() || '0');
                 const budgetNum = parseFloat(budgetAmount);
-                const clientPays = budgetNum - discountAmt;
+                const clientPays = budgetNum - discountAmt + penaltyAmt;
 
                 let cashContent = 'Project completion confirmed. Cash payment process initiated.';
-                if (discountAmt > 0) {
-                    cashContent = `Project completion confirmed.\n💰 You pay client: ₹${clientPays}\n🎁 BirdEarner pays you: ₹${discountAmt}\nTotal: ₹${budgetNum}`;
+                if (discountAmt > 0 && penaltyAmt > 0) {
+                    cashContent = `Project completion confirmed.\n💼 Budget: ₹${budgetNum}\n🔻 Penalty (from previous cancellation): ₹${penaltyAmt}\n🎁 BirdEarner cashback: ₹${discountAmt}\n💰 You pay freelancer: ₹${clientPays}`;
+                } else if (penaltyAmt > 0) {
+                    cashContent = `Project completion confirmed.\n💼 Budget: ₹${budgetNum}\n🔻 Penalty (from previous cancellation): ₹${penaltyAmt}\n💰 You pay freelancer: ₹${clientPays}`;
+                } else if (discountAmt > 0) {
+                    cashContent = `Project completion confirmed.\n💰 You pay freelancer: ₹${clientPays}\n🎁 BirdEarner pays you: ₹${discountAmt}\nTotal: ₹${budgetNum}`;
                 }
 
                 const cashMsg = await trx
@@ -116,8 +121,10 @@ export async function POST(request: Request) {
                         messageType: 'cash_payment',
                         senderType: 'SYSTEM',
                         messageData: {
-                            amount: budgetAmount,
+                            amount: clientPays.toString(),
+                            budgetAmount: budgetAmount,
                             discountAmount: discountAmt.toString(),
+                            penaltyAmount: penaltyAmt.toString(),
                             clientPays: clientPays.toString(),
                             birdEarnerPays: discountAmt.toString(),
                             step: 'initial',
@@ -155,6 +162,22 @@ export async function POST(request: Request) {
 
                     const completedJob = await completeJob(jobId, job.clientUserId);
 
+                    // Fetch penalty info for notification
+                    const jobDetails = await trx
+                        .selectFrom('jobs')
+                        .select(['budgetAmount', 'clientPenaltyAmount'])
+                        .where('id', '=', jobId)
+                        .executeTakeFirst();
+
+                    const budgetAmt = parseFloat(jobDetails?.budgetAmount || budgetAmount);
+                    const penaltyAmt = parseFloat(jobDetails?.clientPenaltyAmount?.toString() || '0');
+
+                    let completionText = '✅ Project completed successfully! Payment processed via platform.';
+                    if (penaltyAmt > 0) {
+                        completionText += `\n\n📋 Payment Breakdown:\n💼 Budget: ₹${budgetAmt}\n🔻 Client Cancellation Penalty: ₹${penaltyAmt}\n💰 Total (already reserved from client): ₹${budgetAmt}`;
+                        completionText += `\n\nℹ️ Note: The ₹${penaltyAmt} penalty was paid by the client as a token of their previous job cancellation. This amount is included in the total payment processed.`;
+                    }
+
                     await trx
                         .insertInto('messages')
                         .values({
@@ -162,7 +185,7 @@ export async function POST(request: Request) {
                             chatThreadId: threadId,
                             senderId: user.id,
                             receiverId: message.senderId,
-                            messageContent: '✅ Project completed successfully! Payment processed via platform.',
+                            messageContent: completionText,
                             messageType: 'notification',
                             senderType: 'SYSTEM',
                             updatedAt: new Date()
