@@ -100,7 +100,7 @@ export async function POST(request: Request) {
             senderId: user.id,
             receiverId: receiverUserId,
             senderType: normalizedRole,
-            messageContent: `${senderText} updated offer to $${amountStr}`,
+            messageContent: `${senderText} updated offer to ₹${amountStr}`,
             messageType: 'text',
             isRead: false,
             updatedAt: new Date(),
