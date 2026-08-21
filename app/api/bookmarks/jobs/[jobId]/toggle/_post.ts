@@ -36,8 +36,10 @@ export async function POST(
                 message: 'Job bookmark removed successfully',
                 data: { bookmarked: false }
             });
-        } else {
-            // Add
+        }
+
+        // Add (catch unique constraint violation for race conditions)
+        try {
             await db
                 .insertInto('jobBookmarks')
                 .values({
@@ -47,13 +49,29 @@ export async function POST(
                     updatedAt: new Date()
                 })
                 .execute();
+        } catch (insertError: any) {
+            if (insertError?.code === '23505') {
+                // Unique constraint violation — bookmark already exists, remove it
+                await db
+                    .deleteFrom('jobBookmarks')
+                    .where('userId', '=', user.id)
+                    .where('jobId', '=', jobId)
+                    .execute();
 
-            return NextResponse.json({
-                success: true,
-                message: 'Job bookmarked successfully',
-                data: { bookmarked: true }
-            });
+                return NextResponse.json({
+                    success: true,
+                    message: 'Job bookmark removed successfully',
+                    data: { bookmarked: false }
+                });
+            }
+            throw insertError;
         }
+
+        return NextResponse.json({
+            success: true,
+            message: 'Job bookmarked successfully',
+            data: { bookmarked: true }
+        });
 
     } catch (error: any) {
         console.error('Toggle bookmark error:', error);
