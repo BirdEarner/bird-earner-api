@@ -4,6 +4,8 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { validateParams } from '@/lib/validation';
 
+const MIN_WITHDRAWAL_BALANCE = 99;
+
 const withdrawalSchema = z.object({
     amount: z.number().positive(),
     bankDetails: z.any().optional(),
@@ -35,8 +37,31 @@ export async function POST(request: Request) {
             if (!freelancer) throw new Error('Freelancer profile not found');
 
             const withdrawableBalance = parseFloat(freelancer.withdrawableAmount);
+            if (withdrawableBalance < MIN_WITHDRAWAL_BALANCE) {
+                throw new Error(`Minimum balance of ₹${MIN_WITHDRAWAL_BALANCE} required to withdraw. Current balance: ₹${withdrawableBalance.toFixed(2)}`);
+            }
             if (withdrawableBalance < amount) {
                 throw new Error(`Insufficient balance. Available: ${withdrawableBalance}, Requested: ${amount}`);
+            }
+
+            let finalBankDetails = bankDetails;
+            if (!finalBankDetails) {
+                const bankAccount = await trx
+                    .selectFrom('bankAccounts')
+                    .selectAll()
+                    .where('userId', '=', user.id)
+                    .executeTakeFirst();
+
+                if (!bankAccount) {
+                    throw new Error('Bank account details not found. Please add your bank details before requesting a withdrawal.');
+                }
+
+                finalBankDetails = {
+                    bankName: bankAccount.bankName,
+                    accountHolderName: bankAccount.accountHolderName,
+                    accountNumber: bankAccount.accountNumber,
+                    ifscCode: bankAccount.ifscCode,
+                };
             }
 
             const withdrawalRequest = await trx
@@ -45,7 +70,7 @@ export async function POST(request: Request) {
                     id: crypto.randomUUID(),
                     freelancerId: freelancer.id,
                     amount: amount.toString(),
-                    bankDetails: bankDetails ? JSON.stringify(bankDetails) : null,
+                    bankDetails: JSON.stringify(finalBankDetails),
                     status: 'PENDING',
                     updatedAt: new Date()
                 })

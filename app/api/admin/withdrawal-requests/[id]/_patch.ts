@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getAdminUser } from '@/lib/auth';
 import { sendNotification } from '@/lib/services/notifications';
-import { sql } from 'kysely';
 
 export async function PATCH(
     request: Request,
@@ -49,34 +48,69 @@ export async function PATCH(
                 .returningAll()
                 .executeTakeFirstOrThrow();
 
-            // If rejecting, restore funds
-            if (status === 'REJECTED' && currentRequest.status === 'PENDING') {
-                await trx
-                    .updateTable('freelancers')
-                    .set({
-                        withdrawableAmount: sql`withdrawableAmount + ${Number(currentRequest.amount)}`
-                    })
-                    .where('id', '=', currentRequest.freelancerId)
-                    .execute();
-            }
-
-            // Get freelancer userId for notification
+            // Get freelancer userId and current balance for notification and transaction
             const freelancer = await trx
                 .selectFrom('freelancers')
-                .select('userId')
+                .selectAll()
                 .where('id', '=', currentRequest.freelancerId)
                 .executeTakeFirstOrThrow();
 
+            const restoreAmount = Number(currentRequest.amount);
+
+            // If rejecting from any non-REJECTED status, restore funds
+            if (status === 'REJECTED' && currentRequest.status !== 'REJECTED') {
+                const balanceBefore = Number(freelancer.withdrawableAmount);
+                const balanceAfter = balanceBefore + restoreAmount;
+
+                await trx
+                    .updateTable('freelancers')
+                    .set({
+                        withdrawableAmount: balanceAfter.toString(),
+                        updatedAt: new Date()
+                    })
+                    .where('id', '=', currentRequest.freelancerId)
+                    .execute();
+
+                // Log reversal in wallet transactions
+                await trx
+                    .insertInto('walletTransactions')
+                    .values({
+                        id: crypto.randomUUID(),
+                        userId: freelancer.userId,
+                        userType: 'FREELANCER',
+                        jobId: null,
+                        transactionType: 'BONUS',
+                        amount: restoreAmount.toFixed(2),
+                        balanceBefore: balanceBefore.toFixed(2),
+                        balanceAfter: balanceAfter.toFixed(2),
+                        description: 'Withdrawal request rejected - funds restored',
+                        referenceId: id,
+                        updatedAt: new Date()
+                    })
+                    .execute();
+            }
+
             return { ...updated, freelancer };
         });
+
+        // Build notification message based on status
+        const notificationTitle = status === 'REJECTED'
+            ? 'Withdrawal Rejected'
+            : status === 'APPROVED'
+                ? 'Withdrawal Approved'
+                : 'Withdrawal Processed';
+
+        const notificationBody = status === 'REJECTED'
+            ? `Your withdrawal request for ₹${currentRequest.amount} has been rejected. The amount has been restored to your wallet.`
+            : `Your withdrawal request for ₹${currentRequest.amount} has been ${status.toLowerCase()}.`;
 
         // Send notification
         try {
             await sendNotification(
                 result.freelancer.userId,
                 'FREELANCER',
-                'Withdrawal Processed',
-                `Your withdrawal request for ₹${currentRequest.amount} has been ${status.toLowerCase()}.`,
+                notificationTitle,
+                notificationBody,
                 'PAYMENT',
                 {
                     requestId: id,
