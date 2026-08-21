@@ -35,6 +35,7 @@ export async function POST(request: Request) {
         }
 
         const agreedAmount = thread.agreedAmount || thread.freelancerOffer || thread.clientOffer;
+        const agreedDays = thread.agreedDays || thread.freelancerDays || thread.clientDays || null;
 
         const updatedThread = await db
             .updateTable('chatThreads')
@@ -42,6 +43,7 @@ export async function POST(request: Request) {
                 isAccepted: true,
                 characterLimit: 1000000,
                 agreedAmount: agreedAmount?.toString() || null,
+                agreedDays: agreedDays,
                 status: 'ACCEPTED',
                 updatedAt: new Date()
             })
@@ -58,6 +60,8 @@ export async function POST(request: Request) {
             offerType: 'ACCEPTED',
             amount: agreedAmount?.toString() || '0',
             previousAmount: null,
+            days: agreedDays,
+            previousDays: null,
             note: 'Negotiation accepted',
             createdAt: new Date(),
         }).execute();

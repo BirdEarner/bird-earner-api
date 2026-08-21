@@ -116,7 +116,7 @@ export async function assignFreelancer(jobId: string, freelancerId: string, clie
         // Retrieve latest negotiation offers from chat thread
         const thread = await trx
             .selectFrom('chatThreads')
-            .select(['id', 'clientOffer', 'freelancerOffer', 'agreedAmount'])
+            .select(['id', 'clientOffer', 'freelancerOffer', 'agreedAmount', 'clientDays', 'freelancerDays', 'agreedDays'])
             .where('jobId', '=', jobId)
             .where('freelancerId', '=', freelancerId)
             .executeTakeFirst();
@@ -124,17 +124,22 @@ export async function assignFreelancer(jobId: string, freelancerId: string, clie
         const finalAmountStr = thread?.agreedAmount || thread?.freelancerOffer || thread?.clientOffer || job.budgetAmount.toString();
         const finalAmountNum = parseFloat(finalAmountStr);
 
+        // Calculate deadline from negotiated days
+        const finalDays = thread?.agreedDays || thread?.freelancerDays || thread?.clientDays || null;
+        const deadlineDate = finalDays ? new Date(Date.now() + finalDays * 24 * 60 * 60 * 1000) : null;
+
         // 1. If not already reserved (e.g. was CASH originally or failed), try to reserve now for PLATFORM using finalAmount
         if (!job.isAmountReserved && job.paymentMethod === 'PLATFORM') {
             await reserveAmountForJobInTransaction(trx, clientUserId, jobId, finalAmountNum);
         }
 
-        // 2. Update job assignment with final negotiated budgetAmount
+        // 2. Update job assignment with final negotiated budgetAmount and deadline
         const updatedJob = await trx
             .updateTable('jobs')
             .set({
                 assignedFreelancerId: freelancerId,
                 budgetAmount: finalAmountStr,
+                deadlineDate: deadlineDate,
                 jobStatus: 'IN_PROGRESS',
                 assignedAt: new Date(),
                 updatedAt: new Date()
@@ -143,13 +148,15 @@ export async function assignFreelancer(jobId: string, freelancerId: string, clie
             .returningAll()
             .executeTakeFirstOrThrow();
 
-        // 3. Update related chat threads with final agreedAmount
+        // 3. Update related chat threads with final agreedAmount and agreedDays
         await trx
             .updateTable('chatThreads')
             .set({
                 status: 'ACCEPTED',
                 isAccepted: true,
                 agreedAmount: finalAmountStr,
+                agreedDays: finalDays,
+                deadline: deadlineDate,
                 updatedAt: new Date()
             })
             .where('jobId', '=', jobId)
@@ -165,7 +172,9 @@ export async function assignFreelancer(jobId: string, freelancerId: string, clie
             offerType: 'FINAL_AGREED',
             amount: finalAmountStr,
             previousAmount: null,
-            note: 'Freelancer assigned with agreed amount',
+            days: finalDays,
+            previousDays: null,
+            note: finalDays ? `Freelancer assigned with agreed amount and ${finalDays} day${finalDays > 1 ? 's' : ''} deadline` : 'Freelancer assigned with agreed amount',
             createdAt: new Date(),
         }).execute();
 
@@ -176,12 +185,45 @@ export async function assignFreelancer(jobId: string, freelancerId: string, clie
             .where('freelancerId', '!=', freelancerId)
             .execute();
 
-        // 4. Notify freelancer
+        // 4. Get freelancer userId for message and notification
         const freelancer = await trx
             .selectFrom('freelancers')
             .select('userId')
             .where('id', '=', freelancerId)
             .executeTakeFirst();
+
+        // 5. Send acceptance message in chat thread
+        if (thread?.id && freelancer) {
+            const daysText = finalDays ? ` and ${finalDays} day${finalDays > 1 ? 's' : ''} deadline` : '';
+
+            // Message to freelancer: "Client accepted your request..."
+            await trx.insertInto('messages').values({
+                id: crypto.randomUUID(),
+                chatThreadId: thread.id,
+                jobId: jobId,
+                senderId: clientUserId,
+                receiverId: freelancer.userId,
+                senderType: 'CLIENT',
+                messageContent: `Client accepted your request with ₹${finalAmountStr}${daysText}`,
+                messageType: 'text',
+                isRead: false,
+                updatedAt: new Date(),
+            }).execute();
+
+            // Message to client: "You accepted the request..."
+            await trx.insertInto('messages').values({
+                id: crypto.randomUUID(),
+                chatThreadId: thread.id,
+                jobId: jobId,
+                senderId: clientUserId,
+                receiverId: clientUserId,
+                senderType: 'SYSTEM',
+                messageContent: `You accepted the request with ₹${finalAmountStr}${daysText}`,
+                messageType: 'text',
+                isRead: false,
+                updatedAt: new Date(),
+            }).execute();
+        }
 
         if (freelancer) {
             sendNotification(
