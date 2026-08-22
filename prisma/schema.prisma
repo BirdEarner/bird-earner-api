@@ -167,11 +167,11 @@ model Freelancer {
   monthlyEarnings       Decimal             @default(0.00) @map("monthlyEarnings") @db.Decimal(10, 2)
   outstandingAmount     Decimal             @default(0.00) @map("outstandingAmount") @db.Decimal(10, 2)
   withdrawableAmount    Decimal             @default(0.00) @map("withdrawableAmount") @db.Decimal(10, 2)
-  totalPenaltyReceived  Decimal             @default(0.00) @map("totalPenaltyReceived") @db.Decimal(10, 2)
-  totalPenaltyDeducted  Decimal             @default(0.00) @map("totalPenaltyDeducted") @db.Decimal(10, 2)
   createdAt             DateTime            @default(now()) @map("createdAt")
   updatedAt             DateTime            @updatedAt @map("updatedAt")
   availabilityUpdatedAt DateTime?           @map("availabilityUpdatedAt")
+  totalPenaltyDeducted  Decimal             @default(0.00) @map("totalPenaltyDeducted") @db.Decimal(10, 2)
+  totalPenaltyReceived  Decimal             @default(0.00) @map("totalPenaltyReceived") @db.Decimal(10, 2)
   blockedAsFreelancer   BlockedUser[]       @relation("BlockedFreelancer")
   blockerAsFreelancer   BlockedUser[]       @relation("BlockerFreelancer")
   chatThreads           ChatThread[]        @relation("FreelancerChatThreads")
@@ -180,8 +180,8 @@ model Freelancer {
   assignedJobs_rel      Job[]               @relation("AssignedFreelancer")
   jobsCreated           Job[]               @relation("FreelancerJobs")
   paymentHistory        PaymentHistory[]
-  reviews               Review[]
   penaltyLogs           PenaltyLog[]
+  reviews               Review[]
   userEggs              UserEgg[]
   withdrawalRequests    WithdrawalRequest[]
 
@@ -260,6 +260,9 @@ model Job {
   completedAt          DateTime?           @map("completedAt")
   cashbackOfferId      String?             @map("cashbackOfferId")
   discountAmount       Decimal?            @default(0) @map("discountAmount") @db.Decimal(10, 2)
+  deleted              Boolean             @default(false)
+  clientPenaltyAmount  Decimal?            @default(0) @db.Decimal(10, 2)
+  cancelledAt          DateTime?
   chatThreads          ChatThread[]        @relation("JobChatThreads")
   bookmarks            JobBookmark[]
   assignedFreelancer   Freelancer?         @relation("AssignedFreelancer", fields: [assignedFreelancerId], references: [id], map: "jobsAssignedFreelancerFkey")
@@ -267,10 +270,10 @@ model Job {
   service              Service?            @relation("JobService", fields: [serviceId], references: [id], map: "jobsServiceIdFkey")
   client               Client              @relation("ClientJobs", fields: [clientId], references: [id], onDelete: Cascade)
   messages             Message[]
+  penaltySourceJobs    PenaltyLog[]        @relation("PenaltySourceJob")
+  penaltyLogs          PenaltyLog[]
   reviews              Review[]
   walletTransactions   WalletTransaction[]
-  penaltyLogs          PenaltyLog[]
-  penaltySourceJobs    PenaltyLog[] @relation("PenaltySourceJob")
 
   @@index([assignedFreelancerId], map: "jobsAssignedFreelancerIdx")
   @@index([clientId], map: "jobsClientIdIdx")
@@ -412,21 +415,21 @@ model WalletTransaction {
 }
 
 model PenaltyLog {
-  id              String         @id @default(uuid())
-  jobId           String         @map("jobId")
-  clientId        String         @map("clientId")
-  freelancerId    String         @map("freelancerId")
-  penaltyType     String         @map("penaltyType")
-  amount          Decimal        @db.Decimal(10, 2)
-  status          String         @default("PENDING")
-  description     String?        @db.Text
-  createdByJobId  String?        @map("createdByJobId")
-  createdAt       DateTime       @default(now()) @map("createdAt")
-  updatedAt       DateTime       @updatedAt @map("updatedAt")
-  job             Job            @relation(fields: [jobId], references: [id])
-  client          Client         @relation(fields: [clientId], references: [id])
-  freelancer      Freelancer     @relation(fields: [freelancerId], references: [id])
-  sourceJob       Job?           @relation("PenaltySourceJob", fields: [createdByJobId], references: [id])
+  id             String     @id @default(uuid())
+  jobId          String     @map("jobId")
+  clientId       String     @map("clientId")
+  freelancerId   String     @map("freelancerId")
+  penaltyType    String     @map("penaltyType")
+  amount         Decimal    @db.Decimal(10, 2)
+  status         String     @default("PENDING")
+  description    String?
+  createdByJobId String?    @map("createdByJobId")
+  createdAt      DateTime   @default(now()) @map("createdAt")
+  updatedAt      DateTime   @updatedAt @map("updatedAt")
+  client         Client     @relation(fields: [clientId], references: [id])
+  sourceJob      Job?       @relation("PenaltySourceJob", fields: [createdByJobId], references: [id])
+  freelancer     Freelancer @relation(fields: [freelancerId], references: [id])
+  job            Job        @relation(fields: [jobId], references: [id])
 
   @@index([jobId], map: "penaltyLogsJobIdIdx")
   @@index([clientId], map: "penaltyLogsClientIdIdx")
@@ -451,13 +454,13 @@ model UserEgg {
 }
 
 model BlockedUser {
-  id                String     @id @default(uuid())
-  blockerId         String     @map("blockerId")
-  blockedId         String     @map("blockedId")
-  blockerType       String     @map("blockerType")
-  blockedType       String     @map("blockedType")
-  reason            String?
-  createdAt         DateTime   @default(now()) @map("createdAt")
+  id                  String     @id @default(uuid())
+  blockerId           String     @map("blockerId")
+  blockedId           String     @map("blockedId")
+  blockerType         String     @map("blockerType")
+  blockedType         String     @map("blockedType")
+  reason              String?
+  createdAt           DateTime   @default(now()) @map("createdAt")
   blockedAsClient       Client       @relation("BlockedClient", fields: [blockedId], references: [id], onDelete: Cascade, map: "blockedUsers_blockedId_client_fkey")
   blockedAsFreelancer   Freelancer   @relation("BlockedFreelancer", fields: [blockedId], references: [id], onDelete: Cascade, map: "blockedUsers_blockedId_freelancer_fkey")
   blockerAsClient       Client       @relation("BlockerClient", fields: [blockerId], references: [id], onDelete: Cascade, map: "blockedUsers_blockerId_client_fkey")
@@ -629,6 +632,9 @@ model ChatThread {
   clientOffer        Decimal?             @db.Decimal(10, 2)
   freelancerOffer    Decimal?             @db.Decimal(10, 2)
   agreedAmount       Decimal?             @db.Decimal(10, 2)
+  clientDays         Int?
+  freelancerDays     Int?
+  agreedDays         Int?
   client             Client               @relation("ClientChatThreads", fields: [clientId], references: [id])
   freelancer         Freelancer           @relation("FreelancerChatThreads", fields: [freelancerId], references: [id])
   job                Job                  @relation("JobChatThreads", fields: [jobId], references: [id])
@@ -665,17 +671,18 @@ model UserMedia {
 }
 
 model CashbackOffer {
-  id          String                  @id
-  amount      Float
-  amountType  CashbackOfferAmountType
-  minBooking  Float                   @default(0)
-  maxDiscount Float?
-  discovered  Boolean                 @default(false)
-  used        Boolean                 @default(false)
-  createdAt   DateTime                @default(now()) @map("createdAt")
-  updatedAt   DateTime                @map("updatedAt")
-  clientId    String                  @map("clientId")
-  clients     Client                  @relation(fields: [clientId], references: [id], onDelete: Cascade, map: "CashbackOfferClientIdFkey")
+  id            String                  @id
+  amount        Float
+  amountType    CashbackOfferAmountType
+  discovered    Boolean                 @default(false)
+  used          Boolean                 @default(false)
+  createdAt     DateTime                @default(now()) @map("createdAt")
+  updatedAt     DateTime                @map("updatedAt")
+  clientId      String                  @map("clientId")
+  minBooking    Float                   @default(0)
+  maxDiscount   Float?
+  reservedJobId String?
+  clients       Client                  @relation(fields: [clientId], references: [id], onDelete: Cascade, map: "CashbackOfferClientIdFkey")
 
   @@index([clientId], map: "CashbackOfferClientIdIdx")
   @@map("cashbackOffers")
@@ -706,6 +713,8 @@ model negotiationHistory {
   previousAmount Decimal?   @db.Decimal(10, 2)
   note           String?
   createdAt      DateTime   @default(now())
+  days           Int?
+  previousDays   Int?
   chatThreads    ChatThread @relation(fields: [chatThreadId], references: [id])
 
   @@index([createdAt], map: "negotiationHistoryCreatedAtIdx")

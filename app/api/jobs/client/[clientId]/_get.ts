@@ -22,11 +22,24 @@ export async function GET(
 
         const offset = (page - 1) * limit;
 
+        // Calculate 3 days ago for cancelled job visibility
+        const threeDaysAgo = new Date();
+        threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+
         let query = db
             .selectFrom("jobs")
             .selectAll("jobs")
             .where("clientId", "=", clientId)
-            .where("deleted", "=", false);
+            .where("deleted", "=", false)
+            .where((eb) =>
+                eb.or([
+                    eb("jobStatus", "!=", "CANCELLED"),
+                    eb.and([
+                        eb("jobStatus", "=", "CANCELLED"),
+                        eb("cancelledAt", ">=", threeDaysAgo)
+                    ])
+                ])
+            );
 
         if (status) {
             query = query.where("jobStatus", "=", status.toUpperCase() as any);
@@ -43,6 +56,15 @@ export async function GET(
                 .select(db.fn.count("id").as("count"))
                 .where("clientId", "=", clientId)
                 .where("deleted", "=", false)
+                .where((eb) =>
+                    eb.or([
+                        eb("jobStatus", "!=", "CANCELLED"),
+                        eb.and([
+                            eb("jobStatus", "=", "CANCELLED"),
+                            eb("cancelledAt", ">=", threeDaysAgo)
+                        ])
+                    ])
+                )
                 .$if(!!status, (qb) => qb.where("jobStatus", "=", status?.toUpperCase() as any))
                 .executeTakeFirst(),
         ]);

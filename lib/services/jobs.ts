@@ -439,6 +439,7 @@ export async function cancelJob(jobId: string, userId: string, reason?: string) 
                 jobStatus: 'CANCELLED',
                 paymentStatus: 'CANCELLED',
                 isAmountReserved: false,
+                cancelledAt: new Date(),
                 updatedAt: new Date()
             })
             .where('id', '=', jobId)

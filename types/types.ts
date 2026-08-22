@@ -122,13 +122,14 @@ export type CashbackOffer = {
     id: string;
     amount: number;
     amountType: CashbackOfferAmountType;
-    minBooking: Generated<number>;
-    maxDiscount: number | null;
     discovered: Generated<boolean>;
     used: Generated<boolean>;
     createdAt: Generated<Timestamp>;
     updatedAt: Timestamp;
     clientId: string;
+    minBooking: Generated<number>;
+    maxDiscount: number | null;
+    reservedJobId: string | null;
 };
 export type ChatThread = {
     id: string;
@@ -146,6 +147,9 @@ export type ChatThread = {
     clientOffer: string | null;
     freelancerOffer: string | null;
     agreedAmount: string | null;
+    clientDays: number | null;
+    freelancerDays: number | null;
+    agreedDays: number | null;
 };
 export type Client = {
     id: string;
@@ -269,11 +273,11 @@ export type Freelancer = {
     monthlyEarnings: Generated<string>;
     outstandingAmount: Generated<string>;
     withdrawableAmount: Generated<string>;
-    totalPenaltyReceived: Generated<string>;
-    totalPenaltyDeducted: Generated<string>;
     createdAt: Generated<Timestamp>;
     updatedAt: Timestamp;
     availabilityUpdatedAt: Timestamp | null;
+    totalPenaltyDeducted: Generated<string>;
+    totalPenaltyReceived: Generated<string>;
 };
 export type HomePromo = {
     id: string;
@@ -335,6 +339,9 @@ export type Job = {
     completedAt: Timestamp | null;
     cashbackOfferId: string | null;
     discountAmount: Generated<string | null>;
+    deleted: Generated<boolean>;
+    clientPenaltyAmount: Generated<string | null>;
+    cancelledAt: Timestamp | null;
 };
 export type JobBookmark = {
     id: string;
@@ -369,6 +376,8 @@ export type negotiationHistory = {
     previousAmount: string | null;
     note: string | null;
     createdAt: Generated<Timestamp>;
+    days: number | null;
+    previousDays: number | null;
 };
 export type Notification = {
     id: string;

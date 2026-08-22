@@ -26,12 +26,25 @@ export async function GET(request: Request) {
         const { page, limit, status, category, clientId, freelancerId, search } = validation.data;
         const offset = (page - 1) * limit;
 
+        // Calculate 3 days ago for cancelled job visibility
+        const threeDaysAgo = new Date();
+        threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+
         let query = db
             .selectFrom('jobs')
             .innerJoin('clients', 'clients.id', 'jobs.clientId')
             .innerJoin('users', 'users.id', 'clients.userId')
             .leftJoin('services', 'services.id', 'jobs.serviceId')
             .where('jobs.deleted', '=', false)
+            .where((eb) =>
+                eb.or([
+                    eb('jobs.jobStatus', '!=', 'CANCELLED'),
+                    eb.and([
+                        eb('jobs.jobStatus', '=', 'CANCELLED'),
+                        eb('jobs.cancelledAt', '>=', threeDaysAgo)
+                    ])
+                ])
+            )
             .select([
                 'jobs.id',
                 'jobs.jobTitle',
@@ -65,6 +78,15 @@ export async function GET(request: Request) {
             db.selectFrom('jobs')
                 .select(db.fn.count('jobs.id').as('count'))
                 .where('jobs.deleted', '=', false)
+                .where((eb) =>
+                    eb.or([
+                        eb('jobs.jobStatus', '!=', 'CANCELLED'),
+                        eb.and([
+                            eb('jobs.jobStatus', '=', 'CANCELLED'),
+                            eb('jobs.cancelledAt', '>=', threeDaysAgo)
+                        ])
+                    ])
+                )
                 .$if(!!status, (qb) => qb.where('jobs.jobStatus', '=', status as any))
                 .$if(!!category, (qb) => qb.where('jobs.jobCategory', '=', category))
                 .$if(!!clientId, (qb) => qb.where('jobs.clientId', '=', clientId))
