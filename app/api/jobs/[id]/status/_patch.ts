@@ -1,13 +1,15 @@
 import { db } from '@/lib/db';
 import { getAuthUser } from '@/lib/auth';
 import { sendNotification } from '@/lib/services/notifications';
+import { recordJobStatusHistory } from '@/lib/services/timers';
+import { isValidStatusTransition } from '@/lib/services/jobs';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { validateParams } from '@/lib/validation';
-import { JobStatus } from '@/types/types';
 
 const updateStatusSchema = z.object({
-    status: z.nativeEnum(JobStatus),
+    status: z.string().min(1),
+    reason: z.string().optional(),
 });
 
 export async function PATCH(
@@ -28,43 +30,86 @@ export async function PATCH(
             return NextResponse.json({ message: validation.error }, { status: 400 });
         }
 
-        const { status } = validation.data;
+        const { status: newStatus, reason } = validation.data;
 
+        // Fetch job with authorization info
         const job = await db
-            .updateTable('jobs')
-            .set({ jobStatus: status, updatedAt: new Date() })
-            .where('id', '=', id)
-            .where('deleted', '=', false)
-            .returningAll()
-            .executeTakeFirstOrThrow();
-
-        // Notification Logic (Simplified from server)
-        const jobDetails = await db
             .selectFrom('jobs')
             .innerJoin('clients', 'clients.id', 'jobs.clientId')
             .leftJoin('freelancers', 'freelancers.id', 'jobs.assignedFreelancerId')
             .select([
-                'jobs.jobTitle',
+                'jobs.id',
+                'jobs.jobStatus',
+                'jobs.clientId',
+                'jobs.assignedFreelancerId',
+                'jobs.deleted',
                 'clients.userId as clientUserId',
-                'freelancers.userId as freelancerUserId'
+                'freelancers.userId as freelancerUserId',
             ])
             .where('jobs.id', '=', id)
-            .where('jobs.deleted', '=', false)
+            .executeTakeFirst();
+
+        if (!job || job.deleted) {
+            return NextResponse.json({ message: 'Job not found' }, { status: 404 });
+        }
+
+        // Authorization: only client, assigned freelancer, or system can change status
+        const isClient = job.clientUserId === user.id;
+        const isFreelancer = job.freelancerUserId === user.id;
+
+        if (!isClient && !isFreelancer) {
+            return NextResponse.json({ message: 'Unauthorized to change this job status' }, { status: 403 });
+        }
+
+        // Validate status transition
+        if (!isValidStatusTransition(job.jobStatus, newStatus)) {
+            return NextResponse.json({
+                message: `Invalid status transition from ${job.jobStatus} to ${newStatus}`
+            }, { status: 400 });
+        }
+
+        // Update status
+        const updatedJob = await db
+            .updateTable('jobs')
+            .set({ jobStatus: newStatus as any, updatedAt: new Date() })
+            .where('id', '=', id)
+            .returningAll()
+            .executeTakeFirstOrThrow();
+
+        // Record audit trail
+        await db.transaction().execute(async (trx) => {
+            await recordJobStatusHistory(
+                trx,
+                id,
+                newStatus,
+                user.id,
+                isClient ? 'CLIENT' : 'FREELANCER',
+                'MANUAL_STATUS_UPDATE',
+                reason || `Status changed from ${job.jobStatus} to ${newStatus}`,
+                { previousStatus: job.jobStatus }
+            );
+        });
+
+        // Notification Logic
+        const jobDetails = await db
+            .selectFrom('jobs')
+            .select(['jobs.jobTitle'])
+            .where('jobs.id', '=', id)
             .executeTakeFirst();
 
         if (jobDetails) {
-            if (status === 'COMPLETED' && jobDetails.clientUserId) {
-                sendNotification(jobDetails.clientUserId, 'CLIENT', 'Job Completed', `Job "${jobDetails.jobTitle}" has been marked as completed.`, 'JOB_COMPLETED', { jobId: id });
+            if (newStatus === 'COMPLETED' && job.clientUserId) {
+                sendNotification(job.clientUserId, 'CLIENT', 'Job Completed', `Job "${jobDetails.jobTitle}" has been marked as completed.`, 'JOB_COMPLETED', { jobId: id });
             }
-            if (jobDetails.freelancerUserId) {
-                sendNotification(jobDetails.freelancerUserId, 'FREELANCER', 'Job Status Update', `Job "${jobDetails.jobTitle}" status is now: ${status}`, 'JOB_UPDATE', { jobId: id });
+            if (job.freelancerUserId) {
+                sendNotification(job.freelancerUserId, 'FREELANCER', 'Job Status Update', `Job "${jobDetails.jobTitle}" status is now: ${newStatus}`, 'JOB_UPDATE', { jobId: id });
             }
         }
 
         return NextResponse.json({
             success: true,
             message: 'Job status updated successfully',
-            data: job
+            data: updatedJob
         });
     } catch (error: any) {
         console.error('Update job status error:', error);

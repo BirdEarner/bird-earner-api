@@ -21,7 +21,7 @@ const createJobSchema = z.object({
     budgetType: z.string().min(1, 'Budget type is required'),
     budgetAmount: z.union([z.number(), z.string()]).transform(v => parseFloat(v.toString())),
     serviceId: z.string().optional(),
-    deadlineDate: z.string().optional(),
+    workDurationDays: z.number().int().min(1).max(3).optional().default(1),
     paymentMethod: z.enum(['PLATFORM', 'CASH']).optional(),
     attachedFiles: z.array(z.string()).optional(),
     location: z.string().optional(),

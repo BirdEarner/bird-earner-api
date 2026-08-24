@@ -43,6 +43,20 @@ export const createReview = async (data: CreateReviewData) => {
     } = data;
 
     return await db.transaction().execute(async (trx) => {
+        // 0. Prevent duplicate reviews for the same job
+        if (jobId) {
+            const existing = await trx
+                .selectFrom('reviews')
+                .select('id')
+                .where('reviewerId', '=', reviewerId)
+                .where('jobId', '=', jobId)
+                .executeTakeFirst();
+
+            if (existing) {
+                throw new Error('You have already reviewed this job.');
+            }
+        }
+
         // 1. Create the review
         // Note: reviewType from frontend is 'FREELANCER' or 'CLIENT'
         // We might want to set freelancerId or clientId if we can find them

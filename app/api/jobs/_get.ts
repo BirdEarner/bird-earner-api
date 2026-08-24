@@ -88,9 +88,9 @@ export async function GET(request: Request) {
                     ])
                 )
                 .$if(!!status, (qb) => qb.where('jobs.jobStatus', '=', status as any))
-                .$if(!!category, (qb) => qb.where('jobs.jobCategory', '=', category))
-                .$if(!!clientId, (qb) => qb.where('jobs.clientId', '=', clientId))
-                .$if(!!freelancerId, (qb) => qb.where('jobs.assignedFreelancerId', '=', freelancerId))
+                .$if(!!category, (qb) => qb.where('jobs.jobCategory', '=', category!))
+                .$if(!!clientId, (qb) => qb.where('jobs.clientId', '=', clientId!))
+                .$if(!!freelancerId, (qb) => qb.where('jobs.assignedFreelancerId', '=', freelancerId!))
                 .$if(!!search, (qb) => qb.where((eb) => eb.or([
                     eb('jobs.jobTitle', 'ilike', `%${search}%`),
                     eb('jobs.jobDescription', 'ilike', `%${search}%`)
