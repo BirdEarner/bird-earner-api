@@ -92,6 +92,8 @@ export async function createJob(jobData: any, userId: string, clientId: string) 
                 paymentMethod: jobData.paymentMethod || 'PLATFORM',
                 attachedFiles: JSON.stringify(jobData.attachedFiles || []),
                 location: jobData.location || null,
+                latitude: jobData.latitude != null ? jobData.latitude.toString() : null,
+                longitude: jobData.longitude != null ? jobData.longitude.toString() : null,
                 isUrgent: jobData.isUrgent || false,
                 clientPenaltyAmount: penaltyAmount > 0 ? penaltyAmount.toString() : '0',
                 jobStatus: 'OPEN',
@@ -556,6 +558,10 @@ export async function cancelJob(jobId: string, userId: string, reason?: string) 
             throw new Error('Normal cancellation is disabled after the emergency cancellation window. Please Raise a Dispute.');
         }
 
+        const isClientCancelling = job.clientUserId === userId;
+        const isFreelancerCancelling = job.freelancerUserId === userId;
+        const isAssigned = !!job.assignedFreelancerId;
+
         // 1. Release Funds if reserved
         if (job.isAmountReserved) {
             await releaseReservedAmountInTransaction(trx, job.clientUserId, jobId);
@@ -585,10 +591,6 @@ export async function cancelJob(jobId: string, userId: string, reason?: string) 
                 .where('id', '=', job.cashbackOfferId)
                 .execute();
         }
-
-        const isClientCancelling = job.clientUserId === userId;
-        const isFreelancerCancelling = job.freelancerUserId === userId;
-        const isAssigned = !!job.assignedFreelancerId;
 
         // Client cancels assigned job: 0% penalty within 5-min grace window, 2% penalty after 5 mins
         if (isClientCancelling && isAssigned) {

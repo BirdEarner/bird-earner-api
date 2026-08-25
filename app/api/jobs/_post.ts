@@ -25,6 +25,8 @@ const createJobSchema = z.object({
     paymentMethod: z.enum(['PLATFORM', 'CASH']).optional(),
     attachedFiles: z.array(z.string()).optional(),
     location: z.string().optional(),
+    latitude: z.union([z.number(), z.string()]).optional().transform(v => v != null ? parseFloat(v.toString()) : null),
+    longitude: z.union([z.number(), z.string()]).optional().transform(v => v != null ? parseFloat(v.toString()) : null),
     isUrgent: z.boolean().optional(),
 });
 
