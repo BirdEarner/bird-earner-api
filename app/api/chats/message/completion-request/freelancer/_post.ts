@@ -52,25 +52,11 @@ export async function POST(request: Request) {
             // On-site jobs require OTP verification before completion request
             const isOnSite = job.projectType === 'On-site' && job.location?.toLowerCase() !== 'remote';
             if (isOnSite && !job.otpVerifiedAt) {
-                const otpNotVerifiedMsg = await trx
-                    .insertInto('messages')
-                    .values({
-                        id: crypto.randomUUID(),
-                        chatThreadId: threadId,
-                        senderId: user.id,
-                        receiverId: job.clientUserId,
-                        messageContent: 'Project completion request cannot be submitted. OTP verification is still pending. Please complete the on-site attendance flow first.',
-                        messageType: 'notification',
-                        senderType: 'SYSTEM',
-                        messageData: {
-                            type: 'otp_verification_pending',
-                            jobId: jobId
-                        },
-                        updatedAt: new Date()
-                    })
-                    .returningAll()
-                    .executeTakeFirstOrThrow();
-                return otpNotVerifiedMsg;
+                return {
+                    success: true,
+                    otpPending: true,
+                    message: 'OTP not verified. Please complete the on-site attendance flow before requesting project completion.'
+                };
             }
 
             // Close existing requests
@@ -106,6 +92,15 @@ export async function POST(request: Request) {
                 .returningAll()
                 .executeTakeFirstOrThrow();
         });
+
+        // If OTP pending, return early without sending a message
+        if (requestMessage?.otpPending) {
+            return NextResponse.json({
+                success: true,
+                otpPending: true,
+                message: requestMessage.message
+            });
+        }
 
         return NextResponse.json({
             success: true,

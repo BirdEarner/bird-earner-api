@@ -14,12 +14,22 @@ export async function GET(
 
         const { threadId } = await params;
 
-        const messages = await db
+        const allMessages = await db
             .selectFrom('messages')
             .selectAll()
             .where('chatThreadId', '=', threadId)
             .orderBy('createdAt', 'asc')
             .execute();
+
+        // Filter out SYSTEM messages not intended for this user
+        // If senderType is SYSTEM and receiverId is set and doesn't match current user, hide it
+        // Regular chat messages (senderType: CLIENT/FREELANCER) are visible to both parties
+        const messages = allMessages.filter((msg) => {
+            if (msg.senderType === 'SYSTEM' && msg.receiverId && msg.receiverId !== user.id) {
+                return false;
+            }
+            return true;
+        });
 
         return NextResponse.json({
             success: true,
