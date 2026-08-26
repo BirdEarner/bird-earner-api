@@ -52,7 +52,25 @@ export async function POST(request: Request) {
             // On-site jobs require OTP verification before completion request
             const isOnSite = job.projectType === 'On-site' && job.location?.toLowerCase() !== 'remote';
             if (isOnSite && !job.otpVerifiedAt) {
-                throw new Error('OTP verification pending. Please complete the on-site attendance flow before requesting project completion.');
+                const otpNotVerifiedMsg = await trx
+                    .insertInto('messages')
+                    .values({
+                        id: crypto.randomUUID(),
+                        chatThreadId: threadId,
+                        senderId: user.id,
+                        receiverId: job.clientUserId,
+                        messageContent: 'Project completion request cannot be submitted. OTP verification is still pending. Please complete the on-site attendance flow first.',
+                        messageType: 'notification',
+                        senderType: 'SYSTEM',
+                        messageData: {
+                            type: 'otp_verification_pending',
+                            jobId: jobId
+                        },
+                        updatedAt: new Date()
+                    })
+                    .returningAll()
+                    .executeTakeFirstOrThrow();
+                return otpNotVerifiedMsg;
             }
 
             // Close existing requests
