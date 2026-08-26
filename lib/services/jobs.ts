@@ -879,6 +879,27 @@ export async function updatePhysicalJobProgress(
                 { jobId }
             );
 
+            // Send chat message visible only to client
+            const travellingThread = await trx
+                .selectFrom('chatThreads')
+                .select(['id'])
+                .where('jobId', '=', jobId)
+                .executeTakeFirst();
+
+            if (travellingThread) {
+                await trx.insertInto('messages').values({
+                    id: crypto.randomUUID(),
+                    chatThreadId: travellingThread.id,
+                    senderId: userId,
+                    receiverId: job.clientUserId,
+                    messageContent: 'Freelancer is on the way to your location.',
+                    messageType: 'notification',
+                    senderType: 'SYSTEM',
+                    isRead: false,
+                    updatedAt: new Date()
+                }).execute();
+            }
+
             return updatedJob;
         }
 
@@ -906,6 +927,27 @@ export async function updatePhysicalJobProgress(
                 { jobId }
             );
 
+            // Send chat message visible only to client
+            const arrivedThread = await trx
+                .selectFrom('chatThreads')
+                .select(['id'])
+                .where('jobId', '=', jobId)
+                .executeTakeFirst();
+
+            if (arrivedThread) {
+                await trx.insertInto('messages').values({
+                    id: crypto.randomUUID(),
+                    chatThreadId: arrivedThread.id,
+                    senderId: userId,
+                    receiverId: job.clientUserId,
+                    messageContent: 'Freelancer has arrived at your location.',
+                    messageType: 'notification',
+                    senderType: 'SYSTEM',
+                    isRead: false,
+                    updatedAt: new Date()
+                }).execute();
+            }
+
             return updatedJob;
         }
 
@@ -932,6 +974,27 @@ export async function updatePhysicalJobProgress(
                 'OTP_REQUESTED',
                 { jobId }
             );
+
+            // Send chat message visible only to client
+            const otpThread = await trx
+                .selectFrom('chatThreads')
+                .select(['id'])
+                .where('jobId', '=', jobId)
+                .executeTakeFirst();
+
+            if (otpThread) {
+                await trx.insertInto('messages').values({
+                    id: crypto.randomUUID(),
+                    chatThreadId: otpThread.id,
+                    senderId: userId,
+                    receiverId: job.clientUserId,
+                    messageContent: 'Freelancer has requested the OTP. Please share the OTP to start the service.',
+                    messageType: 'notification',
+                    senderType: 'SYSTEM',
+                    isRead: false,
+                    updatedAt: new Date()
+                }).execute();
+            }
 
             return updatedJob;
         }
@@ -974,6 +1037,27 @@ export async function updatePhysicalJobProgress(
                 );
             }
 
+            // Send chat message visible only to client
+            const verifyOtpThread = await trx
+                .selectFrom('chatThreads')
+                .select(['id'])
+                .where('jobId', '=', jobId)
+                .executeTakeFirst();
+
+            if (verifyOtpThread) {
+                await trx.insertInto('messages').values({
+                    id: crypto.randomUUID(),
+                    chatThreadId: verifyOtpThread.id,
+                    senderId: userId,
+                    receiverId: job.clientUserId,
+                    messageContent: 'OTP verified. Job has started.',
+                    messageType: 'notification',
+                    senderType: 'SYSTEM',
+                    isRead: false,
+                    updatedAt: new Date()
+                }).execute();
+            }
+
             return updatedJob;
         }
 
@@ -1011,6 +1095,27 @@ export async function updatePhysicalJobProgress(
                     'JOB_COMPLETED',
                     { jobId }
                 );
+            }
+
+            // Send chat message visible only to freelancer
+            const confirmThread = await trx
+                .selectFrom('chatThreads')
+                .select(['id'])
+                .where('jobId', '=', jobId)
+                .executeTakeFirst();
+
+            if (confirmThread) {
+                await trx.insertInto('messages').values({
+                    id: crypto.randomUUID(),
+                    chatThreadId: confirmThread.id,
+                    senderId: userId,
+                    receiverId: job.freelancerUserId || '',
+                    messageContent: 'Client has confirmed work completed. Payment has been released to your wallet.',
+                    messageType: 'notification',
+                    senderType: 'SYSTEM',
+                    isRead: false,
+                    updatedAt: new Date()
+                }).execute();
             }
 
             return updatedJob;

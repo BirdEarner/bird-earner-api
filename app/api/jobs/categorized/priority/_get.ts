@@ -9,6 +9,7 @@ const priorityFiltersSchema = z.object({
     category: z.string().optional(),
     clientId: z.string().optional(),
     freelancerId: z.string().optional(),
+    currentFreelancerId: z.string().optional(),
     serviceId: z.string().optional(),
     serviceIds: z.string().optional(),
     budgetMin: z.string().optional().transform(v => v ? parseFloat(v) : undefined),
@@ -73,7 +74,30 @@ export async function GET(request: Request) {
         }
 
         const jobs = await query.orderBy('jobs.createdAt', 'desc').execute();
-        const categorized = await categorizeJobsByPriority(jobs, filters.serviceId || null);
+
+        // If currentFreelancerId is provided, check which jobs they've already applied to
+        let appliedJobIds: Set<string> = new Set();
+        if (filters.currentFreelancerId && jobs.length > 0) {
+            const jobIds = jobs.map(j => j.id);
+            const applications = await db
+                .selectFrom('chatThreads')
+                .select(['jobId', 'status'])
+                .where('freelancerId', '=', filters.currentFreelancerId)
+                .where('jobId', 'in', jobIds)
+                .execute();
+
+            for (const app of applications) {
+                appliedJobIds.add(app.jobId);
+            }
+        }
+
+        // Add hasApplied flag to each job
+        const jobsWithApplicationStatus = jobs.map(job => ({
+            ...job,
+            hasApplied: appliedJobIds.has(job.id),
+        }));
+
+        const categorized = await categorizeJobsByPriority(jobsWithApplicationStatus, filters.serviceId || null);
 
         return NextResponse.json({
             success: true,
