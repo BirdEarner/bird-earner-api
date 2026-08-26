@@ -567,6 +567,20 @@ export async function cancelJob(jobId: string, userId: string, reason?: string) 
             await releaseReservedAmountInTransaction(trx, job.clientUserId, jobId);
         }
 
+        // If this job had a clientPenaltyAmount from a previous cancellation,
+        // move it back to client's pendingPenaltyAmount so it carries to the next job
+        const existingPenalty = parseFloat(job.clientPenaltyAmount?.toString() || '0');
+        if (existingPenalty > 0) {
+            await trx
+                .updateTable('clients')
+                .set((eb) => ({
+                    pendingPenaltyAmount: eb('pendingPenaltyAmount', '+', existingPenalty.toString()),
+                    updatedAt: new Date()
+                }))
+                .where('id', '=', job.clientId)
+                .execute();
+        }
+
         // 2. Update status
         const cancelledStatus = isClientCancelling ? 'CANCELLED_BY_CLIENT' : (isFreelancerCancelling ? 'CANCELLED_BY_FREELANCER' : 'CANCELLED');
         const cancelledJob = await trx
@@ -662,6 +676,13 @@ export async function cancelJob(jobId: string, userId: string, reason?: string) 
                     isRead: false,
                     updatedAt: new Date()
                 }).execute();
+
+                // Update thread status so accept/reject options don't reappear
+                await trx
+                    .updateTable('chatThreads')
+                    .set({ status: 'REJECTED', updatedAt: new Date() })
+                    .where('id', '=', thread.id)
+                    .execute();
             }
 
             // Notify freelancer
@@ -767,6 +788,13 @@ export async function cancelJob(jobId: string, userId: string, reason?: string) 
                     isRead: false,
                     updatedAt: new Date()
                 }).execute();
+
+                // Update thread status so accept/reject options don't reappear
+                await trx
+                    .updateTable('chatThreads')
+                    .set({ status: 'REJECTED', updatedAt: new Date() })
+                    .where('id', '=', thread.id)
+                    .execute();
             }
 
             // Notify freelancer

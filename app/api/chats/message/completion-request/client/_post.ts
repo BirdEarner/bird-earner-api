@@ -35,6 +35,10 @@ export async function POST(request: Request) {
                     'jobs.id',
                     'jobs.paymentMethod',
                     'jobs.budgetAmount',
+                    'jobs.projectType',
+                    'jobs.jobStatus',
+                    'jobs.location',
+                    'jobs.otpVerifiedAt',
                     'clients.userId as clientUserId',
                     'freelancers.userId as freelancerUserId'
                 ])
@@ -45,6 +49,12 @@ export async function POST(request: Request) {
             if (!job) throw new Error('Job not found');
             if (job.clientUserId !== user.id) throw new Error('You are not the client for this job');
             if (!job.freelancerUserId) throw new Error('No freelancer assigned');
+
+            // On-site jobs require OTP verification before completion request
+            const isOnSite = job.projectType === 'On-site' && job.location?.toLowerCase() !== 'remote';
+            if (isOnSite && !job.otpVerifiedAt) {
+                throw new Error('OTP verification pending. Please wait for the freelancer to complete the on-site attendance flow.');
+            }
 
             // Close existing requests
             await trx

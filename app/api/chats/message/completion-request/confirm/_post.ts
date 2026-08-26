@@ -56,6 +56,21 @@ export async function POST(request: Request) {
 
             const { jobId, paymentMethod, budgetAmount, requestedBy } = messageData;
 
+            // On-site jobs require OTP verification before confirmation
+            const jobCheck = await trx
+                .selectFrom('jobs')
+                .select(['projectType', 'location', 'otpVerifiedAt'])
+                .where('id', '=', jobId)
+                .where('deleted', '=', false)
+                .executeTakeFirst();
+
+            if (jobCheck) {
+                const isOnSite = jobCheck.projectType === 'On-site' && jobCheck.location?.toLowerCase() !== 'remote';
+                if (isOnSite && !jobCheck.otpVerifiedAt) {
+                    throw new Error('OTP verification pending. Please wait for the on-site attendance flow to complete.');
+                }
+            }
+
             // 1. Update request status
             messageData.status = 'confirmed';
             messageData.confirmedBy = user.id;
