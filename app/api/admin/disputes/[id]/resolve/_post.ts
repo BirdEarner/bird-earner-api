@@ -66,15 +66,15 @@ export async function POST(
             let targetPaymentStatus = job.jobStatus;
 
             if (action === 'REFUND_CLIENT') {
-                targetJobStatus = 'REFUNDED';
-                targetPaymentStatus = 'REFUNDED';
+                targetJobStatus = isCashJob ? 'CANCELLED' : 'REFUNDED';
+                targetPaymentStatus = isCashJob ? 'CANCELLED' : 'REFUNDED';
 
                 await trx
                     .updateTable('jobs')
                     .set({
-                        jobStatus: 'REFUNDED',
-                        paymentStatus: 'REFUNDED',
-                        cancellationReason: `Dispute resolved by Admin (${admin.email}): Refund Client. ${resolutionNotes}`,
+                        jobStatus: targetJobStatus as any,
+                        paymentStatus: targetPaymentStatus as any,
+                        cancellationReason: `Dispute resolved by Admin (${admin.email}): ${isCashJob ? 'In Favor of Client (No Cash Payment Required)' : 'Refund Client'}. ${resolutionNotes}`,
                         updatedAt: now,
                     })
                     .where('id', '=', id)
