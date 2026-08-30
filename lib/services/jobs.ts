@@ -903,26 +903,28 @@ export async function updatePhysicalJobProgress(
             return updatedJob;
         }
 
-        if (action === 'ARRIVED') {
+        if (action === 'ARRIVED' || action === 'REQUEST_OTP') {
             if (job.freelancerUserId !== userId) throw new Error('Unauthorized');
-            if (job.jobStatus !== 'FREELANCER_TRAVELLING') {
-                throw new Error('Freelancer must be travelling before marking as arrived');
+            if (job.jobStatus !== 'FREELANCER_TRAVELLING' && job.jobStatus !== 'ARRIVED' && job.jobStatus !== 'CONFIRMED' && job.jobStatus !== 'IN_PROGRESS') {
+                throw new Error('Freelancer must be assigned or travelling before marking as arrived');
             }
+
+            const otpCode = job.otpCode || Math.floor(1000 + Math.random() * 9000).toString();
 
             const updatedJob = await trx
                 .updateTable('jobs')
-                .set({ jobStatus: 'ARRIVED', arrivedAt: now, updatedAt: now })
+                .set({ jobStatus: 'ARRIVED', arrivedAt: now, otpCode, updatedAt: now })
                 .where('id', '=', jobId)
                 .returningAll()
                 .executeTakeFirstOrThrow();
 
-            await recordJobStatusHistory(trx, jobId, 'ARRIVED', userId, 'FREELANCER', 'ARRIVED_AT_LOCATION', 'Freelancer arrived at client location');
+            await recordJobStatusHistory(trx, jobId, 'ARRIVED', userId, 'FREELANCER', 'ARRIVED_AT_LOCATION', `Freelancer arrived at client location. OTP Generated: ${otpCode}`);
 
             sendNotification(
                 job.clientUserId,
                 'CLIENT',
-                'Freelancer Arrived',
-                `Freelancer has arrived at your location for job "${job.jobTitle}".`,
+                'Freelancer Arrived - View OTP',
+                `Freelancer has arrived at your location for job "${job.jobTitle}". Your 4-digit OTP is available in your chat popup.`,
                 'FREELANCER_ARRIVED',
                 { jobId }
             );
@@ -940,55 +942,7 @@ export async function updatePhysicalJobProgress(
                     chatThreadId: arrivedThread.id,
                     senderId: userId,
                     receiverId: job.clientUserId,
-                    messageContent: 'Freelancer has arrived at your location.',
-                    messageType: 'notification',
-                    senderType: 'SYSTEM',
-                    isRead: false,
-                    updatedAt: new Date()
-                }).execute();
-            }
-
-            return updatedJob;
-        }
-
-        if (action === 'REQUEST_OTP') {
-            if (job.freelancerUserId !== userId) throw new Error('Unauthorized');
-            if (job.jobStatus !== 'ARRIVED') {
-                throw new Error('OTP can only be requested after freelancer has arrived at the location');
-            }
-
-            const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
-
-            const updatedJob = await trx
-                .updateTable('jobs')
-                .set({ otpCode, updatedAt: now })
-                .where('id', '=', jobId)
-                .returningAll()
-                .executeTakeFirstOrThrow();
-
-            sendNotification(
-                job.clientUserId,
-                'CLIENT',
-                'Share OTP to Start Service',
-                `Freelancer has requested the OTP for job "${job.jobTitle}". Please check your OTP section in the job details to view and share the OTP.`,
-                'OTP_REQUESTED',
-                { jobId }
-            );
-
-            // Send chat message visible only to client
-            const otpThread = await trx
-                .selectFrom('chatThreads')
-                .select(['id'])
-                .where('jobId', '=', jobId)
-                .executeTakeFirst();
-
-            if (otpThread) {
-                await trx.insertInto('messages').values({
-                    id: crypto.randomUUID(),
-                    chatThreadId: otpThread.id,
-                    senderId: userId,
-                    receiverId: job.clientUserId,
-                    messageContent: 'Freelancer has requested the OTP. Please share the OTP to start the service.',
+                    messageContent: 'Freelancer has arrived at your location. Please share your 4-digit OTP to start the job.',
                     messageType: 'notification',
                     senderType: 'SYSTEM',
                     isRead: false,
