@@ -156,6 +156,7 @@ export async function processJobTimers() {
             'jobs.workDeadline as workDeadline',
             'jobs.budgetAmount as budgetAmount',
             'jobs.negotiatedAmount as negotiatedAmount',
+            'jobs.isAmountReserved as isAmountReserved',
             'clients.userId as clientUserId',
         ])
         .where('jobStatus', 'in', ['CONFIRMED', 'IN_PROGRESS', 'JOB_STARTED'])
@@ -194,7 +195,9 @@ export async function processJobTimers() {
                     }
                 } else if (job.freelancerGracePeriodExpiresAt <= now) {
                     // Grace period expired -> DEADLINE_EXPIRED / BOOKING_FAILED
-                    await releaseReservedAmountInTransaction(trx, job.clientUserId, job.id);
+                    if (job.isAmountReserved) {
+                        await releaseReservedAmountInTransaction(trx, job.clientUserId, job.id);
+                    }
 
                     const effectiveAmount = job.negotiatedAmount ? parseFloat(job.negotiatedAmount.toString()) : parseFloat(job.budgetAmount.toString());
                     const penaltyAmount = effectiveAmount * 0.02;

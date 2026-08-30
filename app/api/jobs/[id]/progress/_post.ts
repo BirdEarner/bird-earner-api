@@ -6,6 +6,7 @@ import { z } from 'zod';
 const progressSchema = z.object({
     action: z.enum(['TRAVELLING', 'ARRIVED', 'REQUEST_OTP', 'VERIFY_OTP', 'CONFIRM_WORK_COMPLETED', 'EMERGENCY_CANCEL', 'RAISE_DISPUTE']),
     otpCode: z.string().optional(),
+    reason: z.string().optional(),
 });
 
 export async function POST(
@@ -22,7 +23,7 @@ export async function POST(
         const body = await request.json();
         const parsed = progressSchema.parse(body);
 
-        const job = await updatePhysicalJobProgress(id, parsed.action, user.id, { otpCode: parsed.otpCode });
+        const job = await updatePhysicalJobProgress(id, parsed.action, user.id, { otpCode: parsed.otpCode, reason: parsed.reason });
 
         return NextResponse.json({
             success: true,

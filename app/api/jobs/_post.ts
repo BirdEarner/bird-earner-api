@@ -63,9 +63,18 @@ export async function POST(request: Request) {
         }, { status: 201 });
     } catch (error: any) {
         console.error('Create job error:', error);
-        return NextResponse.json({
-            success: false,
-            message: error.message || 'Failed to create job'
-        }, { status: 500 });
+        const isClientError =
+            error.message?.toLowerCase().includes('insufficient') ||
+            error.message?.toLowerCase().includes('unauthorized') ||
+            error.message?.toLowerCase().includes('not found') ||
+            error.message?.toLowerCase().includes('balance');
+        const statusCode = isClientError ? 400 : 500;
+        return NextResponse.json(
+            {
+                success: false,
+                message: error.message || 'Failed to create job',
+            },
+            { status: statusCode }
+        );
     }
 }

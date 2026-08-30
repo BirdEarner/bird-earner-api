@@ -53,11 +53,12 @@ export async function PATCH(
             return NextResponse.json({ message: 'Job not found' }, { status: 404 });
         }
 
-        // Authorization: only client, assigned freelancer, or system can change status
+        // Authorization: client, assigned freelancer, or admin
         const isClient = job.clientUserId === user.id;
         const isFreelancer = job.freelancerUserId === user.id;
+        const isAdmin = user.role === 'admin' || user.role === 'superadmin';
 
-        if (!isClient && !isFreelancer) {
+        if (!isClient && !isFreelancer && !isAdmin) {
             return NextResponse.json({ message: 'Unauthorized to change this job status' }, { status: 403 });
         }
 

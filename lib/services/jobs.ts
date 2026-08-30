@@ -831,7 +831,7 @@ export async function updatePhysicalJobProgress(
     jobId: string,
     action: 'TRAVELLING' | 'ARRIVED' | 'REQUEST_OTP' | 'VERIFY_OTP' | 'CONFIRM_WORK_COMPLETED' | 'EMERGENCY_CANCEL' | 'RAISE_DISPUTE',
     userId: string,
-    payload?: { otpCode?: string }
+    payload?: { otpCode?: string; reason?: string }
 ) {
     return await db.transaction().execute(async (trx) => {
         const job = await trx
@@ -1165,14 +1165,20 @@ export async function updatePhysicalJobProgress(
             const isFreelancerUser = job.freelancerUserId === userId;
             if (!isClientUser && !isFreelancerUser) throw new Error('Unauthorized');
 
+            const disputeReason = payload?.reason || 'Dispute raised by user';
+
             const updatedJob = await trx
                 .updateTable('jobs')
-                .set({ jobStatus: 'DISPUTE_OPEN', updatedAt: now })
+                .set({
+                    jobStatus: 'DISPUTE_OPEN',
+                    cancellationReason: `DISPUTE: ${disputeReason}`,
+                    updatedAt: now,
+                })
                 .where('id', '=', jobId)
                 .returningAll()
                 .executeTakeFirstOrThrow();
 
-            await recordJobStatusHistory(trx, jobId, 'DISPUTE_OPEN', userId, isClientUser ? 'CLIENT' : 'FREELANCER', 'RAISE_DISPUTE', 'Dispute raised');
+            await recordJobStatusHistory(trx, jobId, 'DISPUTE_OPEN', userId, isClientUser ? 'CLIENT' : 'FREELANCER', 'RAISE_DISPUTE', disputeReason);
 
             const recipientId = isClientUser ? job.freelancerUserId : job.clientUserId;
             const recipientType = isClientUser ? 'FREELANCER' : 'CLIENT';

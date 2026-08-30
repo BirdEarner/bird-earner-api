@@ -75,7 +75,7 @@ export async function reserveAmountForJobInTransaction(
     const availableBalance = currentWallet - currentReserved;
 
     if (availableBalance < amount) {
-        throw new Error(`Insufficient balance. Available: ${availableBalance}, Required: ${amount}`);
+        throw new Error(`Insufficient wallet balance. Available: ₹${availableBalance.toFixed(2)}, Required: ₹${amount.toFixed(2)}. Please add funds to your wallet or select Cash payment.`);
     }
 
     const newReserved = currentReserved + amount;
@@ -259,13 +259,12 @@ export async function processJobPaymentInTransaction(
     const penaltyAmount = parseFloat(job.clientPenaltyAmount?.toString() || '0');
     await trx
         .updateTable('freelancers')
-        .set((eb) => ({
+        .set({
             totalEarnings: (freelancerCurrentEarnings + freelancerPaymentAmount).toString(),
             monthlyEarnings: (freelancerCurrentMonthly + freelancerPaymentAmount).toString(),
             withdrawableAmount: (freelancerCurrentWithdrawable + freelancerPaymentAmount).toString(),
-            totalPenaltyReceived: penaltyAmount > 0 ? eb('totalPenaltyReceived', '+', penaltyAmount.toString()) : eb('totalPenaltyReceived', '+', '0'),
             updatedAt: new Date()
-        }))
+        })
         .where('id', '=', job.freelancerId)
         .execute();
 
