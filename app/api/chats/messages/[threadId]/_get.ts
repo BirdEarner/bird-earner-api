@@ -22,9 +22,11 @@ export async function GET(
             .execute();
 
         // Filter out SYSTEM messages not intended for this user
-        // If senderType is SYSTEM and receiverId is set and doesn't match current user, hide it
-        // Regular chat messages (senderType: CLIENT/FREELANCER) are visible to both parties
+        // Interactive workflow messages (cash_payment, completion_request, review_request) MUST be visible to both parties
         const messages = allMessages.filter((msg) => {
+            if (['cash_payment', 'completion_request', 'review_request'].includes(msg.messageType)) {
+                return true;
+            }
             if (msg.senderType === 'SYSTEM' && msg.receiverId && msg.receiverId !== user.id) {
                 return false;
             }

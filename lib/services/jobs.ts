@@ -316,7 +316,7 @@ export async function assignFreelancer(jobId: string, freelancerId: string, clie
                 jobId: jobId,
                 senderId: clientUserId,
                 receiverId: freelancer.userId,
-                senderType: 'CLIENT',
+                senderType: 'SYSTEM',
                 messageContent: `Client accepted your request with ₹${finalAmountStr}${daysText}`,
                 messageType: 'text',
                 isRead: false,
