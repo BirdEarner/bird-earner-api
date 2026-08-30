@@ -33,7 +33,10 @@ export async function GET() {
             .select([
                 'jobs.id',
                 'jobs.jobTitle',
+                'jobs.projectType',
                 'jobs.jobStatus',
+                'jobs.budgetAmount',
+                'jobs.location',
                 'jobs.createdAt',
                 'clients.id as clientId',
                 'users.fullName as clientName',
@@ -49,6 +52,9 @@ export async function GET() {
         const formattedJobs = activeJobs.map(job => ({
             id: job.id,
             title: job.jobTitle,
+            projectType: job.projectType,
+            location: job.location,
+            budgetAmount: job.budgetAmount,
             status: job.jobStatus,
             createdAt: job.createdAt,
             assignedFreelancerId: job.assignedFreelancerId,
