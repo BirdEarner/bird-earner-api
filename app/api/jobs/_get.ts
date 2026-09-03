@@ -1,4 +1,5 @@
 import { db } from '@/lib/db';
+import { getAuthUser } from '@/lib/auth';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { validateParams } from '@/lib/validation';
@@ -15,6 +16,9 @@ const listJobsSchema = z.object({
 
 export async function GET(request: Request) {
     try {
+        const authUser = await getAuthUser();
+        const currentUserId = authUser?.id || null;
+
         const { searchParams } = new URL(request.url);
         const params = Object.fromEntries(searchParams.entries());
 
@@ -70,7 +74,12 @@ export async function GET(request: Request) {
 
         if (status) query = query.where('jobs.jobStatus', '=', status as any);
         if (category) query = query.where('jobs.jobCategory', '=', category);
-        if (clientId) query = query.where('jobs.clientId', '=', clientId);
+        if (clientId) {
+            query = query.where('jobs.clientId', '=', clientId);
+        } else if (currentUserId) {
+            // Exclude jobs created by the current user's own client profile
+            query = query.where('clients.userId', '!=', currentUserId);
+        }
         if (freelancerId) query = query.where('jobs.assignedFreelancerId', '=', freelancerId);
         if (search) {
             query = query.where((eb) =>
@@ -81,29 +90,32 @@ export async function GET(request: Request) {
             );
         }
 
+        const countQuery = db.selectFrom('jobs')
+            .innerJoin('clients', 'clients.id', 'jobs.clientId')
+            .select(db.fn.count('jobs.id').as('count'))
+            .where('jobs.deleted', '=', false)
+            .where((eb) =>
+                eb.or([
+                    eb('jobs.jobStatus', '!=', 'CANCELLED'),
+                    eb.and([
+                        eb('jobs.jobStatus', '=', 'CANCELLED'),
+                        eb('jobs.cancelledAt', '>=', threeDaysAgo)
+                    ])
+                ])
+            )
+            .$if(!!status, (qb) => qb.where('jobs.jobStatus', '=', status as any))
+            .$if(!!category, (qb) => qb.where('jobs.jobCategory', '=', category!))
+            .$if(!!clientId, (qb) => qb.where('jobs.clientId', '=', clientId!))
+            .$if(!clientId && !!currentUserId, (qb) => qb.where('clients.userId', '!=', currentUserId!))
+            .$if(!!freelancerId, (qb) => qb.where('jobs.assignedFreelancerId', '=', freelancerId!))
+            .$if(!!search, (qb) => qb.where((eb) => eb.or([
+                eb('jobs.jobTitle', 'ilike', `%${search}%`),
+                eb('jobs.jobDescription', 'ilike', `%${search}%`)
+            ])));
+
         const [jobs, totalCountResult] = await Promise.all([
             query.orderBy('jobs.createdAt', 'desc').limit(limit).offset(offset).execute(),
-            db.selectFrom('jobs')
-                .select(db.fn.count('jobs.id').as('count'))
-                .where('jobs.deleted', '=', false)
-                .where((eb) =>
-                    eb.or([
-                        eb('jobs.jobStatus', '!=', 'CANCELLED'),
-                        eb.and([
-                            eb('jobs.jobStatus', '=', 'CANCELLED'),
-                            eb('jobs.cancelledAt', '>=', threeDaysAgo)
-                        ])
-                    ])
-                )
-                .$if(!!status, (qb) => qb.where('jobs.jobStatus', '=', status as any))
-                .$if(!!category, (qb) => qb.where('jobs.jobCategory', '=', category!))
-                .$if(!!clientId, (qb) => qb.where('jobs.clientId', '=', clientId!))
-                .$if(!!freelancerId, (qb) => qb.where('jobs.assignedFreelancerId', '=', freelancerId!))
-                .$if(!!search, (qb) => qb.where((eb) => eb.or([
-                    eb('jobs.jobTitle', 'ilike', `%${search}%`),
-                    eb('jobs.jobDescription', 'ilike', `%${search}%`)
-                ])))
-                .executeTakeFirst()
+            countQuery.executeTakeFirst()
         ]);
 
         const total = Number(totalCountResult?.count || 0);

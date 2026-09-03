@@ -35,12 +35,21 @@ export async function createOrGetThread(jobId: string, freelancerId: string, cli
         .executeTakeFirst();
 
     if (!thread) {
-        // Check if freelancer has a negative balance before creating a new thread
-        const freelancer = await db
-            .selectFrom('freelancers')
-            .select('withdrawableAmount')
-            .where('id', '=', freelancerId)
-            .executeTakeFirst();
+        // Fetch freelancer and client records to prevent self-application/messaging
+        const [freelancer, client] = await Promise.all([
+            db.selectFrom('freelancers')
+                .select(['userId', 'withdrawableAmount'])
+                .where('id', '=', freelancerId)
+                .executeTakeFirst(),
+            db.selectFrom('clients')
+                .select('userId')
+                .where('id', '=', clientId)
+                .executeTakeFirst()
+        ]);
+
+        if (freelancer && client && freelancer.userId === client.userId) {
+            throw new Error('You cannot apply to or message on jobs created by your own client profile.');
+        }
 
         if (freelancer && parseFloat(freelancer.withdrawableAmount) < 0) {
             throw new Error('You have an outstanding negative balance. Please settle your fees before applying for new jobs.');
@@ -69,12 +78,6 @@ export async function createOrGetThread(jobId: string, freelancerId: string, cli
             .executeTakeFirstOrThrow();
 
         // Notify Client
-        const client = await db
-            .selectFrom('clients')
-            .select('userId')
-            .where('id', '=', clientId)
-            .executeTakeFirst();
-
         if (client) {
             const freelancerUser = await db
                 .selectFrom('freelancers')

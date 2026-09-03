@@ -537,9 +537,11 @@ export type SuggestedService = {
 export type User = {
     id: string;
     email: string;
-    password: string;
+    password: string | null;
     fullName: string | null;
     isTestAccount: Generated<boolean>;
+    provider: Generated<string>;
+    providerAccountId: string | null;
     createdAt: Generated<Timestamp>;
     updatedAt: Timestamp;
     resetPasswordExpires: string | null;
