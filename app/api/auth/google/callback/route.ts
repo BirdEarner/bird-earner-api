@@ -1,1 +1,1 @@
-// Not used for mobile flow.
+export { GET } from './_get';
