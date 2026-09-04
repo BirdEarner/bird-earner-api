@@ -74,12 +74,7 @@ export async function GET(request: Request) {
 
         if (status) query = query.where('jobs.jobStatus', '=', status as any);
         if (category) query = query.where('jobs.jobCategory', '=', category);
-        if (clientId) {
-            query = query.where('jobs.clientId', '=', clientId);
-        } else if (currentUserId) {
-            // Exclude jobs created by the current user's own client profile
-            query = query.where('clients.userId', '!=', currentUserId);
-        }
+        if (clientId) query = query.where('jobs.clientId', '=', clientId);
         if (freelancerId) query = query.where('jobs.assignedFreelancerId', '=', freelancerId);
         if (search) {
             query = query.where((eb) =>
@@ -106,7 +101,6 @@ export async function GET(request: Request) {
             .$if(!!status, (qb) => qb.where('jobs.jobStatus', '=', status as any))
             .$if(!!category, (qb) => qb.where('jobs.jobCategory', '=', category!))
             .$if(!!clientId, (qb) => qb.where('jobs.clientId', '=', clientId!))
-            .$if(!clientId && !!currentUserId, (qb) => qb.where('clients.userId', '!=', currentUserId!))
             .$if(!!freelancerId, (qb) => qb.where('jobs.assignedFreelancerId', '=', freelancerId!))
             .$if(!!search, (qb) => qb.where((eb) => eb.or([
                 eb('jobs.jobTitle', 'ilike', `%${search}%`),

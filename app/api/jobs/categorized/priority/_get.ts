@@ -74,12 +74,7 @@ export async function GET(request: Request) {
 
         if (filters.status) query = query.where('jobs.jobStatus', '=', filters.status as any);
         if (filters.category) query = query.where('jobs.jobCategory', '=', filters.category);
-        if (filters.clientId) {
-            query = query.where('jobs.clientId', '=', filters.clientId);
-        } else if (currentUserId) {
-            // Exclude jobs created by the current user's own client profile from public marketplace
-            query = query.where('clients.userId', '!=', currentUserId);
-        }
+        if (filters.clientId) query = query.where('jobs.clientId', '=', filters.clientId);
         if (filters.freelancerId) query = query.where('jobs.assignedFreelancerId', '=', filters.freelancerId);
         if (filters.budgetMin) query = query.where('jobs.budgetAmount', '>=', filters.budgetMin.toString());
         if (filters.budgetMax) query = query.where('jobs.budgetAmount', '<=', filters.budgetMax.toString());
