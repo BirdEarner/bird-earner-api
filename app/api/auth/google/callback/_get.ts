@@ -162,7 +162,7 @@ export async function GET(request: Request) {
             role,
         });
 
-        const { password: _, ...userWithoutPassword } = existingUser;
+        const { password, ...userWithoutPassword } = existingUser;
 
         const fullFreelancerProfile = await db
             .selectFrom('freelancers')
