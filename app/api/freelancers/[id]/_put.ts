@@ -115,6 +115,9 @@ export async function PUT(
         if (freelancerUpdateData.nextAvailable !== undefined) updatePayload.nextAvailable = freelancerUpdateData.nextAvailable;
         if (freelancerUpdateData.termsAccepted !== undefined) updatePayload.termsAccepted = freelancerUpdateData.termsAccepted;
         if (freelancerUpdateData.flags !== undefined) updatePayload.flags = safeStringify(freelancerUpdateData.flags);
+        if (freelancerUpdateData.freelancerCategory !== undefined) updatePayload.freelancerCategory = freelancerUpdateData.freelancerCategory;
+        if (freelancerUpdateData.skills !== undefined) updatePayload.skills = safeStringify(freelancerUpdateData.skills);
+        if (freelancerUpdateData.languages !== undefined) updatePayload.languages = safeStringify(freelancerUpdateData.languages);
 
 
         if (Object.keys(updatePayload).length > 1) { // 1 because updatedAt is always there

@@ -29,7 +29,10 @@ const createFreelancerSchema = z.object({
     currentlyAvailable: z.boolean().optional().default(true),
     nextAvailable: z.string().optional(),
     termsAccepted: z.boolean().optional().default(false),
-    flags: z.any().optional()
+    flags: z.any().optional(),
+    freelancerCategory: z.string().optional(),
+    skills: z.any().optional(),
+    languages: z.any().optional()
 });
 
 export async function POST(request: Request) {
@@ -123,6 +126,9 @@ export async function POST(request: Request) {
                 nextAvailable: freelancerData.nextAvailable || null,
                 termsAccepted: freelancerData.termsAccepted,
                 flags: freelancerData.flags ? JSON.stringify(freelancerData.flags) : JSON.stringify([]),
+                freelancerCategory: freelancerData.freelancerCategory || null,
+                skills: freelancerData.skills ? JSON.stringify(freelancerData.skills) : JSON.stringify([]),
+                languages: freelancerData.languages ? JSON.stringify(freelancerData.languages) : JSON.stringify([]),
                 updatedAt: new Date()
             })
             .execute();
