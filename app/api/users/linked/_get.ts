@@ -30,7 +30,7 @@ export async function GET() {
                 .innerJoin('users', 'freelancers.userId', 'users.id')
                 .select([
                     'freelancers.id',
-                    'freelancers.profilePhoto',
+                    'users.profilePhoto',
                     'users.fullName',
                     'users.email',
                     'jobs.id as jobId',
@@ -77,7 +77,7 @@ export async function GET() {
                 .innerJoin('users', 'clients.userId', 'users.id')
                 .select([
                     'clients.id',
-                    'clients.profilePhoto',
+                    'users.profilePhoto',
                     'clients.companyName',
                     'users.fullName',
                     'users.email',

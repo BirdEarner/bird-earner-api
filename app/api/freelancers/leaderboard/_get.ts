@@ -52,7 +52,7 @@ export async function GET(request: Request) {
                 'freelancers.xp',
                 'freelancers.level',
                 'freelancers.assignedJobs',
-                'freelancers.profilePhoto',
+                'users.profilePhoto',
                 'freelancers.totalEarnings',
                 'users.fullName'
             ]);

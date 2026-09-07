@@ -56,6 +56,18 @@ export async function POST(request: Request) {
                 .execute();
         }
 
+        // Write user-level fields to users table
+        const userUpdatePayload: any = {};
+        if (data.profilePhoto) userUpdatePayload.profilePhoto = data.profilePhoto;
+        if (data.dob) userUpdatePayload.dob = new Date(data.dob);
+        if (data.gender) userUpdatePayload.gender = data.gender;
+        if (Object.keys(userUpdatePayload).length > 0) {
+            await db.updateTable('users')
+                .set(userUpdatePayload)
+                .where('id', '=', data.userId)
+                .execute();
+        }
+
         const { fullName, full_name, suggestedService, ...freelancerData } = data;
 
         let servicesList: string[] = Array.isArray(freelancerData.selectedServices) ? [...freelancerData.selectedServices] : (typeof freelancerData.selectedServices === 'string' ? JSON.parse(freelancerData.selectedServices) : []);
@@ -114,12 +126,9 @@ export async function POST(request: Request) {
                 state: freelancerData.state || null,
                 zipcode: freelancerData.zipcode || null,
                 country: freelancerData.country,
-                gender: freelancerData.gender || null,
-                dob: freelancerData.dob ? new Date(freelancerData.dob) : null,
                 certifications: freelancerData.certifications ? JSON.stringify(freelancerData.certifications) : JSON.stringify([]),
                 socialMediaLinks: freelancerData.socialMediaLinks ? JSON.stringify(freelancerData.socialMediaLinks) : JSON.stringify([]),
                 profileDescription: freelancerData.profileDescription || null,
-                profilePhoto: freelancerData.profilePhoto || null,
                 portfolioImages: freelancerData.portfolioImages ? JSON.stringify(freelancerData.portfolioImages) : JSON.stringify([]),
                 coverPhoto: freelancerData.coverPhoto || null,
                 currentlyAvailable: freelancerData.currentlyAvailable,

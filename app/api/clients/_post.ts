@@ -19,7 +19,9 @@ const createClientSchema = z.object({
     termsAccepted: z.boolean().optional().default(false),
     currentlyAvailable: z.boolean().optional().default(true),
     nextAvailable: z.string().optional(),
-    coverPhoto: z.string().optional()
+    coverPhoto: z.string().optional(),
+    gender: z.string().optional(),
+    dob: z.string().optional().nullable()
 });
 
 export async function POST(request: Request) {
@@ -43,6 +45,18 @@ export async function POST(request: Request) {
                 .execute();
         }
 
+        // Write user-level fields to users table
+        const userUpdatePayload: any = {};
+        if (data.profilePhoto) userUpdatePayload.profilePhoto = data.profilePhoto;
+        if (data.dob) userUpdatePayload.dob = new Date(data.dob);
+        if (data.gender) userUpdatePayload.gender = data.gender;
+        if (Object.keys(userUpdatePayload).length > 0) {
+            await db.updateTable('users')
+                .set(userUpdatePayload)
+                .where('id', '=', data.userId)
+                .execute();
+        }
+
         const { fullName, full_name, ...clientData } = data;
 
         await db.insertInto('clients')
@@ -56,7 +70,6 @@ export async function POST(request: Request) {
                 zipcode: clientData.zipcode || null,
                 country: clientData.country,
                 profileDescription: clientData.profileDescription || null,
-                profilePhoto: clientData.profilePhoto || null,
                 termsAccepted: clientData.termsAccepted,
                 currentlyAvailable: clientData.currentlyAvailable,
                 nextAvailable: clientData.nextAvailable || null,

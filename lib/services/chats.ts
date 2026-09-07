@@ -210,10 +210,10 @@ export async function getConversations(userId: string, role: 'CLIENT' | 'FREELAN
             'jobs.deadlineDate',
             'clientUser.fullName as clientName',
             'clientUser.id as clientUserId',
-            'clients.profilePhoto as clientPhoto',
+            'clientUser.profilePhoto as clientPhoto',
             'freeUser.fullName as freelancerName',
             'freeUser.id as freelancerUserId',
-            'freelancers.profilePhoto as freelancerPhoto'
+            'freeUser.profilePhoto as freelancerPhoto'
         ])
         .orderBy('chatThreads.updatedAt', 'desc')
         .execute();

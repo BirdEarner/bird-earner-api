@@ -24,7 +24,7 @@ export async function GET(request: Request) {
                 'freelancers.id',
                 'freelancers.userId',
                 'freelancers.mobileNumber as mobile_number',
-                'freelancers.profilePhoto as profile_photo',
+                'users.profilePhoto as profile_photo',
                 'freelancers.city',
                 'freelancers.state',
                 'freelancers.country',

@@ -34,6 +34,18 @@ export async function PUT(
                 .execute();
         }
 
+        // Handle user-level fields (profilePhoto, dob, gender) on users table
+        const userUpdatePayload: any = {};
+        if (clientUpdateData.profilePhoto !== undefined) userUpdatePayload.profilePhoto = clientUpdateData.profilePhoto;
+        if (clientUpdateData.dob !== undefined) userUpdatePayload.dob = clientUpdateData.dob ? new Date(clientUpdateData.dob) : null;
+        if (clientUpdateData.gender !== undefined) userUpdatePayload.gender = clientUpdateData.gender;
+        if (Object.keys(userUpdatePayload).length > 0) {
+            await db.updateTable('users')
+                .set(userUpdatePayload)
+                .where('id', '=', currentClient.userId)
+                .execute();
+        }
+
         // Prepare update data
         const updatePayload: any = { updatedAt: new Date() };
 
@@ -44,7 +56,6 @@ export async function PUT(
         if (clientUpdateData.zipcode !== undefined) updatePayload.zipcode = clientUpdateData.zipcode;
         if (clientUpdateData.country !== undefined) updatePayload.country = clientUpdateData.country;
         if (clientUpdateData.profileDescription !== undefined) updatePayload.profileDescription = clientUpdateData.profileDescription;
-        if (clientUpdateData.profilePhoto !== undefined) updatePayload.profilePhoto = clientUpdateData.profilePhoto;
         if (clientUpdateData.termsAccepted !== undefined) updatePayload.termsAccepted = clientUpdateData.termsAccepted;
         if (clientUpdateData.currentlyAvailable !== undefined) updatePayload.currentlyAvailable = clientUpdateData.currentlyAvailable;
         if (clientUpdateData.nextAvailable !== undefined) updatePayload.nextAvailable = clientUpdateData.nextAvailable;

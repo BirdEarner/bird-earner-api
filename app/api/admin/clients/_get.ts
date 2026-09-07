@@ -24,7 +24,7 @@ export async function GET(request: Request) {
                 'clients.userId',
                 'clients.organizationType as organization_type',
                 'clients.companyName as company_name',
-                'clients.profilePhoto as profile_photo',
+                'users.profilePhoto as profile_photo',
                 'clients.city',
                 'clients.state',
                 'clients.country',

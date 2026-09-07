@@ -25,7 +25,7 @@ export async function GET(
                 "jobs.attachedFiles",
                 "jobs.serviceId",
                 "freelancerUser.fullName as freelancerFullName",
-                "freelancers.profilePhoto as freelancerProfilePhoto",
+                "freelancerUser.profilePhoto as freelancerProfilePhoto",
                 "services.name as serviceName",
                 "services.category as serviceCategory",
                 "services.description as serviceDescription",

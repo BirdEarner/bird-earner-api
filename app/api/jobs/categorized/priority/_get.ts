@@ -60,7 +60,7 @@ export async function GET(request: Request) {
                 'users.fullName as clientName',
                 'users.id as clientUserId',
                 'clients.companyName',
-                'clients.profilePhoto as clientPhoto',
+                'users.profilePhoto as clientPhoto',
                 'clients.id as clientId'
             ]);
 

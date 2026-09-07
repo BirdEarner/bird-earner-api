@@ -37,6 +37,18 @@ export async function PUT(
                 .execute();
         }
 
+        // Handle user-level fields (profilePhoto, dob, gender) on users table
+        const userUpdatePayload: any = {};
+        if (freelancerUpdateData.profilePhoto !== undefined) userUpdatePayload.profilePhoto = freelancerUpdateData.profilePhoto;
+        if (freelancerUpdateData.dob !== undefined) userUpdatePayload.dob = freelancerUpdateData.dob ? new Date(freelancerUpdateData.dob) : null;
+        if (freelancerUpdateData.gender !== undefined) userUpdatePayload.gender = freelancerUpdateData.gender;
+        if (Object.keys(userUpdatePayload).length > 0) {
+            await db.updateTable('users')
+                .set(userUpdatePayload)
+                .where('id', '=', currentFreelancer.userId)
+                .execute();
+        }
+
         // Prepare update data - ensure JSON fields are stringified if they are objects
         const updatePayload: any = { updatedAt: new Date() };
 
@@ -103,12 +115,9 @@ export async function PUT(
         if (freelancerUpdateData.state !== undefined) updatePayload.state = freelancerUpdateData.state;
         if (freelancerUpdateData.zipcode !== undefined) updatePayload.zipcode = freelancerUpdateData.zipcode;
         if (freelancerUpdateData.country !== undefined) updatePayload.country = freelancerUpdateData.country;
-        if (freelancerUpdateData.gender !== undefined) updatePayload.gender = freelancerUpdateData.gender;
-        if (freelancerUpdateData.dob !== undefined) updatePayload.dob = new Date(freelancerUpdateData.dob);
         if (freelancerUpdateData.certifications !== undefined) updatePayload.certifications = safeStringify(freelancerUpdateData.certifications);
         if (freelancerUpdateData.socialMediaLinks !== undefined) updatePayload.socialMediaLinks = safeStringify(freelancerUpdateData.socialMediaLinks);
         if (freelancerUpdateData.profileDescription !== undefined) updatePayload.profileDescription = freelancerUpdateData.profileDescription;
-        if (freelancerUpdateData.profilePhoto !== undefined) updatePayload.profilePhoto = freelancerUpdateData.profilePhoto;
         if (freelancerUpdateData.portfolioImages !== undefined) updatePayload.portfolioImages = safeStringify(freelancerUpdateData.portfolioImages);
         if (freelancerUpdateData.coverPhoto !== undefined) updatePayload.coverPhoto = freelancerUpdateData.coverPhoto;
         if (freelancerUpdateData.currentlyAvailable !== undefined) updatePayload.currentlyAvailable = freelancerUpdateData.currentlyAvailable;

@@ -22,7 +22,7 @@ export async function GET(
                 'freelancers.id',
                 'freelancers.userId',
                 'users.fullName',
-                'freelancers.profilePhoto',
+                'users.profilePhoto',
                 'freelancers.profileHeading',
                 'freelancers.experience',
                 'freelancers.rating',

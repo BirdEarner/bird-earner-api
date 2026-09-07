@@ -25,12 +25,15 @@ export async function GET(
         // Fetch user details to include
         const user = await db
             .selectFrom('users')
-            .select(['id', 'email', 'fullName'])
+            .select(['id', 'email', 'fullName', 'profilePhoto', 'dob', 'gender'])
             .where('id', '=', userId)
             .executeTakeFirst();
 
         const data = {
             ...client,
+            profilePhoto: user?.profilePhoto || null,
+            dob: user?.dob || null,
+            gender: user?.gender || null,
             user: user || null
         };
 
