@@ -38,7 +38,7 @@ export async function createOrGetThread(jobId: string, freelancerId: string, cli
         // Fetch freelancer and client records to prevent self-application/messaging
         const [freelancer, client] = await Promise.all([
             db.selectFrom('freelancers')
-                .select(['userId', 'withdrawableAmount'])
+                .select(['userId', 'withdrawableAmount', 'cooldownExpiresAt'])
                 .where('id', '=', freelancerId)
                 .executeTakeFirst(),
             db.selectFrom('clients')
@@ -51,8 +51,14 @@ export async function createOrGetThread(jobId: string, freelancerId: string, cli
             throw new Error('You cannot apply to or message on jobs created by your own client profile.');
         }
 
+        if (freelancer && freelancer.cooldownExpiresAt && new Date(freelancer.cooldownExpiresAt) > new Date()) {
+            const hoursRemaining = Math.ceil((new Date(freelancer.cooldownExpiresAt).getTime() - Date.now()) / (1000 * 60 * 60));
+            throw new Error(`Your BirdEarner booking access is temporarily locked due to a recent cancellation or missed deadline. Cooldown active for remaining ${hoursRemaining} hour(s).`);
+        }
+
         if (freelancer && parseFloat(freelancer.withdrawableAmount) < 0) {
-            throw new Error('You have an outstanding negative balance. Please settle your fees before applying for new jobs.');
+            const outstanding = Math.abs(parseFloat(freelancer.withdrawableAmount)).toFixed(2);
+            throw new Error(`Your BirdEarner platform fee of ₹${outstanding} is pending. Please pay the outstanding amount to continue applying for new bookings.`);
         }
 
         const job = await db

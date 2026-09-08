@@ -56,8 +56,7 @@ export async function createJob(jobData: any, userId: string, clientId: string) 
     }
 
     // 2. Timeline calculations
-    // Application deadline starts automatically when job is posted (default: 24 hours)
-    const applicationDeadline = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    // Work duration in days (workDeadline starts only after booking is confirmed)
     const workDurationDays = parseInt(jobData.workDurationDays || jobData.deadlineDays || 1, 10);
 
     const result = await db.transaction().execute(async (trx) => {
@@ -86,7 +85,7 @@ export async function createJob(jobData: any, userId: string, clientId: string) 
                 birdFeeAmount: birdFeeAmount.toString(),
                 clientId,
                 serviceId: jobData.serviceId || null,
-                applicationDeadline: applicationDeadline,
+                applicationDeadline: null,
                 applicationExtended: false,
                 workDurationDays: workDurationDays,
                 paymentMethod: jobData.paymentMethod || 'PLATFORM',
@@ -530,6 +529,7 @@ export async function cancelJob(jobId: string, userId: string, reason?: string) 
                 'jobs.otpVerifiedAt',
                 'jobs.submittedWorkData',
                 'jobs.postOtpCancellationWindowExpiresAt',
+                'jobs.clientPenaltyAmount',
                 'clients.userId as clientUserId',
                 'freelancers.id as freelancerId',
                 'freelancers.userId as freelancerUserId',
@@ -717,12 +717,16 @@ export async function cancelJob(jobId: string, userId: string, reason?: string) 
                 const currentBalance = parseFloat(job.withdrawableAmount?.toString() || '0');
                 const newBalance = currentBalance - penaltyAmount;
 
-                // Deduct penalty from freelancer wallet and update penalty tracking
+                const cooldownExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 1-day cooldown
+
+                // Deduct penalty from freelancer wallet and update penalty tracking + strikes + cooldown
                 await trx
                     .updateTable('freelancers')
                     .set((eb) => ({
                         withdrawableAmount: newBalance.toString(),
                         totalPenaltyDeducted: eb('totalPenaltyDeducted', '+', penaltyAmount.toString()),
+                        cancellationStrikes: eb('cancellationStrikes', '+', 1),
+                        cooldownExpiresAt: cooldownExpiry,
                         updatedAt: new Date()
                     }))
                     .where('id', '=', job.freelancerId)
@@ -1460,7 +1464,7 @@ export async function respondToScopePriceChange(
             const updatedJob = await trx
                 .updateTable('jobs')
                 .set({
-                    jobStatus: 'CANCELLED_BY_CLIENT',
+                    jobStatus: 'CANCELLED_SCOPE_MISMATCH',
                     paymentStatus: 'CANCELLED',
                     cancellationReason: 'CANCELLED - SCOPE/PRICE MISMATCH',
                     priceChangeRequested: null,
@@ -1475,7 +1479,7 @@ export async function respondToScopePriceChange(
             await recordJobStatusHistory(
                 trx,
                 jobId,
-                'CANCELLED_BY_CLIENT',
+                'CANCELLED_SCOPE_MISMATCH',
                 clientUserId,
                 'CLIENT',
                 'CANCEL_SCOPE_MISMATCH',

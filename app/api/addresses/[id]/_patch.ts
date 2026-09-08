@@ -30,8 +30,8 @@ export async function PATCH(
 
         if (!existing) {
             return NextResponse.json(
-                { success: false, message: 'Address not found' },
-                { status: 404 }
+                { success: true, data: null, message: 'Address not found locally' },
+                { status: 200 }
             );
         }
 

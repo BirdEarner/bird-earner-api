@@ -34,56 +34,7 @@ export async function recordJobStatusHistory(
 export async function processJobTimers() {
     const now = new Date();
 
-    // 1. Expire OPEN jobs where applicationDeadline <= now
-    const expiredJobs = await db
-        .selectFrom('jobs')
-        .select(['id', 'clientId', 'jobTitle'])
-        .where('jobStatus', '=', 'OPEN')
-        .where('applicationDeadline', '<=', now)
-        .execute();
-
-    for (const job of expiredJobs) {
-        try {
-            await db.transaction().execute(async (trx) => {
-                await trx
-                    .updateTable('jobs')
-                    .set({ jobStatus: 'EXPIRED', updatedAt: now })
-                    .where('id', '=', job.id)
-                    .execute();
-
-                await recordJobStatusHistory(
-                    trx,
-                    job.id,
-                    'EXPIRED',
-                    undefined,
-                    'SYSTEM',
-                    'APPLICATION_DEADLINE_EXPIRED',
-                    'No freelancer was confirmed before application deadline expired'
-                );
-
-                const client = await trx
-                    .selectFrom('clients')
-                    .select('userId')
-                    .where('id', '=', job.clientId)
-                    .executeTakeFirst();
-
-                if (client) {
-                    sendNotification(
-                        client.userId,
-                        'CLIENT',
-                        'Application Deadline Expired',
-                        `Your job "${job.jobTitle}" application deadline has expired. No freelancer was confirmed. You can extend the deadline or post a new job.`,
-                        'JOB_EXPIRED',
-                        { jobId: job.id }
-                    );
-                }
-            });
-        } catch (err) {
-            console.error(`Failed to process expired job ${job.id}:`, err);
-        }
-    }
-
-    // 2. Auto-accept WORK_SUBMITTED jobs where clientReviewPeriodExpiresAt <= now
+    // 1. Auto-accept WORK_SUBMITTED jobs where clientReviewPeriodExpiresAt <= now
     const autoAcceptJobs = await db
         .selectFrom('jobs')
         .select(['id', 'jobTitle', 'assignedFreelancerId', 'clientId', 'budgetAmount'])
@@ -214,11 +165,15 @@ export async function processJobTimers() {
                             const currentBalance = parseFloat(freelancer.withdrawableAmount?.toString() || '0');
                             const newBalance = currentBalance - penaltyAmount;
 
+                            const cooldownExpiry = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+
                             await trx
                                 .updateTable('freelancers')
                                 .set((eb) => ({
                                     withdrawableAmount: newBalance.toString(),
                                     totalPenaltyDeducted: eb('totalPenaltyDeducted', '+', penaltyAmount.toString()),
+                                    cancellationStrikes: eb('cancellationStrikes', '+', 1),
+                                    cooldownExpiresAt: cooldownExpiry,
                                     updatedAt: now,
                                 }))
                                 .where('id', '=', freelancer.id)

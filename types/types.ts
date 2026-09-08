@@ -18,9 +18,32 @@ export const ContactStatus = {
 export type ContactStatus = (typeof ContactStatus)[keyof typeof ContactStatus];
 export const JobStatus = {
     OPEN: "OPEN",
+    FREELANCER_APPLIED: "FREELANCER_APPLIED",
+    NEGOTIATING: "NEGOTIATING",
+    AWAITING_CLIENT_CONFIRMATION: "AWAITING_CLIENT_CONFIRMATION",
+    PAYMENT_PENDING: "PAYMENT_PENDING",
+    CONFIRMED: "CONFIRMED",
     IN_PROGRESS: "IN_PROGRESS",
+    FREELANCER_TRAVELLING: "FREELANCER_TRAVELLING",
+    ARRIVED: "ARRIVED",
+    JOB_STARTED: "JOB_STARTED",
+    WORK_SUBMITTED: "WORK_SUBMITTED",
+    REVISION_REQUESTED: "REVISION_REQUESTED",
+    REVISION_SUBMITTED: "REVISION_SUBMITTED",
+    AWAITING_CLIENT_ACCEPTANCE: "AWAITING_CLIENT_ACCEPTANCE",
+    AUTO_ACCEPTED: "AUTO_ACCEPTED",
+    WORK_ACCEPTED: "WORK_ACCEPTED",
     COMPLETED: "COMPLETED",
     CANCELLED: "CANCELLED",
+    CANCELLED_BY_CLIENT: "CANCELLED_BY_CLIENT",
+    CANCELLED_BY_FREELANCER: "CANCELLED_BY_FREELANCER",
+    CANCELLED_SCOPE_MISMATCH: "CANCELLED_SCOPE_MISMATCH",
+    DISPUTE_OPEN: "DISPUTE_OPEN",
+    DISPUTE_RESOLVED: "DISPUTE_RESOLVED",
+    DEADLINE_EXPIRED: "DEADLINE_EXPIRED",
+    EXPIRED: "EXPIRED",
+    FAILED: "FAILED",
+    REFUNDED: "REFUNDED",
     PAUSED: "PAUSED"
 } as const;
 export type JobStatus = (typeof JobStatus)[keyof typeof JobStatus];
@@ -163,7 +186,6 @@ export type Client = {
     zipcode: number | null;
     country: string | null;
     profileDescription: string | null;
-    profilePhoto: string | null;
     termsAccepted: boolean | null;
     wallet: Generated<string>;
     createdAt: Generated<Timestamp>;
@@ -252,14 +274,14 @@ export type Freelancer = {
     state: string | null;
     zipcode: number | null;
     country: string | null;
-    gender: string | null;
-    dob: Timestamp | null;
     certifications: unknown | null;
     socialMediaLinks: unknown | null;
     profileDescription: string | null;
-    profilePhoto: string | null;
     portfolioImages: unknown | null;
     coverPhoto: string | null;
+    freelancerCategory: string | null;
+    skills: unknown | null;
+    languages: unknown | null;
     currentlyAvailable: Generated<boolean | null>;
     nextAvailable: string | null;
     termsAccepted: boolean | null;
@@ -273,11 +295,13 @@ export type Freelancer = {
     monthlyEarnings: Generated<string>;
     outstandingAmount: Generated<string>;
     withdrawableAmount: Generated<string>;
+    totalPenaltyReceived: Generated<string>;
+    totalPenaltyDeducted: Generated<string>;
+    cancellationStrikes: Generated<number>;
+    cooldownExpiresAt: Timestamp | null;
     createdAt: Generated<Timestamp>;
     updatedAt: Timestamp;
     availabilityUpdatedAt: Timestamp | null;
-    totalPenaltyDeducted: Generated<string>;
-    totalPenaltyReceived: Generated<string>;
 };
 export type HomePromo = {
     id: string;
@@ -337,11 +361,34 @@ export type Job = {
     isAmountReserved: Generated<boolean>;
     paymentStatus: Generated<PaymentStatus>;
     completedAt: Timestamp | null;
+    cancelledAt: Timestamp | null;
     cashbackOfferId: string | null;
     discountAmount: Generated<string | null>;
     deleted: Generated<boolean>;
     clientPenaltyAmount: Generated<string | null>;
-    cancelledAt: Timestamp | null;
+    applicationDeadline: Timestamp | null;
+    applicationExtended: Generated<boolean>;
+    applicationDeadlineOriginal: Timestamp | null;
+    applicationExtensionCount: Generated<number>;
+    workDurationDays: number | null;
+    workDeadline: Timestamp | null;
+    confirmedAt: Timestamp | null;
+    negotiatedAmount: string | null;
+    arrivedAt: Timestamp | null;
+    travelStartedAt: Timestamp | null;
+    jobStartTime: Timestamp | null;
+    workCompletedAt: Timestamp | null;
+    clientConfirmedWorkAt: Timestamp | null;
+    postOtpCancellationWindowExpiresAt: Timestamp | null;
+    otpCode: string | null;
+    otpVerifiedAt: Timestamp | null;
+    submittedWorkData: unknown | null;
+    revisionCount: Generated<number>;
+    clientReviewPeriodExpiresAt: Timestamp | null;
+    freelancerGracePeriodExpiresAt: Timestamp | null;
+    cancellationReason: string | null;
+    priceChangeRequested: string | null;
+    priceChangeReason: string | null;
 };
 export type JobBookmark = {
     id: string;
@@ -349,6 +396,17 @@ export type JobBookmark = {
     jobId: string;
     createdAt: Generated<Timestamp>;
     updatedAt: Timestamp;
+};
+export type JobStatusHistory = {
+    id: string;
+    jobId: string;
+    status: string;
+    changedBy: string | null;
+    userType: string | null;
+    action: string | null;
+    reason: string | null;
+    metadata: unknown | null;
+    createdAt: Generated<Timestamp>;
 };
 export type Message = {
     id: string;
@@ -365,7 +423,7 @@ export type Message = {
     updatedAt: Timestamp;
     chatThreadId: string | null;
 };
-export type negotiationHistory = {
+export type NegotiationHistory = {
     id: string;
     chatThreadId: string;
     jobId: string;
@@ -374,10 +432,10 @@ export type negotiationHistory = {
     offerType: string;
     amount: string;
     previousAmount: string | null;
-    note: string | null;
-    createdAt: Generated<Timestamp>;
     days: number | null;
     previousDays: number | null;
+    note: string | null;
+    createdAt: Generated<Timestamp>;
 };
 export type Notification = {
     id: string;
@@ -464,7 +522,7 @@ export type Service = {
     createdAt: Generated<Timestamp>;
     updatedAt: Timestamp;
 };
-export type suggestedServices = {
+export type SuggestedService = {
     id: string;
     userId: string;
     serviceName: string;
@@ -478,9 +536,11 @@ export type suggestedServices = {
 export type User = {
     id: string;
     email: string;
-    password: string;
+    password: string | null;
     fullName: string | null;
     isTestAccount: Generated<boolean>;
+    provider: Generated<string>;
+    providerAccountId: string | null;
     createdAt: Generated<Timestamp>;
     updatedAt: Timestamp;
     resetPasswordExpires: string | null;
@@ -489,6 +549,9 @@ export type User = {
     isEmailVerified: Generated<boolean>;
     emailVerificationToken: string | null;
     emailVerificationExpires: string | null;
+    profilePhoto: string | null;
+    dob: Timestamp | null;
+    gender: string | null;
 };
 export type UserAddress = {
     id: string;
@@ -572,8 +635,9 @@ export type DB = {
     homePromos: HomePromo;
     jobBookmarks: JobBookmark;
     jobs: Job;
+    jobStatusHistory: JobStatusHistory;
     messages: Message;
-    negotiationHistory: negotiationHistory;
+    negotiationHistory: NegotiationHistory;
     notifications: Notification;
     otpVerifications: OtpVerification;
     paymentHistory: PaymentHistory;
@@ -581,7 +645,7 @@ export type DB = {
     pushTokens: PushToken;
     reviews: Review;
     services: Service;
-    suggestedServices: suggestedServices;
+    suggestedServices: SuggestedService;
     userAddresses: UserAddress;
     userEggs: UserEgg;
     userMedia: UserMedia;
