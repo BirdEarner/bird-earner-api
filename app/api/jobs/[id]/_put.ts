@@ -18,7 +18,9 @@ const updateJobSchema = z.object({
     budgetType: z.string().optional(),
     budgetAmount: z.union([z.number(), z.string()]).transform(v => parseFloat(v.toString())).optional(),
     deadlineDate: z.string().optional(),
+    workDurationDays: z.number().int().min(1).max(3).optional(),
     location: z.string().optional(),
+    attachedFiles: z.array(z.string()).optional(),
     isUrgent: z.boolean().optional(),
 });
 
@@ -54,7 +56,15 @@ export async function PUT(
             return NextResponse.json({ message: validation.error }, { status: 400 });
         }
 
-        const updateData = { ...validation.data, updatedAt: new Date() };
+        const updateData: Record<string, any> = { ...validation.data, updatedAt: new Date() };
+        
+        // Stringify JSON fields for PostgreSQL
+        if (updateData.skillsRequired) {
+            updateData.skillsRequired = JSON.stringify(updateData.skillsRequired);
+        }
+        if (updateData.attachedFiles) {
+            updateData.attachedFiles = JSON.stringify(updateData.attachedFiles);
+        }
 
         const updatedJob = await db
             .updateTable('jobs')
