@@ -24,10 +24,15 @@ export async function GET(
                 'users.fullName',
                 'users.profilePhoto',
                 'freelancers.profileHeading',
+                'freelancers.freelancerCategory',
                 'freelancers.experience',
                 'freelancers.rating',
                 'freelancers.level',
                 'chatThreads.isAccepted',
+                'chatThreads.freelancerOffer',
+                'chatThreads.freelancerDays',
+                'chatThreads.agreedAmount',
+                'chatThreads.agreedDays',
                 'users.email'
             ])
             .where('chatThreads.jobId', '=', id)
@@ -38,10 +43,15 @@ export async function GET(
             userId: app.userId,
             profilePhoto: app.profilePhoto,
             profileHeading: app.profileHeading,
+            freelancerCategory: app.freelancerCategory,
             experience: app.experience,
             rating: app.rating,
             level: app.level,
             isAccepted: app.isAccepted,
+            freelancerOffer: app.freelancerOffer,
+            freelancerDays: app.freelancerDays,
+            agreedAmount: app.agreedAmount,
+            agreedDays: app.agreedDays,
             user: {
                 id: app.userId,
                 fullName: app.fullName,

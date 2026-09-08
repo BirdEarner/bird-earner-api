@@ -105,8 +105,8 @@ export async function GET(
                             "u.id as userId",
                             "u.fullName",
                             "u.email",
+                            "u.profilePhoto",
                             "fp.rating",
-                            "fp.profilePhoto",
                             "fp.experience"
                         ])
                         .where("fp.id", "=", job.assignedFreelancerId)
