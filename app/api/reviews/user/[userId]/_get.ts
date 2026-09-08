@@ -42,10 +42,9 @@ export async function GET(
                 'reviewer.id as reviewer_id',
                 'reviewer.fullName as reviewer_fullName',
                 'reviewer.email as reviewer_email',
-                'c.profilePhoto as client_profilePhoto',
+                'reviewer.profilePhoto as reviewer_profilePhoto',
                 'c.city as client_city',
                 'c.country as client_country',
-                'f.profilePhoto as freelancer_profilePhoto',
                 'f.city as freelancer_city',
                 'f.country as freelancer_country'
             ])
@@ -59,11 +58,10 @@ export async function GET(
 
         // Transform data to flatten reviewer info for frontend convenience
         const formattedReviews = rawReviews.map(review => {
-            const isClientReviwer = review.client_profilePhoto !== null || review.client_city !== null || review.client_country !== null;
-            const profilePhoto = isClientReviwer ? review.client_profilePhoto : review.freelancer_profilePhoto;
+            const isClientReviewer = review.client_city !== null || review.client_country !== null;
 
-            let city = isClientReviwer ? review.client_city : review.freelancer_city;
-            let country = isClientReviwer ? review.client_country : review.freelancer_country;
+            let city = isClientReviewer ? review.client_city : review.freelancer_city;
+            let country = isClientReviewer ? review.client_country : review.freelancer_country;
 
             return {
                 id: review.id,
@@ -84,7 +82,7 @@ export async function GET(
                     id: review.reviewer_id,
                     fullName: review.reviewer_fullName,
                     email: review.reviewer_email,
-                    profilePhoto: profilePhoto,
+                    profilePhoto: review.reviewer_profilePhoto,
                     location: city ? `${city}, ${country}` : 'Unknown Location'
                 }
             };

@@ -42,10 +42,9 @@ export async function GET(
                 'reviewee.id as reviewee_id',
                 'reviewee.fullName as reviewee_fullName',
                 'reviewee.email as reviewee_email',
-                'c.profilePhoto as client_profilePhoto',
+                'reviewee.profilePhoto as reviewee_profilePhoto',
                 'c.city as client_city',
                 'c.country as client_country',
-                'f.profilePhoto as freelancer_profilePhoto',
                 'f.city as freelancer_city',
                 'f.country as freelancer_country'
             ])
@@ -58,8 +57,7 @@ export async function GET(
         const rawReviews = await query.execute();
 
         const formattedReviews = rawReviews.map(review => {
-            const isClientReviewee = review.client_profilePhoto !== null || review.client_city !== null || review.client_country !== null;
-            const profilePhoto = isClientReviewee ? review.client_profilePhoto : review.freelancer_profilePhoto;
+            const isClientReviewee = review.client_city !== null || review.client_country !== null;
 
             let city = isClientReviewee ? review.client_city : review.freelancer_city;
             let country = isClientReviewee ? review.client_country : review.freelancer_country;
@@ -83,7 +81,7 @@ export async function GET(
                     id: review.reviewee_id,
                     fullName: review.reviewee_fullName,
                     email: review.reviewee_email,
-                    profilePhoto: profilePhoto,
+                    profilePhoto: review.reviewee_profilePhoto,
                     location: city ? `${city}, ${country}` : 'Unknown Location'
                 }
             };
