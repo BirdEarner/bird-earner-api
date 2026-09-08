@@ -201,7 +201,6 @@ export async function processJobPaymentInTransaction(
             'jobs.jobTitle',
             'jobs.budgetAmount',
             'jobs.birdFeeAmount',
-            'jobs.clientPenaltyAmount',
             'jobs.paymentStatus',
             'jobs.isAmountReserved',
             'clients.id as clientId',
@@ -244,7 +243,8 @@ export async function processJobPaymentInTransaction(
     const freelancerCurrentMonthly = parseFloat(job.freelancerMonthlyEarnings!);
     const freelancerCurrentWithdrawable = parseFloat(job.freelancerWithdrawable!);
 
-    // 1. Deduct full budget amount from client wallet and reserved amount
+    // 1. Deduct budget from client wallet and release reserved amount
+    // Note: Penalty was already collected from client's wallet at job creation time
     await trx
         .updateTable('clients')
         .set({
@@ -256,7 +256,6 @@ export async function processJobPaymentInTransaction(
         .execute();
 
     // 2. Add freelancer payment amount to freelancer earnings
-    const penaltyAmount = parseFloat(job.clientPenaltyAmount?.toString() || '0');
     await trx
         .updateTable('freelancers')
         .set({
@@ -268,7 +267,7 @@ export async function processJobPaymentInTransaction(
         .where('id', '=', job.freelancerId)
         .execute();
 
-    // 3. Create wallet transaction for client (debit full budget amount)
+    // 3. Create wallet transaction for client (debit budget amount)
     const clientTransaction = await trx
         .insertInto('walletTransactions')
         .values({
@@ -323,65 +322,9 @@ export async function processJobPaymentInTransaction(
             .execute();
     }
 
-    // 6. Log and deduct penalty if client had cancellation penalty on this job
-    if (penaltyAmount > 0) {
-        // Deduct penalty from freelancer's wallet to BirdEarner
-        const balanceBeforePenalty = freelancerCurrentWithdrawable + freelancerPaymentAmount;
-        const balanceAfterPenalty = balanceBeforePenalty - penaltyAmount;
-
-        await trx
-            .updateTable('freelancers')
-            .set((eb) => ({
-                withdrawableAmount: balanceAfterPenalty.toString(),
-                totalPenaltyReceived: eb('totalPenaltyReceived', '+', penaltyAmount.toString()),
-                totalPenaltyDeducted: eb('totalPenaltyDeducted', '+', penaltyAmount.toString()),
-                updatedAt: new Date()
-            }))
-            .where('id', '=', job.freelancerId)
-            .execute();
-
-        // Wallet transaction for penalty deduction
-        await trx.insertInto('walletTransactions').values({
-            id: crypto.randomUUID(),
-            userId: job.freelancerUserId!,
-            userType: 'FREELANCER',
-            jobId,
-            amount: (-penaltyAmount).toString(),
-            transactionType: 'PENALTY',
-            balanceBefore: balanceBeforePenalty.toString(),
-            balanceAfter: balanceAfterPenalty.toString(),
-            description: `Client cancellation penalty deducted to BirdEarner - ${job.jobTitle}`,
-            updatedAt: new Date()
-        }).execute();
-
-        // Log penalty received from client
-        await trx.insertInto('penaltyLogs').values({
-            id: crypto.randomUUID(),
-            jobId: jobId,
-            clientId: job.clientId,
-            freelancerId: job.freelancerId,
-            penaltyType: 'FREELANCER_RECEIVED_FROM_CLIENT',
-            amount: penaltyAmount.toString(),
-            status: 'PAID',
-            description: `Freelancer received ₹${penaltyAmount.toFixed(2)} penalty from client for job "${job.jobTitle}" (included in budget)`,
-            createdAt: new Date(),
-            updatedAt: new Date()
-        }).execute();
-
-        // Log penalty deducted to BirdEarner
-        await trx.insertInto('penaltyLogs').values({
-            id: crypto.randomUUID(),
-            jobId: jobId,
-            clientId: job.clientId,
-            freelancerId: job.freelancerId,
-            penaltyType: 'FREELANCER_WALLET_DEDUCTED',
-            amount: penaltyAmount.toString(),
-            status: 'DEDUCTED',
-            description: `₹${penaltyAmount.toFixed(2)} penalty deducted from freelancer wallet to BirdEarner for job "${job.jobTitle}"`,
-            createdAt: new Date(),
-            updatedAt: new Date()
-        }).execute();
-    }
+    // Note: Client cancellation penalties are now collected directly from the client's wallet
+    // (auto-deducted when penalty occurs if wallet has sufficient balance, or added to next job amount).
+    // No penalty deduction from freelancer wallet during payment processing.
 
     return {
         success: true,

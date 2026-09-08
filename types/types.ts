@@ -477,7 +477,7 @@ export type PenaltyLog = {
     id: string;
     jobId: string;
     clientId: string;
-    freelancerId: string;
+    freelancerId: string | null;
     penaltyType: string;
     amount: string;
     status: Generated<string>;

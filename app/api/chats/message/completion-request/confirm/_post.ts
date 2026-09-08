@@ -180,18 +180,13 @@ export async function POST(request: Request) {
                     // Fetch penalty info for notification
                     const jobDetails = await trx
                         .selectFrom('jobs')
-                        .select(['budgetAmount', 'clientPenaltyAmount'])
+                        .select(['budgetAmount'])
                         .where('id', '=', jobId)
                         .executeTakeFirst();
 
                     const budgetAmt = parseFloat(jobDetails?.budgetAmount || budgetAmount);
-                    const penaltyAmt = parseFloat(jobDetails?.clientPenaltyAmount?.toString() || '0');
 
                     let completionText = '✅ Project completed successfully! Payment processed via platform.';
-                    if (penaltyAmt > 0) {
-                        completionText += `\n\n📋 Payment Breakdown:\n💼 Budget: ₹${budgetAmt}\n🔻 Client Cancellation Penalty: ₹${penaltyAmt}\n💰 Total (already reserved from client): ₹${budgetAmt}`;
-                        completionText += `\n\nℹ️ Note: The ₹${penaltyAmt} penalty was paid by the client as a token of their previous job cancellation. This amount is included in the total payment processed.`;
-                    }
 
                     await trx
                         .insertInto('messages')

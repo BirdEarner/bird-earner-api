@@ -114,9 +114,56 @@ export async function createJob(jobData: any, userId: string, clientId: string) 
                 .execute();
         }
 
-        // 4. Handle Platform Payment Reservation
+        // 4. Handle Payment Reservation
         if (job.paymentMethod === 'PLATFORM') {
+            // For platform payment: reserve only the job budget amount
             await reserveAmountForJobInTransaction(trx, userId, job.id, budgetAmount);
+
+            // If client has outstanding penalty, deduct it from wallet immediately
+            if (penaltyAmount > 0) {
+                const clientWallet = await trx
+                    .selectFrom('clients')
+                    .select(['wallet'])
+                    .where('id', '=', clientId)
+                    .executeTakeFirst();
+
+                const currentWallet = parseFloat(clientWallet?.wallet || '0');
+                const newWalletBalance = currentWallet - penaltyAmount;
+
+                await trx
+                    .updateTable('clients')
+                    .set({ wallet: newWalletBalance.toString(), updatedAt: new Date() })
+                    .where('id', '=', clientId)
+                    .execute();
+
+                // Record wallet transaction for penalty deduction
+                await trx.insertInto('walletTransactions').values({
+                    id: crypto.randomUUID(),
+                    userId: userId,
+                    userType: 'CLIENT',
+                    jobId: job.id,
+                    amount: (-penaltyAmount).toString(),
+                    transactionType: 'PENALTY',
+                    balanceBefore: currentWallet.toString(),
+                    balanceAfter: newWalletBalance.toString(),
+                    description: `Outstanding cancellation penalty collected for new job: ${job.jobTitle}`,
+                    updatedAt: new Date()
+                }).execute();
+
+                // Log penalty as collected
+                await trx.insertInto('penaltyLogs').values({
+                    id: crypto.randomUUID(),
+                    jobId: job.id,
+                    clientId: clientId,
+                    freelancerId: null,
+                    penaltyType: 'CLIENT_CANCEL',
+                    amount: penaltyAmount.toString(),
+                    status: 'DEDUCTED',
+                    description: `Outstanding penalty of ₹${penaltyAmount.toFixed(2)} collected from client wallet at new job creation.`,
+                    createdAt: new Date(),
+                    updatedAt: new Date()
+                }).execute();
+            }
 
             // Update job to reserved status
             return await trx
@@ -131,6 +178,8 @@ export async function createJob(jobData: any, userId: string, clientId: string) 
                 .executeTakeFirstOrThrow();
         }
 
+        // For CASH payment: penalty will be collected from client along with job amount at completion
+        // No wallet reservation needed, but the penalty amount is tracked on the job
         return job;
     });
 
@@ -520,6 +569,7 @@ export async function cancelJob(jobId: string, userId: string, reason?: string) 
                 'jobs.id',
                 'jobs.budgetAmount',
                 'jobs.negotiatedAmount',
+                'jobs.paymentMethod',
                 'jobs.assignedFreelancerId',
                 'jobs.isAmountReserved',
                 'jobs.cashbackOfferId',
@@ -568,9 +618,10 @@ export async function cancelJob(jobId: string, userId: string, reason?: string) 
         }
 
         // If this job had a clientPenaltyAmount from a previous cancellation,
-        // move it back to client's pendingPenaltyAmount so it carries to the next job
+        // move it back to client's pendingPenaltyAmount ONLY for CASH payment jobs.
+        // For PLATFORM jobs, penalty was already collected from wallet at job creation.
         const existingPenalty = parseFloat(job.clientPenaltyAmount?.toString() || '0');
-        if (existingPenalty > 0) {
+        if (existingPenalty > 0 && job.paymentMethod !== 'PLATFORM') {
             await trx
                 .updateTable('clients')
                 .set((eb) => ({
@@ -612,29 +663,85 @@ export async function cancelJob(jobId: string, userId: string, reason?: string) 
             const penaltyAmount = isWithin5MinGrace ? 0 : effectiveAmount * 0.02;
 
             if (penaltyAmount > 0) {
-                await trx
-                    .updateTable('clients')
-                    .set((eb) => ({
-                        pendingPenaltyAmount: eb('pendingPenaltyAmount', '+', penaltyAmount.toString()),
-                        totalPenaltyPaid: eb('totalPenaltyPaid', '+', penaltyAmount.toString()),
-                        updatedAt: new Date()
-                    }))
+                // Check client's wallet balance for immediate penalty deduction
+                const clientData = await trx
+                    .selectFrom('clients')
+                    .select(['wallet', 'reservedAmount'])
                     .where('id', '=', job.clientId)
-                    .execute();
+                    .executeTakeFirst();
 
-                // Log penalty for client cancellation
-                await trx.insertInto('penaltyLogs').values({
-                    id: crypto.randomUUID(),
-                    jobId: jobId,
-                    clientId: job.clientId,
-                    freelancerId: job.assignedFreelancerId || '',
-                    penaltyType: 'CLIENT_CANCEL',
-                    amount: penaltyAmount.toString(),
-                    status: 'PENDING',
-                    description: `Client cancelled job "${job.jobTitle}" after 5-min grace period. 2% penalty of ₹${penaltyAmount.toFixed(2)} will be charged on next job.`,
-                    createdAt: new Date(),
-                    updatedAt: new Date()
-                }).execute();
+                const clientWallet = parseFloat(clientData?.wallet || '0');
+                const clientReserved = parseFloat(clientData?.reservedAmount || '0');
+                const availableBalance = Math.max(0, clientWallet - clientReserved);
+                const penaltyPaidImmediately = availableBalance >= penaltyAmount;
+
+                if (penaltyPaidImmediately) {
+                    // Wallet has enough balance - automatically deduct penalty from wallet
+                    const newWalletBalance = clientWallet - penaltyAmount;
+
+                    await trx
+                        .updateTable('clients')
+                        .set((eb) => ({
+                            wallet: newWalletBalance.toString(),
+                            totalPenaltyPaid: eb('totalPenaltyPaid', '+', penaltyAmount.toString()),
+                            updatedAt: new Date()
+                        }))
+                        .where('id', '=', job.clientId)
+                        .execute();
+
+                    // Record wallet transaction for penalty deduction
+                    await trx.insertInto('walletTransactions').values({
+                        id: crypto.randomUUID(),
+                        userId: job.clientUserId,
+                        userType: 'CLIENT',
+                        jobId: jobId,
+                        amount: (-penaltyAmount).toString(),
+                        transactionType: 'PENALTY',
+                        balanceBefore: clientWallet.toString(),
+                        balanceAfter: newWalletBalance.toString(),
+                        description: `Cancellation penalty (2%) auto-deducted for job: ${job.jobTitle}`,
+                        updatedAt: new Date()
+                    }).execute();
+
+                    // Log penalty as immediately paid
+                    await trx.insertInto('penaltyLogs').values({
+                        id: crypto.randomUUID(),
+                        jobId: jobId,
+                        clientId: job.clientId,
+                        freelancerId: job.assignedFreelancerId || null,
+                        penaltyType: 'CLIENT_CANCEL',
+                        amount: penaltyAmount.toString(),
+                        status: 'DEDUCTED',
+                        description: `Client cancelled job "${job.jobTitle}" after 5-min grace period. 2% penalty of ₹${penaltyAmount.toFixed(2)} auto-deducted from wallet.`,
+                        createdAt: new Date(),
+                        updatedAt: new Date()
+                    }).execute();
+                } else {
+                    // Wallet insufficient - keep penalty outstanding, collect on next job creation
+                    await trx
+                        .updateTable('clients')
+                        .set((eb) => ({
+                            pendingPenaltyAmount: eb('pendingPenaltyAmount', '+', penaltyAmount.toString()),
+                            totalPenaltyPaid: eb('totalPenaltyPaid', '+', penaltyAmount.toString()),
+                            updatedAt: new Date()
+                        }))
+                        .where('id', '=', job.clientId)
+                        .execute();
+
+                    // Log penalty as pending (to be collected on next job)
+                    await trx.insertInto('penaltyLogs').values({
+                        id: crypto.randomUUID(),
+                        jobId: jobId,
+                        clientId: job.clientId,
+                        freelancerId: job.assignedFreelancerId || null,
+                        penaltyType: 'CLIENT_CANCEL',
+                        amount: penaltyAmount.toString(),
+                        status: 'PENDING',
+                        description: `Client cancelled job "${job.jobTitle}" after 5-min grace period. 2% penalty of ₹${penaltyAmount.toFixed(2)} will be collected on next job creation.`,
+                        createdAt: new Date(),
+                        updatedAt: new Date()
+                    }).execute();
+                }
             }
 
             const cancelMsg = `Job "${job.jobTitle}" has been cancelled by the client${isWithin5MinGrace ? ' (within 5-min grace period, no penalty).' : '.'}`;

@@ -135,7 +135,7 @@ export async function POST(request: Request) {
                 })
                 .execute();
 
-            // Deduct client cancellation penalty from freelancer's wallet
+            // Deduct client cancellation penalty from freelancer's wallet (cash payment flow)
             if (penaltyAmt > 0) {
                 const balanceBeforePenalty = newBalance;
                 newBalance = newBalance - penaltyAmt;
