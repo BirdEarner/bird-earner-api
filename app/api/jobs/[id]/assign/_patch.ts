@@ -26,12 +26,24 @@ export async function PATCH(
             return NextResponse.json({ message: validation.error }, { status: 400 });
         }
 
-        const job = await assignFreelancer(id, validation.data.freelancerId, user.id);
+        const result = await assignFreelancer(id, validation.data.freelancerId, user.id);
+
+        // Check if payment is required (insufficient wallet for negotiated amount)
+        if (result && (result as any).requiresPayment) {
+            return NextResponse.json({
+                success: false,
+                requiresPayment: true,
+                additionalAmount: (result as any).additionalAmount,
+                availableBalance: (result as any).availableBalance,
+                shortfall: (result as any).shortfall,
+                message: (result as any).message
+            }, { status: 200 });
+        }
 
         return NextResponse.json({
             success: true,
             message: 'Freelancer assigned successfully',
-            data: job
+            data: result
         });
     } catch (error: any) {
         console.error('Assign freelancer error:', error);

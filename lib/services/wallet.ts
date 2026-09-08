@@ -15,6 +15,7 @@ export async function getClientWallet(userId: string) {
             'clients.userId',
             'clients.wallet',
             'clients.reservedAmount',
+            'clients.pendingPenaltyAmount',
             'users.fullName',
             'users.email'
         ])
@@ -27,12 +28,14 @@ export async function getClientWallet(userId: string) {
 
     const totalBalance = parseFloat(client.wallet);
     const reservedAmount = parseFloat(client.reservedAmount);
+    const pendingPenaltyAmount = parseFloat(client.pendingPenaltyAmount?.toString() || '0');
     const availableBalance = Math.max(0, totalBalance - reservedAmount);
 
     return {
         ...client,
         totalBalance,
         reservedAmount,
+        pendingPenaltyAmount,
         availableBalance
     };
 }
@@ -200,6 +203,7 @@ export async function processJobPaymentInTransaction(
             'jobs.id',
             'jobs.jobTitle',
             'jobs.budgetAmount',
+            'jobs.negotiatedAmount',
             'jobs.birdFeeAmount',
             'jobs.paymentStatus',
             'jobs.isAmountReserved',
@@ -233,8 +237,10 @@ export async function processJobPaymentInTransaction(
     }
 
     const budgetAmount = parseFloat(job.budgetAmount);
+    const negotiatedAmount = job.negotiatedAmount ? parseFloat(job.negotiatedAmount.toString()) : null;
+    const effectiveAmount = negotiatedAmount || budgetAmount;
     const birdFeeAmount = parseFloat(job.birdFeeAmount || '0');
-    const freelancerPaymentAmount = budgetAmount - birdFeeAmount;
+    const freelancerPaymentAmount = effectiveAmount - birdFeeAmount;
 
     const clientCurrentWallet = parseFloat(job.clientWallet);
     const clientCurrentReserved = parseFloat(job.clientReserved);
@@ -243,13 +249,13 @@ export async function processJobPaymentInTransaction(
     const freelancerCurrentMonthly = parseFloat(job.freelancerMonthlyEarnings!);
     const freelancerCurrentWithdrawable = parseFloat(job.freelancerWithdrawable!);
 
-    // 1. Deduct budget from client wallet and release reserved amount
+    // 1. Deduct effective amount from client wallet and release reserved amount
     // Note: Penalty was already collected from client's wallet at job creation time
     await trx
         .updateTable('clients')
         .set({
-            wallet: (clientCurrentWallet - budgetAmount).toString(),
-            reservedAmount: Math.max(0, clientCurrentReserved - budgetAmount).toString(),
+            wallet: (clientCurrentWallet - effectiveAmount).toString(),
+            reservedAmount: Math.max(0, clientCurrentReserved - effectiveAmount).toString(),
             updatedAt: new Date()
         })
         .where('id', '=', job.clientId)
@@ -267,7 +273,7 @@ export async function processJobPaymentInTransaction(
         .where('id', '=', job.freelancerId)
         .execute();
 
-    // 3. Create wallet transaction for client (debit budget amount)
+    // 3. Create wallet transaction for client (debit effective amount)
     const clientTransaction = await trx
         .insertInto('walletTransactions')
         .values({
@@ -276,10 +282,10 @@ export async function processJobPaymentInTransaction(
             userType: 'CLIENT',
             jobId,
             transactionType: 'JOB_PAYMENT',
-            amount: (-budgetAmount).toString(),
+            amount: (-effectiveAmount).toString(),
             balanceBefore: clientCurrentWallet.toString(),
-            balanceAfter: (clientCurrentWallet - budgetAmount).toString(),
-            description: `Payment for job: ${job.jobTitle}`,
+            balanceAfter: (clientCurrentWallet - effectiveAmount).toString(),
+            description: `Payment for job: ${job.jobTitle}${negotiatedAmount ? ` (negotiated ₹${negotiatedAmount.toFixed(2)})` : ''}`,
             updatedAt: new Date()
         })
         .returningAll()
@@ -596,7 +602,7 @@ export async function depositClientFunds(
 
         const client = await trx
             .selectFrom('clients')
-            .select(['id', 'wallet'])
+            .select(['id', 'wallet', 'reservedAmount', 'pendingPenaltyAmount'])
             .where('userId', '=', userId)
             .executeTakeFirst();
 
@@ -605,19 +611,12 @@ export async function depositClientFunds(
         }
 
         const currentWallet = parseFloat(client.wallet);
-        const newWallet = currentWallet + amount;
+        const currentReserved = parseFloat(client.reservedAmount || '0');
+        const pendingPenalty = parseFloat(client.pendingPenaltyAmount?.toString() || '0');
+        let newWallet = currentWallet + amount;
+        const newAvailable = newWallet - currentReserved;
 
-        // Update client wallet
-        await trx
-            .updateTable('clients')
-            .set({
-                wallet: newWallet.toString(),
-                updatedAt: new Date()
-            })
-            .where('id', '=', client.id)
-            .execute();
-
-        // Create wallet transaction record
+        // Create deposit transaction record
         const transaction = await trx
             .insertInto('walletTransactions')
             .values({
@@ -634,6 +633,45 @@ export async function depositClientFunds(
             })
             .returningAll()
             .executeTakeFirstOrThrow();
+
+        // Auto-deduct outstanding penalty if new available balance >= pendingPenalty
+        if (pendingPenalty > 0 && newAvailable >= pendingPenalty) {
+            const walletBeforePenalty = newWallet;
+            newWallet = newWallet - pendingPenalty;
+
+            await trx
+                .updateTable('clients')
+                .set({
+                    wallet: newWallet.toString(),
+                    pendingPenaltyAmount: '0',
+                    updatedAt: new Date()
+                })
+                .where('id', '=', client.id)
+                .execute();
+
+            // Record wallet transaction for auto penalty deduction
+            await trx.insertInto('walletTransactions').values({
+                id: crypto.randomUUID(),
+                userId,
+                userType: 'CLIENT',
+                transactionType: 'PENALTY',
+                amount: (-pendingPenalty).toString(),
+                balanceBefore: walletBeforePenalty.toString(),
+                balanceAfter: newWallet.toString(),
+                description: `Outstanding cancellation penalty (₹${pendingPenalty.toFixed(2)}) auto-deducted upon wallet deposit`,
+                updatedAt: new Date()
+            }).execute();
+        } else {
+            // Update client wallet with deposit
+            await trx
+                .updateTable('clients')
+                .set({
+                    wallet: newWallet.toString(),
+                    updatedAt: new Date()
+                })
+                .where('id', '=', client.id)
+                .execute();
+        }
 
         return {
             success: true,
