@@ -23,8 +23,9 @@ export async function PUT(
             .execute();
 
         return NextResponse.json({
+            success: true,
             message: "All marked as read",
-            count: Number(result[0].numUpdatedRows)
+            count: Number(result[0]?.numUpdatedRows ?? 0)
         });
     } catch (error: any) {
         console.error('Mark all notifications read error:', error);
