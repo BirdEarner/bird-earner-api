@@ -40,6 +40,12 @@ async function testTranscribeEndpoint() {
     for (const url of targetUrls) {
         try {
             console.log(`Testing endpoint: ${url}`);
+            const formData = new FormData();
+            formData.append('audio', wavBuffer, {
+                filename: 'test_audio.wav',
+                contentType: 'audio/wav',
+            });
+
             const response = await fetch(url, {
                 method: 'POST',
                 body: formData as any,
