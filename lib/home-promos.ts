@@ -70,7 +70,8 @@ export function toPromoInsert(data: z.infer<typeof homePromoBodySchema>) {
         prefillBudget: data.prefillBudget || null,
         prefillJobType: data.prefillJobType || null,
         prefillPaymentMethod: data.prefillPaymentMethod || null,
-        prefillSkills: data.prefillSkills ?? null,
+        prefillSkills: data.prefillSkills != null ? JSON.stringify(data.prefillSkills) : null,
         updatedAt: now,
     };
 }
+

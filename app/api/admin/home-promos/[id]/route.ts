@@ -40,11 +40,19 @@ export async function PUT(
             .returningAll()
             .executeTakeFirstOrThrow();
 
+        const formattedPromo = {
+            ...promo,
+            prefillSkills: typeof promo.prefillSkills === 'string'
+                ? (() => { try { return JSON.parse(promo.prefillSkills as string); } catch { return promo.prefillSkills; } })()
+                : promo.prefillSkills,
+        };
+
         return NextResponse.json({
             success: true,
             message: 'Home promo updated',
-            data: promo,
+            data: formattedPromo,
         });
+
     } catch (error: unknown) {
         console.error('Admin update home promo error:', error);
         return NextResponse.json(

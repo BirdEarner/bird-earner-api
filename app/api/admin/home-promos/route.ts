@@ -25,12 +25,19 @@ export async function GET(request: NextRequest) {
             query = query.where('homePromos.placement', '=', placement);
         }
 
-        const promos = await query.execute();
+        const rows = await query.execute();
+        const promos = rows.map((p) => ({
+            ...p,
+            prefillSkills: typeof p.prefillSkills === 'string'
+                ? (() => { try { return JSON.parse(p.prefillSkills as string); } catch { return p.prefillSkills; } })()
+                : p.prefillSkills,
+        }));
 
         return NextResponse.json({
             success: true,
             data: { promos },
         });
+
     } catch (error: unknown) {
         console.error('Admin list home promos error:', error);
         return NextResponse.json(

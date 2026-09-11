@@ -58,8 +58,11 @@ export async function GET(request: Request) {
             prefillBudget: row.prefillBudget,
             prefillJobType: row.prefillJobType,
             prefillPaymentMethod: row.prefillPaymentMethod,
-            prefillSkills: row.prefillSkills,
+            prefillSkills: typeof row.prefillSkills === 'string'
+                ? (() => { try { return JSON.parse(row.prefillSkills as string); } catch { return row.prefillSkills; } })()
+                : row.prefillSkills,
         }));
+
 
         return NextResponse.json({
             success: true,
