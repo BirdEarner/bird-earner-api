@@ -107,7 +107,6 @@ export async function PUT(
         } else if (freelancerUpdateData.selectedServices !== undefined) {
             updatePayload.selectedServices = safeStringify(freelancerUpdateData.selectedServices);
         }
-        if (freelancerUpdateData.mobileNumber !== undefined) updatePayload.mobileNumber = freelancerUpdateData.mobileNumber;
         if (freelancerUpdateData.highestQualification !== undefined) updatePayload.highestQualification = freelancerUpdateData.highestQualification;
         if (freelancerUpdateData.experience !== undefined) updatePayload.experience = freelancerUpdateData.experience;
         if (freelancerUpdateData.profileHeading !== undefined) updatePayload.profileHeading = freelancerUpdateData.profileHeading;

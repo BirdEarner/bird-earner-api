@@ -44,11 +44,18 @@ export async function PUT(request: Request) {
         }
 
         // Verify current password
+        if (!user.password) {
+            return NextResponse.json({
+                success: false,
+                message: 'No password set for this account'
+            }, { status: 400 });
+        }
+
         const isValidPassword = await bcrypt.compare(currentPassword, user.password);
         if (!isValidPassword) {
             return NextResponse.json({
                 success: false,
-                message: 'Current password is incorrect'
+                message: 'Current password is incorrect. Please enter your correct password.'
             }, { status: 400 });
         }
 

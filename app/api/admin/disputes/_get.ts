@@ -41,7 +41,7 @@ export async function GET(request: Request) {
                 'freelancers.id as freelancerId',
                 'freelancerUser.fullName as freelancerName',
                 'freelancerUser.email as freelancerEmail',
-                'freelancers.mobileNumber as freelancerPhone',
+                'freelancerUser.mobile as freelancerPhone',
             ]);
 
         if (status) {

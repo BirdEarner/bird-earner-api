@@ -10,30 +10,28 @@ export async function PUT(request: Request) {
             return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
         }
 
-        const { newEmail, password } = await request.json();
+        const { newMobile, password } = await request.json();
 
-        if (!newEmail || !password) {
+        if (!newMobile || !password) {
             return NextResponse.json({
                 success: false,
-                message: 'New email and password are required'
+                message: 'New mobile number and password are required'
             }, { status: 400 });
         }
 
-        const emailClean = newEmail.trim().toLowerCase();
-
-        // Validate email format
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(emailClean)) {
+        // Validate mobile format (10 to 15 digits)
+        const mobileClean = newMobile.replace(/[\s\-\+\(\)]/g, '');
+        if (!/^\d{10,15}$/.test(mobileClean)) {
             return NextResponse.json({
                 success: false,
-                message: 'Invalid email format'
+                message: 'Please enter a valid 10 to 15 digit mobile number'
             }, { status: 400 });
         }
 
         // Get current user
         const currentUser = await db
             .selectFrom('users')
-            .select(['id', 'email', 'password'])
+            .select(['id', 'email', 'mobile', 'password'])
             .where('id', '=', userId)
             .executeTakeFirst();
 
@@ -41,10 +39,10 @@ export async function PUT(request: Request) {
             return NextResponse.json({ success: false, message: 'User not found' }, { status: 404 });
         }
 
-        if (currentUser.email && currentUser.email.toLowerCase() === emailClean) {
+        if (currentUser.mobile === mobileClean) {
             return NextResponse.json({
                 success: false,
-                message: 'New email must be different from current email'
+                message: 'New mobile number must be different from current mobile number'
             }, { status: 400 });
         }
 
@@ -64,40 +62,40 @@ export async function PUT(request: Request) {
             }, { status: 400 });
         }
 
-        // Check if email already exists for another user
+        // Check if mobile number is already used by another user
         const existingUser = await db
             .selectFrom('users')
             .select('id')
-            .where('email', '=', emailClean)
+            .where('mobile', '=', mobileClean)
             .where('id', '!=', userId)
             .executeTakeFirst();
 
         if (existingUser) {
             return NextResponse.json({
                 success: false,
-                message: 'This email address is already in use by another account.'
+                message: 'This mobile number is already registered with another account.'
             }, { status: 400 });
         }
 
-        // Update email
+        // Update user mobile number
         await db
             .updateTable('users')
-            .set({ email: emailClean, updatedAt: new Date() })
+            .set({ mobile: mobileClean, updatedAt: new Date() })
             .where('id', '=', userId)
             .execute();
 
         return NextResponse.json({
             success: true,
-            message: 'Email updated successfully',
-            email: emailClean
+            message: 'Mobile number updated successfully',
+            mobile: mobileClean
         });
 
     } catch (error: any) {
-        console.error('Update email error:', error);
-        if (error.code === '23505' || error.message?.includes('users_email_key') || error.message?.includes('unique constraint')) {
+        console.error('Update mobile error:', error);
+        if (error.code === '23505' || error.message?.includes('users_mobile_key') || error.message?.includes('unique constraint')) {
             return NextResponse.json({
                 success: false,
-                message: 'This email address is already in use by another account.'
+                message: 'This mobile number is already registered with another account.'
             }, { status: 400 });
         }
         return NextResponse.json({

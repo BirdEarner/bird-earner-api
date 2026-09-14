@@ -125,8 +125,14 @@ export async function POST(request: Request) {
             },
         }, { status: 201 });
 
-    } catch (error) {
+    } catch (error: any) {
         console.error('Client registration error:', error);
+        if (error.code === '23505' || error.message?.includes('users_mobile_key')) {
+            return NextResponse.json({ success: false, message: 'This mobile number is already registered with another account.' }, { status: 400 });
+        }
+        if (error.code === '23505' || error.message?.includes('users_email_key')) {
+            return NextResponse.json({ success: false, message: 'This email address is already in use by another account.' }, { status: 400 });
+        }
         return NextResponse.json({ success: false, message: 'Internal server error' }, { status: 500 });
     }
 }

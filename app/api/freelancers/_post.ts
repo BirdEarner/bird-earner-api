@@ -117,7 +117,6 @@ export async function POST(request: Request) {
             .values({
                 id: freelancerId,
                 userId: freelancerData.userId,
-                mobileNumber: freelancerData.mobileNumber || null,
                 selectedServices: JSON.stringify(servicesList),
                 highestQualification: freelancerData.highestQualification || null,
                 experience: freelancerData.experience,

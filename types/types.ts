@@ -263,7 +263,6 @@ export type FileManagement = {
 export type Freelancer = {
     id: string;
     userId: string;
-    mobileNumber: string | null;
     phase1Completed: Generated<boolean>;
     phase2Completed: Generated<boolean>;
     selectedServices: unknown | null;

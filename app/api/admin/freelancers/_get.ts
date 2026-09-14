@@ -23,7 +23,7 @@ export async function GET(request: Request) {
                 'freelancers.id as $id',
                 'freelancers.id',
                 'freelancers.userId',
-                'freelancers.mobileNumber as mobile_number',
+                'users.mobile as mobile_number',
                 'users.profilePhoto as profile_photo',
                 'freelancers.city',
                 'freelancers.state',
