@@ -36,6 +36,7 @@ export async function GET(
                 'users.email'
             ])
             .where('chatThreads.jobId', '=', id)
+            .where('chatThreads.status', '!=', 'BLOCKED')
             .execute();
 
         const data = applicants.map(app => ({

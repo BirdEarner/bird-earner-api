@@ -30,12 +30,54 @@ export async function GET(request: Request) {
 
         const filters = validation.data;
 
+        const user = await getAuthUser();
+        let currentUserId = user?.id || null;
+
+        if (!currentUserId && filters.currentFreelancerId) {
+            const f = await db.selectFrom('freelancers').select('userId').where('id', '=', filters.currentFreelancerId).executeTakeFirst();
+            if (f) currentUserId = f.userId;
+        }
+
+        // Block check: get client IDs to exclude for the current freelancer
+        let blockedClientIds: string[] = [];
+        if (currentUserId) {
+            const freelancerProfile = await db
+                .selectFrom('freelancers')
+                .select('id')
+                .where('userId', '=', currentUserId)
+                .executeTakeFirst();
+
+            if (freelancerProfile) {
+                const blockedAsFreelancer = await db
+                    .selectFrom('blockedUsers')
+                    .select('blockerId')
+                    .where('blockedId', '=', freelancerProfile.id)
+                    .where('blockedType', '=', 'FREELANCER')
+                    .execute();
+
+                const blockedByFreelancer = await db
+                    .selectFrom('blockedUsers')
+                    .select('blockedId')
+                    .where('blockerId', '=', freelancerProfile.id)
+                    .where('blockerType', '=', 'FREELANCER')
+                    .execute();
+
+                const idSet = new Set<string>();
+                for (const row of blockedAsFreelancer) idSet.add(row.blockerId);
+                for (const row of blockedByFreelancer) idSet.add(row.blockedId);
+                blockedClientIds = Array.from(idSet);
+            }
+        }
+
         let query = db
             .selectFrom('jobs')
             .innerJoin('clients', 'clients.id', 'jobs.clientId')
             .innerJoin('users', 'users.id', 'clients.userId')
             .leftJoin('services', 'services.id', 'jobs.serviceId')
             .where('jobs.deleted', '=', false)
+            .$if(blockedClientIds.length > 0, (qb) =>
+                qb.where('clients.id', 'not in', blockedClientIds)
+            )
             .select([
                 'jobs.id',
                 'jobs.jobTitle',
@@ -63,14 +105,6 @@ export async function GET(request: Request) {
                 'users.profilePhoto as clientPhoto',
                 'clients.id as clientId'
             ]);
-
-        const user = await getAuthUser();
-        let currentUserId = user?.id || null;
-
-        if (!currentUserId && filters.currentFreelancerId) {
-            const f = await db.selectFrom('freelancers').select('userId').where('id', '=', filters.currentFreelancerId).executeTakeFirst();
-            if (f) currentUserId = f.userId;
-        }
 
         if (filters.status) query = query.where('jobs.jobStatus', '=', filters.status as any);
         if (filters.category) query = query.where('jobs.jobCategory', '=', filters.category);

@@ -61,6 +61,30 @@ export async function createOrGetThread(jobId: string, freelancerId: string, cli
             throw new Error(`Your BirdEarner platform fee of ₹${outstanding} is pending. Please pay the outstanding amount to continue applying for new bookings.`);
         }
 
+        // Block check: prevent application if either party has blocked the other
+        const blockExists = await db
+            .selectFrom('blockedUsers')
+            .select('id')
+            .where((eb) =>
+                eb.or([
+                    eb.and([
+                        eb('blockerId', '=', clientId),
+                        eb('blockedId', '=', freelancerId),
+                        eb('blockerType', '=', 'CLIENT'),
+                    ]),
+                    eb.and([
+                        eb('blockerId', '=', freelancerId),
+                        eb('blockedId', '=', clientId),
+                        eb('blockerType', '=', 'FREELANCER'),
+                    ]),
+                ])
+            )
+            .executeTakeFirst();
+
+        if (blockExists) {
+            throw new Error('You cannot apply to this job. This user has blocked you or you have blocked them.');
+        }
+
         const job = await db
             .selectFrom('jobs')
             .select('budgetAmount')
@@ -119,12 +143,16 @@ export async function sendMessage(data: any) {
     const thread = await db
         .selectFrom('chatThreads')
         .innerJoin('jobs', 'jobs.id', 'chatThreads.jobId')
-        .select(['jobs.jobStatus', 'chatThreads.characterLimit'])
+        .select(['jobs.jobStatus', 'chatThreads.characterLimit', 'chatThreads.status'])
         .where('chatThreads.id', '=', chatThreadId)
         .where('jobs.deleted', '=', false)
         .executeTakeFirst();
 
     if (!thread) throw new Error('Chat thread not found');
+
+    if (thread.status === 'BLOCKED') {
+        throw new Error('This conversation has been blocked. You cannot send messages.');
+    }
 
     // Check character limit for OPEN jobs
     if (thread.jobStatus === 'OPEN' && thread.characterLimit) {
@@ -200,6 +228,9 @@ export async function getConversations(userId: string, role: 'CLIENT' | 'FREELAN
         if (!freelancer) return [];
         query = query.where('chatThreads.freelancerId', '=', freelancer.id);
     }
+
+    // Exclude BLOCKED threads from conversation list
+    query = query.where('chatThreads.status', '!=', 'BLOCKED');
 
     const threads = await query
         .select([

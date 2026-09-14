@@ -73,6 +73,38 @@ export async function GET(
             return NextResponse.json({ success: false, message: 'Job not found' }, { status: 404 });
         }
 
+        // Block check: If requesting user is a freelancer and not assigned to this job, hide job if block exists
+        const freelancerProfile = await db
+            .selectFrom('freelancers')
+            .select('id')
+            .where('userId', '=', user.id)
+            .executeTakeFirst();
+
+        if (freelancerProfile && job.assignedFreelancerId !== freelancerProfile.id) {
+            const blockExists = await db
+                .selectFrom('blockedUsers')
+                .select('id')
+                .where((eb) =>
+                    eb.or([
+                        eb.and([
+                            eb('blockerId', '=', job.clientId),
+                            eb('blockedId', '=', freelancerProfile.id),
+                            eb('blockerType', '=', 'CLIENT'),
+                        ]),
+                        eb.and([
+                            eb('blockerId', '=', freelancerProfile.id),
+                            eb('blockedId', '=', job.clientId),
+                            eb('blockerType', '=', 'FREELANCER'),
+                        ]),
+                    ])
+                )
+                .executeTakeFirst();
+
+            if (blockExists) {
+                return NextResponse.json({ success: false, message: 'Job not found' }, { status: 404 });
+            }
+        }
+
         const data = {
             ...job,
             client: {

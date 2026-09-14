@@ -34,6 +34,37 @@ export async function GET(request: Request) {
         const threeDaysAgo = new Date();
         threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
 
+        // Block check: get client IDs to exclude for the current freelancer
+        let blockedClientIds: string[] = [];
+        if (currentUserId) {
+            const freelancerProfile = await db
+                .selectFrom('freelancers')
+                .select('id')
+                .where('userId', '=', currentUserId)
+                .executeTakeFirst();
+
+            if (freelancerProfile) {
+                const blockedAsFreelancer = await db
+                    .selectFrom('blockedUsers')
+                    .select('blockerId')
+                    .where('blockedId', '=', freelancerProfile.id)
+                    .where('blockedType', '=', 'FREELANCER')
+                    .execute();
+
+                const blockedByFreelancer = await db
+                    .selectFrom('blockedUsers')
+                    .select('blockedId')
+                    .where('blockerId', '=', freelancerProfile.id)
+                    .where('blockerType', '=', 'FREELANCER')
+                    .execute();
+
+                const idSet = new Set<string>();
+                for (const row of blockedAsFreelancer) idSet.add(row.blockerId);
+                for (const row of blockedByFreelancer) idSet.add(row.blockedId);
+                blockedClientIds = Array.from(idSet);
+            }
+        }
+
         let query = db
             .selectFrom('jobs')
             .innerJoin('clients', 'clients.id', 'jobs.clientId')
@@ -48,6 +79,9 @@ export async function GET(request: Request) {
                         eb('jobs.cancelledAt', '>=', threeDaysAgo)
                     ])
                 ])
+            )
+            .$if(blockedClientIds.length > 0, (qb) =>
+                qb.where('clients.id', 'not in', blockedClientIds)
             )
             .select([
                 'jobs.id',
@@ -97,6 +131,9 @@ export async function GET(request: Request) {
                         eb('jobs.cancelledAt', '>=', threeDaysAgo)
                     ])
                 ])
+            )
+            .$if(blockedClientIds.length > 0, (qb) =>
+                qb.where('clients.id', 'not in', blockedClientIds)
             )
             .$if(!!status, (qb) => qb.where('jobs.jobStatus', '=', status as any))
             .$if(!!category, (qb) => qb.where('jobs.jobCategory', '=', category!))

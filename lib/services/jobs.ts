@@ -294,6 +294,38 @@ export async function assignFreelancer(jobId: string, freelancerId: string, clie
 
         if (!job) throw new Error('Job not found');
 
+        // Block check: prevent assignment if either party has blocked the other
+        const clientProfile = await trx
+            .selectFrom('clients')
+            .select('id')
+            .where('userId', '=', clientUserId)
+            .executeTakeFirst();
+
+        if (clientProfile) {
+            const blockExists = await trx
+                .selectFrom('blockedUsers')
+                .select('id')
+                .where((eb) =>
+                    eb.or([
+                        eb.and([
+                            eb('blockerId', '=', clientProfile.id),
+                            eb('blockedId', '=', freelancerId),
+                            eb('blockerType', '=', 'CLIENT'),
+                        ]),
+                        eb.and([
+                            eb('blockerId', '=', freelancerId),
+                            eb('blockedId', '=', clientProfile.id),
+                            eb('blockerType', '=', 'FREELANCER'),
+                        ]),
+                    ])
+                )
+                .executeTakeFirst();
+
+            if (blockExists) {
+                throw new Error('Cannot assign this freelancer. This user has been blocked.');
+            }
+        }
+
         const penaltyAmount = parseFloat(job.clientPenaltyAmount?.toString() || '0');
 
         // Retrieve latest negotiation offers from chat thread
