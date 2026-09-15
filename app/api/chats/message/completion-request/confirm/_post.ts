@@ -125,6 +125,18 @@ export async function POST(request: Request) {
                     cashContent = `Project completion confirmed.\n💰 You pay freelancer: ₹${clientPays}\n🎁 BirdEarner pays you: ₹${discountAmt}\nTotal: ₹${budgetNum}`;
                 }
 
+                // Check if cash payment message already exists for this thread
+                const existingCashMsg = await trx
+                    .selectFrom('messages')
+                    .selectAll()
+                    .where('chatThreadId', '=', threadId)
+                    .where('messageType', '=', 'cash_payment')
+                    .executeTakeFirst();
+
+                if (existingCashMsg) {
+                    return { success: true, message: 'Cash payment flow already initiated', cashPaymentMessage: existingCashMsg };
+                }
+
                 const cashMsg = await trx
                     .insertInto('messages')
                     .values({

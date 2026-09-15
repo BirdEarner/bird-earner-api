@@ -28,113 +28,173 @@ export async function POST(request: Request) {
 
         const { threadId, userId, blockedUserId } = parsed.data;
 
-        const blockerClient = await db
-            .selectFrom('clients')
-            .select(['id', 'userId'])
-            .where('userId', '=', userId)
-            .executeTakeFirst();
-
-        const blockerFreelancer = await db
-            .selectFrom('freelancers')
-            .select(['id', 'userId'])
-            .where('userId', '=', userId)
-            .executeTakeFirst();
-
-        const blockedClient = await db
-            .selectFrom('clients')
-            .select(['id', 'userId'])
-            .where('userId', '=', blockedUserId)
-            .executeTakeFirst();
-
-        const blockedFreelancer = await db
-            .selectFrom('freelancers')
-            .select(['id', 'userId'])
-            .where('userId', '=', blockedUserId)
-            .executeTakeFirst();
+        // Fetch current chat thread if threadId is provided
+        let currentThread = threadId ? await db
+            .selectFrom('chatThreads')
+            .innerJoin('jobs', 'jobs.id', 'chatThreads.jobId')
+            .select(['chatThreads.id', 'chatThreads.clientId', 'chatThreads.freelancerId', 'jobs.jobStatus'])
+            .where('chatThreads.id', '=', threadId)
+            .executeTakeFirst() : null;
 
         let blockerId: string;
         let blockedId: string;
-        let blockerType: string;
-        let blockedType: string;
+        let blockerType: 'CLIENT' | 'FREELANCER';
+        let blockedType: 'CLIENT' | 'FREELANCER';
+        let clientIdForQuery: string;
+        let freelancerIdForQuery: string;
 
-        if (blockerClient) {
-            blockerId = blockerClient.id;
-            blockerType = 'CLIENT';
-        } else if (blockerFreelancer) {
-            blockerId = blockerFreelancer.id;
-            blockerType = 'FREELANCER';
+        const [blockerClient, blockerFreelancer] = await Promise.all([
+            db.selectFrom('clients').select(['id', 'userId']).where('userId', '=', userId).executeTakeFirst(),
+            db.selectFrom('freelancers').select(['id', 'userId']).where('userId', '=', userId).executeTakeFirst()
+        ]);
+
+        if (currentThread) {
+            clientIdForQuery = currentThread.clientId;
+            freelancerIdForQuery = currentThread.freelancerId;
+
+            if (blockerClient && blockerClient.id === currentThread.clientId) {
+                blockerId = currentThread.clientId;
+                blockerType = 'CLIENT';
+                blockedId = currentThread.freelancerId;
+                blockedType = 'FREELANCER';
+            } else if (blockerFreelancer && blockerFreelancer.id === currentThread.freelancerId) {
+                blockerId = currentThread.freelancerId;
+                blockerType = 'FREELANCER';
+                blockedId = currentThread.clientId;
+                blockedType = 'CLIENT';
+            } else {
+                const blockedClient = await db.selectFrom('clients').select('id').where('userId', '=', blockedUserId).executeTakeFirst();
+                if (blockedClient && blockedClient.id === currentThread.clientId) {
+                    blockerId = currentThread.freelancerId;
+                    blockerType = 'FREELANCER';
+                    blockedId = currentThread.clientId;
+                    blockedType = 'CLIENT';
+                } else {
+                    blockerId = currentThread.clientId;
+                    blockerType = 'CLIENT';
+                    blockedId = currentThread.freelancerId;
+                    blockedType = 'FREELANCER';
+                }
+            }
         } else {
-            return NextResponse.json({ success: false, message: 'Blocker profile not found' }, { status: 400 });
+            const [blockedClient, blockedFreelancer] = await Promise.all([
+                db.selectFrom('clients').select(['id', 'userId']).where('userId', '=', blockedUserId).executeTakeFirst(),
+                db.selectFrom('freelancers').select(['id', 'userId']).where('userId', '=', blockedUserId).executeTakeFirst()
+            ]);
+
+            if (blockerClient && blockedFreelancer) {
+                blockerId = blockerClient.id;
+                blockerType = 'CLIENT';
+                blockedId = blockedFreelancer.id;
+                blockedType = 'FREELANCER';
+                clientIdForQuery = blockerId;
+                freelancerIdForQuery = blockedId;
+            } else if (blockerFreelancer && blockedClient) {
+                blockerId = blockerFreelancer.id;
+                blockerType = 'FREELANCER';
+                blockedId = blockedClient.id;
+                blockedType = 'CLIENT';
+                clientIdForQuery = blockedId;
+                freelancerIdForQuery = blockerId;
+            } else {
+                return NextResponse.json({ success: false, message: 'User profiles could not be resolved for blocking' }, { status: 400 });
+            }
         }
 
-        if (blockedClient) {
-            blockedId = blockedClient.id;
-            blockedType = 'CLIENT';
-        } else if (blockedFreelancer) {
-            blockedId = blockedFreelancer.id;
-            blockedType = 'FREELANCER';
-        } else {
-            return NextResponse.json({ success: false, message: 'Blocked user profile not found' }, { status: 400 });
-        }
-
-        const existing = await db
-            .selectFrom('blockedUsers')
-            .select('id')
-            .where('blockerId', '=', blockerId!)
-            .where('blockedId', '=', blockedId!)
-            .executeTakeFirst();
-
-        if (!existing) {
-            await db
-                .insertInto('blockedUsers')
-                .values({
-                    id: crypto.randomUUID(),
-                    blockerId: blockerId!,
-                    blockedId: blockedId!,
-                    blockerType: blockerType!,
-                    blockedType: blockedType!,
-                    createdAt: new Date(),
-                })
-                .execute();
-        }
-
-        // Block threads between these two parties, EXCEPT those with active jobs
-        let clientIdForQuery: string | null = null;
-        let freelancerIdForQuery: string | null = null;
-
-        if (blockerType === 'CLIENT') {
-            clientIdForQuery = blockerId!;
-            freelancerIdForQuery = blockedId!;
-        } else {
-            clientIdForQuery = blockedId!;
-            freelancerIdForQuery = blockerId!;
-        }
-
-        // Job statuses where the job is actively in progress (threads should remain accessible)
+        // Active job protection check
         const ACTIVE_JOB_STATUSES = [
             'CONFIRMED', 'IN_PROGRESS', 'FREELANCER_TRAVELLING', 'ARRIVED',
             'JOB_STARTED', 'WORK_SUBMITTED', 'REVISION_REQUESTED',
             'REVISION_SUBMITTED', 'WORK_ACCEPTED'
         ];
 
-        // Get all threads between these parties
+        const activeAssignedJob = await db
+            .selectFrom('jobs')
+            .select('id')
+            .where('clientId', '=', clientIdForQuery)
+            .where('assignedFreelancerId', '=', freelancerIdForQuery)
+            .where('jobStatus', 'in', ACTIVE_JOB_STATUSES)
+            .executeTakeFirst();
+
+        if (activeAssignedJob) {
+            return NextResponse.json(
+                { success: false, message: 'Cannot block user as job is assigned' },
+                { status: 400 }
+            );
+        }
+
+        // Check if block entry already exists
+        const existing = await db
+            .selectFrom('blockedUsers')
+            .select('id')
+            .where((eb) =>
+                eb.or([
+                    eb.and([
+                        eb('blockerId', '=', blockerId),
+                        eb('blockedId', '=', blockedId),
+                    ]),
+                    eb.and([
+                        eb('blockerId', '=', clientIdForQuery),
+                        eb('blockedId', '=', freelancerIdForQuery),
+                    ]),
+                    eb.and([
+                        eb('blockerId', '=', freelancerIdForQuery),
+                        eb('blockedId', '=', clientIdForQuery),
+                    ]),
+                ])
+            )
+            .executeTakeFirst();
+
+        if (existing) {
+            if (threadId) {
+                await db.updateTable('chatThreads')
+                    .set({ status: 'BLOCKED', updatedAt: new Date() })
+                    .where('id', '=', threadId)
+                    .execute();
+            }
+            return NextResponse.json(
+                { success: false, isAlreadyBlocked: true, message: 'User is already blocked' },
+                { status: 400 }
+            );
+        }
+
+        await db
+            .insertInto('blockedUsers')
+            .values({
+                id: crypto.randomUUID(),
+                blockerId,
+                blockedId,
+                blockerType,
+                blockedType,
+                createdAt: new Date(),
+            })
+            .execute();
+
+        // Always update current chat thread to BLOCKED
+        if (threadId) {
+            await db
+                .updateTable('chatThreads')
+                .set({ status: 'BLOCKED', updatedAt: new Date() })
+                .where('id', '=', threadId)
+                .execute();
+        }
+
+        // Update all non-active threads between these two parties to BLOCKED
         const allThreads = await db
             .selectFrom('chatThreads')
             .innerJoin('jobs', 'jobs.id', 'chatThreads.jobId')
             .select(['chatThreads.id', 'jobs.jobStatus'])
-            .where('chatThreads.clientId', '=', clientIdForQuery!)
-            .where('chatThreads.freelancerId', '=', freelancerIdForQuery!)
+            .where('chatThreads.clientId', '=', clientIdForQuery)
+            .where('chatThreads.freelancerId', '=', freelancerIdForQuery)
             .execute();
 
-        // Separate into blockable and active threads
         const blockableThreadIds: string[] = [];
-        for (const thread of allThreads) {
-            if (!ACTIVE_JOB_STATUSES.includes(thread.jobStatus)) {
-                blockableThreadIds.push(thread.id);
+        for (const t of allThreads) {
+            if (!ACTIVE_JOB_STATUSES.includes(t.jobStatus)) {
+                blockableThreadIds.push(t.id);
             }
         }
 
-        // Only block threads for non-active jobs
         if (blockableThreadIds.length > 0) {
             await db
                 .updateTable('chatThreads')

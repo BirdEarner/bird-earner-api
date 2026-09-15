@@ -52,6 +52,22 @@ export async function POST(
             return NextResponse.json({ success: false, message: 'Only for cash payments' }, { status: 400 });
         }
 
+        // Check if cash payment message already exists for this thread
+        const existingPaymentMessage = await db
+            .selectFrom('messages')
+            .selectAll()
+            .where('chatThreadId', '=', threadId)
+            .where('messageType', '=', 'cash_payment')
+            .executeTakeFirst();
+
+        if (existingPaymentMessage) {
+            return NextResponse.json({
+                success: true,
+                message: 'Cash payment flow already initiated',
+                data: existingPaymentMessage
+            });
+        }
+
         let receiverId;
         if (user.id === job.freelancerUserId) {
             receiverId = job.clientUserId;

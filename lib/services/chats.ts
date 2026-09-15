@@ -34,6 +34,34 @@ export async function createOrGetThread(jobId: string, freelancerId: string, cli
         .where('clientId', '=', clientId)
         .executeTakeFirst();
 
+    if (thread) {
+        const blockExists = await db
+            .selectFrom('blockedUsers')
+            .select('id')
+            .where((eb) =>
+                eb.or([
+                    eb.and([
+                        eb('blockerId', '=', clientId),
+                        eb('blockedId', '=', freelancerId),
+                    ]),
+                    eb.and([
+                        eb('blockerId', '=', freelancerId),
+                        eb('blockedId', '=', clientId),
+                    ]),
+                ])
+            )
+            .executeTakeFirst();
+
+        if (blockExists && thread.status !== 'BLOCKED') {
+            await db
+                .updateTable('chatThreads')
+                .set({ status: 'BLOCKED', updatedAt: new Date() })
+                .where('id', '=', thread.id)
+                .execute();
+            thread.status = 'BLOCKED';
+        }
+    }
+
     if (!thread) {
         // Fetch freelancer and client records to prevent self-application/messaging
         const [freelancer, client] = await Promise.all([
@@ -70,12 +98,10 @@ export async function createOrGetThread(jobId: string, freelancerId: string, cli
                     eb.and([
                         eb('blockerId', '=', clientId),
                         eb('blockedId', '=', freelancerId),
-                        eb('blockerType', '=', 'CLIENT'),
                     ]),
                     eb.and([
                         eb('blockerId', '=', freelancerId),
                         eb('blockedId', '=', clientId),
-                        eb('blockerType', '=', 'FREELANCER'),
                     ]),
                 ])
             )
@@ -143,14 +169,44 @@ export async function sendMessage(data: any) {
     const thread = await db
         .selectFrom('chatThreads')
         .innerJoin('jobs', 'jobs.id', 'chatThreads.jobId')
-        .select(['jobs.jobStatus', 'chatThreads.characterLimit', 'chatThreads.status'])
+        .select([
+            'jobs.jobStatus',
+            'chatThreads.characterLimit',
+            'chatThreads.status',
+            'chatThreads.clientId',
+            'chatThreads.freelancerId'
+        ])
         .where('chatThreads.id', '=', chatThreadId)
         .where('jobs.deleted', '=', false)
         .executeTakeFirst();
 
     if (!thread) throw new Error('Chat thread not found');
 
-    if (thread.status === 'BLOCKED') {
+    const blockExists = await db
+        .selectFrom('blockedUsers')
+        .select('id')
+        .where((eb) =>
+            eb.or([
+                eb.and([
+                    eb('blockerId', '=', thread.clientId),
+                    eb('blockedId', '=', thread.freelancerId),
+                ]),
+                eb.and([
+                    eb('blockerId', '=', thread.freelancerId),
+                    eb('blockedId', '=', thread.clientId),
+                ]),
+            ])
+        )
+        .executeTakeFirst();
+
+    if (thread.status === 'BLOCKED' || blockExists) {
+        if (thread.status !== 'BLOCKED') {
+            await db
+                .updateTable('chatThreads')
+                .set({ status: 'BLOCKED', updatedAt: new Date() })
+                .where('id', '=', chatThreadId)
+                .execute();
+        }
         throw new Error('This conversation has been blocked. You cannot send messages.');
     }
 
@@ -228,9 +284,6 @@ export async function getConversations(userId: string, role: 'CLIENT' | 'FREELAN
         if (!freelancer) return [];
         query = query.where('chatThreads.freelancerId', '=', freelancer.id);
     }
-
-    // Exclude BLOCKED threads from conversation list
-    query = query.where('chatThreads.status', '!=', 'BLOCKED');
 
     const threads = await query
         .select([

@@ -80,8 +80,13 @@ export async function GET(request: Request) {
                     ])
                 ])
             )
-            .$if(blockedClientIds.length > 0, (qb) =>
-                qb.where('clients.id', 'not in', blockedClientIds)
+            .$if(blockedClientIds.length > 0 && !clientId && !freelancerId, (qb) =>
+                qb.where((eb) =>
+                    eb.or([
+                        eb('jobs.jobStatus', '=', 'COMPLETED'),
+                        eb('clients.id', 'not in', blockedClientIds)
+                    ])
+                )
             )
             .select([
                 'jobs.id',
@@ -132,8 +137,13 @@ export async function GET(request: Request) {
                     ])
                 ])
             )
-            .$if(blockedClientIds.length > 0, (qb) =>
-                qb.where('clients.id', 'not in', blockedClientIds)
+            .$if(blockedClientIds.length > 0 && !clientId && !freelancerId, (qb) =>
+                qb.where((eb) =>
+                    eb.or([
+                        eb('jobs.jobStatus', '=', 'COMPLETED'),
+                        eb('clients.id', 'not in', blockedClientIds)
+                    ])
+                )
             )
             .$if(!!status, (qb) => qb.where('jobs.jobStatus', '=', status as any))
             .$if(!!category, (qb) => qb.where('jobs.jobCategory', '=', category!))

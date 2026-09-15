@@ -46,10 +46,16 @@ export async function PATCH(
             data: result
         });
     } catch (error: any) {
-        console.error('Assign freelancer error:', error);
+        const message = error.message || 'Failed to assign freelancer';
+        const isValidationOrBlockError = message.includes('blocked') || message.includes('not found') || message.includes('insufficient') || message.includes('penalty');
+        
+        if (!isValidationOrBlockError) {
+            console.error('Assign freelancer error:', error);
+        }
+
         return NextResponse.json({
             success: false,
-            message: error.message || 'Failed to assign freelancer'
-        }, { status: 500 });
+            message: message
+        }, { status: isValidationOrBlockError ? 400 : 500 });
     }
 }

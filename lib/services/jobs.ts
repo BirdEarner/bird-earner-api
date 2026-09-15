@@ -310,12 +310,10 @@ export async function assignFreelancer(jobId: string, freelancerId: string, clie
                         eb.and([
                             eb('blockerId', '=', clientProfile.id),
                             eb('blockedId', '=', freelancerId),
-                            eb('blockerType', '=', 'CLIENT'),
                         ]),
                         eb.and([
                             eb('blockerId', '=', freelancerId),
                             eb('blockedId', '=', clientProfile.id),
-                            eb('blockerType', '=', 'FREELANCER'),
                         ]),
                     ])
                 )

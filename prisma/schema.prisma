@@ -178,8 +178,6 @@ model Freelancer {
   createdAt             DateTime            @default(now()) @map("createdAt")
   updatedAt             DateTime            @updatedAt @map("updatedAt")
   availabilityUpdatedAt DateTime?           @map("availabilityUpdatedAt")
-  blockedAsFreelancer   BlockedUser[]       @relation("BlockedFreelancer")
-  blockerAsFreelancer   BlockedUser[]       @relation("BlockerFreelancer")
   chatThreads           ChatThread[]        @relation("FreelancerChatThreads")
   earnings              Earning[]
   user                  User                @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -218,8 +216,6 @@ model Client {
   coverPhoto            String?          @map("coverPhoto")
   pendingPenaltyAmount  Decimal?         @default(0) @map("pendingPenaltyAmount") @db.Decimal(10, 2)
   totalPenaltyPaid      Decimal          @default(0.00) @map("totalPenaltyPaid") @db.Decimal(10, 2)
-  blockedAsClient       BlockedUser[]    @relation("BlockedClient")
-  blockerAsClient       BlockedUser[]    @relation("BlockerClient")
   cashbackOffer         CashbackOffer[]
   chatThreads           ChatThread[]     @relation("ClientChatThreads")
   user                  User             @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -492,10 +488,6 @@ model BlockedUser {
   blockedType       String     @map("blockedType")
   reason            String?
   createdAt         DateTime   @default(now()) @map("createdAt")
-  blockedAsClient       Client       @relation("BlockedClient", fields: [blockedId], references: [id], onDelete: Cascade, map: "blockedUsers_blockedId_client_fkey")
-  blockedAsFreelancer   Freelancer   @relation("BlockedFreelancer", fields: [blockedId], references: [id], onDelete: Cascade, map: "blockedUsers_blockedId_freelancer_fkey")
-  blockerAsClient       Client       @relation("BlockerClient", fields: [blockerId], references: [id], onDelete: Cascade, map: "blockedUsers_blockerId_client_fkey")
-  blockerAsFreelancer   Freelancer   @relation("BlockerFreelancer", fields: [blockerId], references: [id], onDelete: Cascade, map: "blockedUsers_blockerId_freelancer_fkey")
 
   @@unique([blockerId, blockedId], map: "uniqueBlockRelationship")
   @@index([blockerId], map: "blockedUsersBlockerIdIdx")

@@ -28,6 +28,8 @@ export async function GET(
                 'freelancers.experience',
                 'freelancers.rating',
                 'freelancers.level',
+                'chatThreads.id as threadId',
+                'chatThreads.status as threadStatus',
                 'chatThreads.isAccepted',
                 'chatThreads.freelancerOffer',
                 'chatThreads.freelancerDays',
@@ -36,12 +38,13 @@ export async function GET(
                 'users.email'
             ])
             .where('chatThreads.jobId', '=', id)
-            .where('chatThreads.status', '!=', 'BLOCKED')
             .execute();
 
         const data = applicants.map(app => ({
             id: app.id,
             userId: app.userId,
+            threadId: app.threadId,
+            status: app.threadStatus,
             profilePhoto: app.profilePhoto,
             profileHeading: app.profileHeading,
             freelancerCategory: app.freelancerCategory,
