@@ -7,7 +7,6 @@ async function clearFreelancerCooldowns() {
         .updateTable('freelancers')
         .set({
             cooldownExpiresAt: null,
-            withdrawableAmount: '0.00',
         })
         .execute();
     console.log('✅ All freelancer cooldowns and negative penalty balances cleared.');

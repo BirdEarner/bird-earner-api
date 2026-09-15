@@ -39,10 +39,10 @@ export async function POST(request: Request) {
             }
         });
     } catch (error: any) {
-        console.error('Thread creation error:', error);
+        console.error('Thread creation error:', error.message || error);
         return NextResponse.json({
             success: false,
             message: error.message || 'Server error'
-        }, { status: 500 });
+        }, { status: 400 });
     }
 }

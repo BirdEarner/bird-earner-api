@@ -172,6 +172,20 @@ export async function processJobTimers() {
                                 updatedAt: now,
                             }).execute();
 
+                            // Record wallet transaction history entry for penalty deduction
+                            await trx.insertInto('walletTransactions').values({
+                                id: crypto.randomUUID(),
+                                userId: freelancer.userId,
+                                userType: 'FREELANCER',
+                                jobId: job.id,
+                                transactionType: 'PENALTY',
+                                amount: (-penaltyAmount).toString(),
+                                balanceBefore: currentBalance.toString(),
+                                balanceAfter: newBalance.toString(),
+                                description: `No-show 2% penalty deducted to BirdEarner - ${job.jobTitle}`,
+                                updatedAt: now
+                            }).execute();
+
                             sendNotification(
                                 freelancer.userId,
                                 'FREELANCER',
@@ -320,6 +334,20 @@ export async function processJobTimers() {
                                 description: `Freelancer failed to submit work by deadline + 12h grace period for "${job.jobTitle}". 2% penalty deducted.`,
                                 createdAt: now,
                                 updatedAt: now,
+                            }).execute();
+
+                            // Record wallet transaction history entry for penalty deduction
+                            await trx.insertInto('walletTransactions').values({
+                                id: crypto.randomUUID(),
+                                userId: freelancer.userId,
+                                userType: 'FREELANCER',
+                                jobId: job.id,
+                                transactionType: 'PENALTY',
+                                amount: (-penaltyAmount).toString(),
+                                balanceBefore: currentBalance.toString(),
+                                balanceAfter: newBalance.toString(),
+                                description: `Deadline expired 2% penalty deducted to BirdEarner - ${job.jobTitle}`,
+                                updatedAt: now
                             }).execute();
                         }
                     }

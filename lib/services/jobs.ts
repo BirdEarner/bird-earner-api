@@ -288,11 +288,15 @@ export async function assignFreelancer(jobId: string, freelancerId: string, clie
     return await db.transaction().execute(async (trx) => {
         const job = await trx
             .selectFrom('jobs')
-            .select(['id', 'budgetAmount', 'paymentMethod', 'isAmountReserved', 'jobTitle', 'clientPenaltyAmount', 'workDurationDays'])
+            .select(['id', 'assignedFreelancerId', 'jobStatus', 'budgetAmount', 'paymentMethod', 'isAmountReserved', 'jobTitle', 'clientPenaltyAmount', 'workDurationDays'])
             .where('id', '=', jobId)
             .executeTakeFirst();
 
         if (!job) throw new Error('Job not found');
+
+        if (job.assignedFreelancerId || (job.jobStatus && job.jobStatus !== 'OPEN')) {
+            throw new Error('This job is already assigned to a freelancer or is no longer open.');
+        }
 
         // Block check: prevent assignment if either party has blocked the other
         const clientProfile = await trx
@@ -571,12 +575,15 @@ export async function rejectFreelancer(jobId: string, freelancerId: string, clie
         const job = await trx
             .selectFrom('jobs')
             .innerJoin('clients', 'clients.id', 'jobs.clientId')
-            .select(['jobs.id', 'clients.userId as clientUserId'])
+            .select(['jobs.id', 'jobs.assignedFreelancerId', 'jobs.jobStatus', 'clients.userId as clientUserId'])
             .where('jobs.id', '=', jobId)
             .executeTakeFirst();
 
         if (!job) throw new Error('Job not found');
         if (job.clientUserId !== clientUserId) throw new Error('Unauthorized');
+        if (job.assignedFreelancerId === freelancerId || (job.jobStatus && job.jobStatus !== 'OPEN')) {
+            throw new Error('Cannot reject freelancer. This job is already assigned or closed.');
+        }
 
         // Update all matching chat threads for this job + freelancer
         await trx
