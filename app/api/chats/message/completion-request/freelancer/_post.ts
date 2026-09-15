@@ -48,6 +48,9 @@ export async function POST(request: Request) {
 
             if (!job) throw new Error('Job not found');
             if (job.freelancerUserId !== user.id) throw new Error('You are not assigned to this job');
+            if (['CANCELLED', 'DEADLINE_EXPIRED'].includes(job.jobStatus)) {
+                throw new Error('Cannot request project completion for a cancelled or expired job.');
+            }
 
             // On-site jobs require OTP verification before completion request
             const isOnSite = job.projectType === 'On-site' && job.location?.toLowerCase() !== 'remote';

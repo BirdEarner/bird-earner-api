@@ -52,13 +52,24 @@ export async function createOrGetThread(jobId: string, freelancerId: string, cli
             )
             .executeTakeFirst();
 
-        if (blockExists && thread.status !== 'BLOCKED') {
+        if (blockExists) {
+            if (thread.status !== 'BLOCKED') {
+                await db
+                    .updateTable('chatThreads')
+                    .set({ status: 'BLOCKED', updatedAt: new Date() })
+                    .where('id', '=', thread.id)
+                    .execute();
+                thread.status = 'BLOCKED';
+            }
+        } else if (thread.status === 'BLOCKED') {
+            // Block record was removed -> unblock chat thread automatically
+            const restoredStatus = thread.isAccepted ? 'ACCEPTED' : 'PENDING';
             await db
                 .updateTable('chatThreads')
-                .set({ status: 'BLOCKED', updatedAt: new Date() })
+                .set({ status: restoredStatus, updatedAt: new Date() })
                 .where('id', '=', thread.id)
                 .execute();
-            thread.status = 'BLOCKED';
+            thread.status = restoredStatus;
         }
     }
 
@@ -173,6 +184,7 @@ export async function sendMessage(data: any) {
             'jobs.jobStatus',
             'chatThreads.characterLimit',
             'chatThreads.status',
+            'chatThreads.isAccepted',
             'chatThreads.clientId',
             'chatThreads.freelancerId'
         ])
@@ -199,7 +211,7 @@ export async function sendMessage(data: any) {
         )
         .executeTakeFirst();
 
-    if (thread.status === 'BLOCKED' || blockExists) {
+    if (blockExists) {
         if (thread.status !== 'BLOCKED') {
             await db
                 .updateTable('chatThreads')
@@ -208,6 +220,14 @@ export async function sendMessage(data: any) {
                 .execute();
         }
         throw new Error('This conversation has been blocked. You cannot send messages.');
+    } else if (thread.status === 'BLOCKED') {
+        const restoredStatus = thread.isAccepted ? 'ACCEPTED' : 'PENDING';
+        await db
+            .updateTable('chatThreads')
+            .set({ status: restoredStatus, updatedAt: new Date() })
+            .where('id', '=', chatThreadId)
+            .execute();
+        thread.status = restoredStatus;
     }
 
     // Check character limit for OPEN jobs
@@ -308,8 +328,42 @@ export async function getConversations(userId: string, role: 'CLIENT' | 'FREELAN
         .orderBy('chatThreads.updatedAt', 'desc')
         .execute();
 
-    // Get last message for each thread
+    // Get last message for each thread & auto-sync block status
     const conversations = await Promise.all(threads.map(async (thread) => {
+        const blockExists = await db
+            .selectFrom('blockedUsers')
+            .select('id')
+            .where((eb) =>
+                eb.or([
+                    eb.and([
+                        eb('blockerId', '=', thread.clientId),
+                        eb('blockedId', '=', thread.freelancerId),
+                    ]),
+                    eb.and([
+                        eb('blockerId', '=', thread.freelancerId),
+                        eb('blockedId', '=', thread.clientId),
+                    ]),
+                ])
+            )
+            .executeTakeFirst();
+
+        let currentStatus = thread.status;
+        if (blockExists) {
+            currentStatus = 'BLOCKED';
+            if (thread.status !== 'BLOCKED') {
+                await db.updateTable('chatThreads')
+                    .set({ status: 'BLOCKED', updatedAt: new Date() })
+                    .where('id', '=', thread.id)
+                    .execute();
+            }
+        } else if (thread.status === 'BLOCKED') {
+            currentStatus = thread.isAccepted ? 'ACCEPTED' : 'PENDING';
+            await db.updateTable('chatThreads')
+                .set({ status: currentStatus, updatedAt: new Date() })
+                .where('id', '=', thread.id)
+                .execute();
+        }
+
         const lastMessage = await db
             .selectFrom('messages')
             .select(['messageContent', 'messageType', 'createdAt'])
@@ -368,6 +422,7 @@ export async function getConversations(userId: string, role: 'CLIENT' | 'FREELAN
 
         return {
             ...thread,
+            status: currentStatus,
             otherUser,
             lastMessage: displayMessage,
             lastMessageAt: lastMessage?.createdAt || thread.updatedAt

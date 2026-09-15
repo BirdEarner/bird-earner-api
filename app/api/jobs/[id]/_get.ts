@@ -1,5 +1,6 @@
 import { db } from '@/lib/db';
 import { getAuthUser } from '@/lib/auth';
+import { processJobTimers } from '@/lib/services/timers';
 import { NextResponse } from 'next/server';
 
 export async function GET(
@@ -13,6 +14,9 @@ export async function GET(
         }
 
         const { id } = await params;
+
+        // Process any pending timers for expired work deadlines
+        await processJobTimers();
 
         const job = await db
             .selectFrom('jobs')

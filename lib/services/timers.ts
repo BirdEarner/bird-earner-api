@@ -1,4 +1,5 @@
 import { db } from '../db';
+import { sql } from 'kysely';
 import { processJobPaymentInTransaction, releaseReservedAmountInTransaction } from './wallet';
 import { sendNotification } from './notifications';
 
@@ -29,7 +30,7 @@ export async function recordJobStatusHistory(
 }
 
 /**
- * Process automatic job timers (Application deadline, 12h review auto-accept, 12h work deadline grace period)
+ * Process automatic job timers (Application deadline, 12h review auto-accept, 12h work deadline grace period / On-site auto-cancel)
  */
 export async function processJobTimers() {
     const now = new Date();
@@ -94,7 +95,7 @@ export async function processJobTimers() {
         }
     }
 
-    // 3. Work Deadline Missed handling (12-hour grace period)
+    // 3. Work Deadline Missed handling (12-hour grace period for remote / Auto-cancel for On-site NO-SHOW)
     const missedDeadlineJobs = await db
         .selectFrom('jobs')
         .innerJoin('clients', 'clients.id', 'jobs.clientId')
@@ -108,6 +109,10 @@ export async function processJobTimers() {
             'jobs.budgetAmount as budgetAmount',
             'jobs.negotiatedAmount as negotiatedAmount',
             'jobs.isAmountReserved as isAmountReserved',
+            'jobs.paymentMethod as paymentMethod',
+            'jobs.projectType as projectType',
+            'jobs.location as location',
+            'jobs.otpVerifiedAt as otpVerifiedAt',
             'clients.userId as clientUserId',
         ])
         .where('jobStatus', 'in', ['CONFIRMED', 'IN_PROGRESS', 'JOB_STARTED'])
@@ -117,8 +122,133 @@ export async function processJobTimers() {
     for (const job of missedDeadlineJobs) {
         try {
             await db.transaction().execute(async (trx) => {
-                if (!job.freelancerGracePeriodExpiresAt) {
-                    // Set 12h final grace period
+                const isOnSite = job.projectType === 'On-site' && job.location?.toLowerCase() !== 'remote';
+                const isNoShow = isOnSite && !job.otpVerifiedAt;
+
+                if (isNoShow) {
+                    // On-site Freelancer No-Show: Auto-cancel booking immediately (No 12h grace period)
+                    if (job.paymentMethod === 'PLATFORM' || job.isAmountReserved) {
+                        await releaseReservedAmountInTransaction(trx, job.clientUserId, job.id);
+                    }
+
+                    const effectiveAmount = job.negotiatedAmount ? parseFloat(job.negotiatedAmount.toString()) : parseFloat(job.budgetAmount.toString());
+                    const penaltyAmount = effectiveAmount * 0.02;
+
+                    // Deduct 2% penalty, add 1 strike, add 1-day cooldown to freelancer
+                    if (job.assignedFreelancerId) {
+                        const freelancer = await trx
+                            .selectFrom('freelancers')
+                            .select(['id', 'userId', 'withdrawableAmount'])
+                            .where('id', '=', job.assignedFreelancerId)
+                            .executeTakeFirst();
+
+                        if (freelancer) {
+                            const currentBalance = parseFloat(freelancer.withdrawableAmount?.toString() || '0');
+                            const newBalance = currentBalance - penaltyAmount;
+                            const cooldownExpiry = new Date(now.getTime() + 24 * 60 * 60 * 1000); // 1-Day Cooldown
+
+                            await trx
+                                .updateTable('freelancers')
+                                .set((eb) => ({
+                                    withdrawableAmount: newBalance.toString(),
+                                    totalPenaltyDeducted: eb('totalPenaltyDeducted', '+', penaltyAmount.toString()),
+                                    cancellationStrikes: eb('cancellationStrikes', '+', 1),
+                                    cooldownExpiresAt: cooldownExpiry,
+                                    updatedAt: now,
+                                }))
+                                .where('id', '=', freelancer.id)
+                                .execute();
+
+                            await trx.insertInto('penaltyLogs').values({
+                                id: crypto.randomUUID(),
+                                jobId: job.id,
+                                clientId: job.clientId,
+                                freelancerId: freelancer.id,
+                                penaltyType: 'FREELANCER_NON_COMPLETION',
+                                amount: penaltyAmount.toString(),
+                                status: 'DEDUCTED',
+                                description: `On-site freelancer no-show: Failed to verify OTP / arrive for "${job.jobTitle}" before deadline. 2% penalty, 1-day cooldown, 1 cancellation strike applied.`,
+                                createdAt: now,
+                                updatedAt: now,
+                            }).execute();
+
+                            sendNotification(
+                                freelancer.userId,
+                                'FREELANCER',
+                                'Booking Cancelled - No-Show Penalty Deducted',
+                                `Job "${job.jobTitle}" was auto-cancelled due to no-show before deadline. 2% penalty (₹${penaltyAmount.toFixed(2)}) deducted from your wallet, 1-day cooldown applied.`,
+                                'JOB_CANCELLED',
+                                { jobId: job.id }
+                            );
+                        }
+                    }
+
+                    await trx
+                        .updateTable('jobs')
+                        .set({
+                            jobStatus: 'CANCELLED',
+                            cancelledAt: now,
+                            cancellationReason: 'FREELANCER NO-SHOW / FAILED TO COMPLETE',
+                            paymentStatus: 'REFUNDED',
+                            updatedAt: now,
+                        })
+                        .where('id', '=', job.id)
+                        .execute();
+
+                    // Close any active completion_request messages in chat for this job
+                    const thread = await trx
+                        .selectFrom('chatThreads')
+                        .select('id')
+                        .where('jobId', '=', job.id)
+                        .executeTakeFirst();
+
+                    if (thread) {
+                        await trx
+                            .updateTable('messages')
+                            .set({
+                                messageData: sql`jsonb_set("messageData"::jsonb, '{status}', '"closed"'::jsonb)`,
+                                updatedAt: now
+                            } as any)
+                            .where('chatThreadId', '=', thread.id)
+                            .where('messageType', '=', 'completion_request')
+                            .execute();
+
+                        // Insert system notification message in chat
+                        await trx
+                            .insertInto('messages')
+                            .values({
+                                id: crypto.randomUUID(),
+                                chatThreadId: thread.id,
+                                senderId: job.clientUserId,
+                                receiverId: job.clientUserId,
+                                messageContent: `⚠️ BOOKING AUTO-CANCELLED: Freelancer failed to arrive on-site and verify OTP before deadline. Reason: FREELANCER NO-SHOW / FAILED TO COMPLETE. Full 100% refund issued to client. 2% penalty (₹${penaltyAmount.toFixed(2)}) deducted from freelancer.`,
+                                messageType: 'notification',
+                                senderType: 'SYSTEM',
+                                updatedAt: now
+                            })
+                            .execute();
+                    }
+
+                    await recordJobStatusHistory(
+                        trx,
+                        job.id,
+                        'CANCELLED',
+                        undefined,
+                        'SYSTEM',
+                        'FREELANCER_NO_SHOW',
+                        'On-site freelancer no-show: Failed to verify OTP before deadline. Auto-cancelled booking with 2% penalty, 1-day cooldown, 1 strike to freelancer.'
+                    );
+
+                    sendNotification(
+                        job.clientUserId,
+                        'CLIENT',
+                        'Booking Auto-Cancelled (Freelancer No-Show)',
+                        `Job "${job.jobTitle}" was auto-cancelled because the freelancer failed to arrive and verify OTP. 100% full refund issued to your account.`,
+                        'JOB_CANCELLED',
+                        { jobId: job.id }
+                    );
+                } else if (!job.freelancerGracePeriodExpiresAt) {
+                    // Set 12h final grace period (for remote jobs or on-site with OTP verified)
                     const graceExpiry = new Date(now.getTime() + 12 * 60 * 60 * 1000);
                     await trx
                         .updateTable('jobs')
@@ -229,3 +359,4 @@ export async function processJobTimers() {
         }
     }
 }
+
