@@ -82,12 +82,14 @@ export async function reserveAmountForJobInTransaction(
     }
 
     const newReserved = currentReserved + amount;
+    const newAvailable = Math.max(0, currentWallet - newReserved);
 
-    // Update client reserved amount
+    // Update client reserved amount and availableBalance
     await trx
         .updateTable('clients')
         .set({
             reservedAmount: newReserved.toString(),
+            availableBalance: newAvailable.toString(),
             updatedAt: new Date()
         })
         .where('id', '=', client.id)
@@ -114,7 +116,7 @@ export async function reserveAmountForJobInTransaction(
     return {
         success: true,
         reservedAmount: amount,
-        newAvailableBalance: availableBalance - amount,
+        newAvailableBalance: newAvailable,
         transactionId: transaction.id
     };
 }
@@ -151,12 +153,14 @@ export async function releaseReservedAmountInTransaction(
     const currentWallet = parseFloat(client.wallet);
     const currentReserved = parseFloat(client.reservedAmount);
     const newReserved = Math.max(0, currentReserved - releaseAmount);
+    const newAvailable = Math.max(0, currentWallet - newReserved);
 
-    // Update client reserved amount
+    // Update client reserved amount and availableBalance
     await trx
         .updateTable('clients')
         .set({
             reservedAmount: newReserved.toString(),
+            availableBalance: newAvailable.toString(),
             updatedAt: new Date()
         })
         .where('id', '=', client.id)
@@ -249,13 +253,18 @@ export async function processJobPaymentInTransaction(
     const freelancerCurrentMonthly = parseFloat(job.freelancerMonthlyEarnings!);
     const freelancerCurrentWithdrawable = parseFloat(job.freelancerWithdrawable!);
 
+    const newClientWallet = clientCurrentWallet - effectiveAmount;
+    const newClientReserved = Math.max(0, clientCurrentReserved - effectiveAmount);
+    const newClientAvailable = Math.max(0, newClientWallet - newClientReserved);
+
     // 1. Deduct effective amount from client wallet and release reserved amount
     // Note: Penalty was already collected from client's wallet at job creation time
     await trx
         .updateTable('clients')
         .set({
-            wallet: (clientCurrentWallet - effectiveAmount).toString(),
-            reservedAmount: Math.max(0, clientCurrentReserved - effectiveAmount).toString(),
+            wallet: newClientWallet.toString(),
+            reservedAmount: newClientReserved.toString(),
+            availableBalance: newClientAvailable.toString(),
             updatedAt: new Date()
         })
         .where('id', '=', job.clientId)

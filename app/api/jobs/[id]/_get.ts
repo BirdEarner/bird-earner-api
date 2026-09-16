@@ -60,6 +60,8 @@ export async function GET(
                 'jobs.clientConfirmedWorkAt',
                 'jobs.postOtpCancellationWindowExpiresAt',
                 'jobs.negotiatedAmount',
+                'jobs.priceChangeRequested',
+                'jobs.priceChangeReason',
                 'clientUser.fullName as clientName',
                 'clientUser.email as clientEmail',
                 'clients.id as clientId',
@@ -109,8 +111,18 @@ export async function GET(
             }
         }
 
+        const priceChangeHistoryExists = await db
+            .selectFrom('jobStatusHistory')
+            .select('id')
+            .where('jobId', '=', job.id)
+            .where('action', '=', 'REQUEST_PRICE_CHANGE')
+            .executeTakeFirst();
+
+        const hasPriceChangeBeenRequested = Boolean(priceChangeHistoryExists || job.priceChangeRequested);
+
         const data = {
             ...job,
+            hasPriceChangeBeenRequested,
             client: {
                 id: job.clientId,
                 user: {
