@@ -745,9 +745,20 @@ export async function cancelJob(jobId: string, userId: string, reason?: string) 
         const postOtpWindowExpiry = job.postOtpCancellationWindowExpiresAt ? new Date(job.postOtpCancellationWindowExpiresAt).getTime() : 0;
         const isWithinPostOtpWindow = postOtpWindowExpiry > 0 && Date.now() <= postOtpWindowExpiry;
 
+        // Determine if on-site job
+        const isOnSite = (job.projectType || job.jobType || '').toLowerCase() === 'on-site' ||
+            ((job.projectType || job.jobType || '').toLowerCase() !== 'remote' &&
+             (job.location || '').toLowerCase() !== 'remote');
+
         // If work started/submitted and past both grace windows, block simple cancellation
+        // For on-site jobs: after OTP verification + 5min window, must raise dispute
         if (!isWithin5MinGrace && !isWithinPostOtpWindow && (job.otpVerifiedAt || job.submittedWorkData)) {
             throw new Error('Normal cancellation is disabled after the emergency cancellation window. Please Raise a Dispute.');
+        }
+
+        // For on-site jobs: after OTP verification + 5min window, block cancellation
+        if (isOnSite && job.otpVerifiedAt && !isWithinPostOtpWindow) {
+            throw new Error('Normal cancellation is not available for on-site jobs after OTP verification. Please Raise a Dispute.');
         }
 
         const isClientCancelling = job.clientUserId === userId;
@@ -799,10 +810,10 @@ export async function cancelJob(jobId: string, userId: string, reason?: string) 
                 .execute();
         }
 
-        // Client cancels assigned job: 0% penalty within 5-min grace window, 2% penalty after 5 mins
+        // Client cancels assigned job: 0% penalty within 5-min grace window or 5-min post-OTP window, 2% penalty after both expire
         if (isClientCancelling && isAssigned) {
             const effectiveAmount = job.negotiatedAmount ? parseFloat(job.negotiatedAmount.toString()) : parseFloat(job.budgetAmount.toString());
-            const penaltyAmount = isWithin5MinGrace ? 0 : effectiveAmount * 0.02;
+            const penaltyAmount = (isWithin5MinGrace || isWithinPostOtpWindow) ? 0 : effectiveAmount * 0.02;
 
             if (penaltyAmount > 0) {
                 // Check client's wallet balance for immediate penalty deduction
@@ -886,7 +897,7 @@ export async function cancelJob(jobId: string, userId: string, reason?: string) 
                 }
             }
 
-            const cancelMsg = `Job "${job.jobTitle}" has been cancelled by the client${isWithin5MinGrace ? ' (within 5-min grace period, no penalty).' : '.'}`;
+            const cancelMsg = `Job "${job.jobTitle}" has been cancelled by the client${(isWithin5MinGrace || isWithinPostOtpWindow) ? ' (within grace period, no penalty).' : '.'}`;
 
             await recordJobStatusHistory(
                 trx,
@@ -896,7 +907,7 @@ export async function cancelJob(jobId: string, userId: string, reason?: string) 
                 'CLIENT',
                 'CANCEL_JOB',
                 cancelMsg,
-                { isWithin5MinGrace, penaltyAmount }
+                { isWithin5MinGrace, isWithinPostOtpWindow, penaltyAmount }
             );
 
             // Send system message in chat thread
@@ -920,7 +931,7 @@ export async function cancelJob(jobId: string, userId: string, reason?: string) 
                     receiverId: freelancer?.userId || '',
                     messageContent: cancelMsg,
                     messageType: 'text',
-                    messageData: JSON.stringify({ type: 'SYSTEM_CANCEL', cancelledBy: 'client', isWithin5MinGrace }),
+                    messageData: JSON.stringify({ type: 'SYSTEM_CANCEL', cancelledBy: 'client', isWithin5MinGrace, isWithinPostOtpWindow }),
                     senderType: 'SYSTEM',
                     isRead: false,
                     updatedAt: new Date()
@@ -957,10 +968,10 @@ export async function cancelJob(jobId: string, userId: string, reason?: string) 
             );
         }
 
-        // Freelancer cancels assigned job: 0% penalty within 5-min grace window, 2% penalty after 5 mins
+        // Freelancer cancels assigned job: 0% penalty within 5-min grace window or 5-min post-OTP window, 2% penalty after both expire
         if (isFreelancerCancelling && isAssigned && job.freelancerId) {
             const effectiveAmount = job.negotiatedAmount ? parseFloat(job.negotiatedAmount.toString()) : parseFloat(job.budgetAmount.toString());
-            const penaltyAmount = isWithin5MinGrace ? 0 : effectiveAmount * 0.02;
+            const penaltyAmount = (isWithin5MinGrace || isWithinPostOtpWindow) ? 0 : effectiveAmount * 0.02;
 
             if (penaltyAmount > 0) {
                 const currentBalance = parseFloat(job.withdrawableAmount?.toString() || '0');
@@ -1013,7 +1024,7 @@ export async function cancelJob(jobId: string, userId: string, reason?: string) 
                 }).execute();
             }
 
-            const cancelMsg = `Job "${job.jobTitle}" has been cancelled by the freelancer${isWithin5MinGrace ? ' (within 5-min grace period, no penalty).' : '.'}`;
+            const cancelMsg = `Job "${job.jobTitle}" has been cancelled by the freelancer${(isWithin5MinGrace || isWithinPostOtpWindow) ? ' (within grace period, no penalty).' : '.'}`;
 
             // Send system message in chat thread
             const thread = await trx
@@ -1036,7 +1047,7 @@ export async function cancelJob(jobId: string, userId: string, reason?: string) 
                     receiverId: job.clientUserId,
                     messageContent: cancelMsg,
                     messageType: 'text',
-                    messageData: JSON.stringify({ type: 'SYSTEM_CANCEL', cancelledBy: 'freelancer', isWithin5MinGrace }),
+                    messageData: JSON.stringify({ type: 'SYSTEM_CANCEL', cancelledBy: 'freelancer', isWithin5MinGrace, isWithinPostOtpWindow }),
                     senderType: 'SYSTEM',
                     isRead: false,
                     updatedAt: new Date()
