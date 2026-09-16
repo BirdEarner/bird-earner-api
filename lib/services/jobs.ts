@@ -722,6 +722,8 @@ export async function cancelJob(jobId: string, userId: string, reason?: string) 
                 'jobs.submittedWorkData',
                 'jobs.postOtpCancellationWindowExpiresAt',
                 'jobs.clientPenaltyAmount',
+                'jobs.projectType',
+                'jobs.location',
                 'clients.userId as clientUserId',
                 'freelancers.id as freelancerId',
                 'freelancers.userId as freelancerUserId',
@@ -1608,7 +1610,8 @@ export async function requestScopePriceChange(
     jobId: string,
     freelancerUserId: string,
     requestedAmount: number,
-    reason: string
+    reason: string,
+    explanation?: string
 ) {
     return await db.transaction().execute(async (trx) => {
         const job = await trx
@@ -1619,6 +1622,10 @@ export async function requestScopePriceChange(
                 'jobs.id',
                 'jobs.jobTitle',
                 'jobs.budgetAmount',
+                'jobs.projectType',
+                'jobs.jobStatus',
+                'jobs.location',
+                'jobs.otpVerifiedAt',
                 'clients.userId as clientUserId',
                 'freelancers.userId as freelancerUserId',
             ])
@@ -1628,13 +1635,47 @@ export async function requestScopePriceChange(
         if (!job) throw new Error('Job not found');
         if (job.freelancerUserId !== freelancerUserId) throw new Error('Unauthorized');
 
+        // Check 1: On-site jobs ONLY
+        const pType = (job.projectType || '').toLowerCase();
+        const loc = (job.location || '').toLowerCase();
+        const isOnSite = pType === 'on-site' || pType === 'onsite' || (pType !== 'remote' && loc !== 'remote');
+        if (!isOnSite) {
+            throw new Error('Price change requests are only allowed for on-site jobs.');
+        }
+
+        // Check 2: OTP verification required
+        if (!job.otpVerifiedAt) {
+            throw new Error('Price change can only be requested after successful OTP verification.');
+        }
+
+        // Check 3: Active booking check
+        const inactiveStatuses = ['OPEN', 'COMPLETED', 'CANCELLED', 'CANCELLED_SCOPE_MISMATCH', 'DISPUTED', 'DISPUTE_OPEN'];
+        if (inactiveStatuses.includes((job.jobStatus || '').toUpperCase())) {
+            throw new Error('Price change cannot be requested for inactive or disputed jobs.');
+        }
+
+        // Check 4: Price validations
+        if (typeof requestedAmount !== 'number' || isNaN(requestedAmount) || requestedAmount <= 0) {
+            throw new Error('Invalid requested price amount.');
+        }
+
+        const originalPrice = parseFloat(job.budgetAmount.toString());
+        if (requestedAmount <= originalPrice) {
+            throw new Error('Requested price must be greater than the original booking price.');
+        }
+
+        // Reason / Explanation combination
+        const fullReason = explanation && explanation.trim()
+            ? `${reason.trim()}\nExplanation: ${explanation.trim()}`
+            : reason.trim();
+
         const now = new Date();
 
         const updatedJob = await trx
             .updateTable('jobs')
             .set({
                 priceChangeRequested: requestedAmount.toString(),
-                priceChangeReason: reason,
+                priceChangeReason: fullReason,
                 updatedAt: now,
             })
             .where('id', '=', jobId)
@@ -1645,9 +1686,9 @@ export async function requestScopePriceChange(
             job.clientUserId,
             'CLIENT',
             'Price Change Requested (Scope Mismatch)',
-            `Freelancer requested to update booking amount from ₹${job.budgetAmount} to ₹${requestedAmount}. Reason: ${reason}`,
+            `Freelancer requested to update booking amount from ₹${job.budgetAmount} to ₹${requestedAmount}. Reason: ${fullReason}`,
             'PRICE_CHANGE_REQUESTED',
-            { jobId, requestedAmount, reason }
+            { jobId, requestedAmount, reason: fullReason }
         );
 
         return updatedJob;
@@ -1671,11 +1712,14 @@ export async function respondToScopePriceChange(
                 'jobs.id',
                 'jobs.jobTitle',
                 'jobs.budgetAmount',
+                'jobs.paymentMethod',
                 'jobs.isAmountReserved',
                 'jobs.priceChangeRequested',
                 'jobs.priceChangeReason',
                 'jobs.clientId',
                 'clients.userId as clientUserId',
+                'clients.availableBalance',
+                'clients.reservedAmount',
                 'freelancers.id as freelancerId',
                 'freelancers.userId as freelancerUserId',
             ])
@@ -1689,14 +1733,65 @@ export async function respondToScopePriceChange(
 
         if (accept) {
             if (!job.priceChangeRequested) throw new Error('No price change request pending');
-            const newAmount = job.priceChangeRequested.toString();
+
+            const newAmountNum = parseFloat(job.priceChangeRequested.toString());
+            const currentAmountNum = parseFloat(job.budgetAmount.toString());
+            const diff = newAmountNum - currentAmountNum;
+
+            if (diff <= 0) {
+                throw new Error('Invalid price change amount.');
+            }
+
+            // Handle payment method difference
+            if (job.paymentMethod === 'PLATFORM') {
+                const currentBalance = parseFloat(job.availableBalance?.toString() || '0');
+                if (currentBalance < diff) {
+                    throw new Error(`Insufficient wallet balance. Please add ₹${diff.toFixed(2)} to your wallet to accept the revised price.`);
+                }
+
+                const newBalance = currentBalance - diff;
+                const currentReserved = parseFloat(job.reservedAmount?.toString() || '0');
+                const newReserved = currentReserved + diff;
+
+                await trx
+                    .updateTable('clients')
+                    .set({
+                        availableBalance: newBalance.toString(),
+                        reservedAmount: newReserved.toString(),
+                        updatedAt: now,
+                    })
+                    .where('userId', '=', clientUserId)
+                    .execute();
+
+                await trx
+                    .insertInto('walletTransactions')
+                    .values({
+                        id: crypto.randomUUID(),
+                        userId: clientUserId,
+                        userType: 'CLIENT',
+                        jobId: jobId,
+                        transactionType: 'JOB_RESERVE',
+                        amount: diff.toString(),
+                        balanceBefore: currentBalance.toString(),
+                        balanceAfter: newBalance.toString(),
+                        description: `Additional reserved amount for price change to ₹${newAmountNum}`,
+                        createdAt: now,
+                        updatedAt: now,
+                    })
+                    .execute();
+            }
+
+            // Reset 5-minute post-OTP emergency cancellation window from acceptance time
+            const postOtpWindow = new Date(now.getTime() + 5 * 60 * 1000);
 
             const updatedJob = await trx
                 .updateTable('jobs')
                 .set({
-                    budgetAmount: newAmount,
+                    budgetAmount: newAmountNum.toString(),
+                    isAmountReserved: job.paymentMethod === 'PLATFORM' ? true : job.isAmountReserved,
                     priceChangeRequested: null,
                     priceChangeReason: null,
+                    postOtpCancellationWindowExpiresAt: postOtpWindow,
                     updatedAt: now,
                 })
                 .where('id', '=', jobId)
@@ -1708,7 +1803,7 @@ export async function respondToScopePriceChange(
                     job.freelancerUserId,
                     'FREELANCER',
                     'Price Change Accepted',
-                    `Client accepted new booking price of ₹${newAmount} for "${job.jobTitle}".`,
+                    `Client accepted new booking price of ₹${newAmountNum} for "${job.jobTitle}".`,
                     'PRICE_CHANGE_ACCEPTED',
                     { jobId }
                 );
@@ -1717,7 +1812,7 @@ export async function respondToScopePriceChange(
             return updatedJob;
         } else {
             // Client declines -> Cancel booking due to scope mismatch with 0 penalty for both!
-            if (job.isAmountReserved) {
+            if (job.isAmountReserved && job.paymentMethod === 'PLATFORM') {
                 await releaseReservedAmountInTransaction(trx, job.clientUserId, jobId);
             }
 
@@ -1729,6 +1824,7 @@ export async function respondToScopePriceChange(
                     cancellationReason: 'CANCELLED - SCOPE/PRICE MISMATCH',
                     priceChangeRequested: null,
                     priceChangeReason: null,
+                    clientPenaltyAmount: '0',
                     cancelledAt: now,
                     updatedAt: now,
                 })
