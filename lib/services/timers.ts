@@ -46,6 +46,17 @@ export async function processJobTimers() {
     for (const job of autoAcceptJobs) {
         try {
             await db.transaction().execute(async (trx) => {
+                const currentJob = await trx
+                    .selectFrom('jobs')
+                    .select('jobStatus')
+                    .where('id', '=', job.id)
+                    .forUpdate()
+                    .executeTakeFirst();
+
+                if (!currentJob || currentJob.jobStatus !== 'WORK_SUBMITTED') {
+                    return;
+                }
+
                 await processJobPaymentInTransaction(trx, job.id);
 
                 await trx
@@ -122,6 +133,17 @@ export async function processJobTimers() {
     for (const job of missedDeadlineJobs) {
         try {
             await db.transaction().execute(async (trx) => {
+                const currentJob = await trx
+                    .selectFrom('jobs')
+                    .select('jobStatus')
+                    .where('id', '=', job.id)
+                    .forUpdate()
+                    .executeTakeFirst();
+
+                if (!currentJob || !['CONFIRMED', 'IN_PROGRESS', 'JOB_STARTED'].includes(currentJob.jobStatus)) {
+                    return; // Already processed by a concurrent request
+                }
+
                 const isOnSite = job.projectType === 'On-site' && job.location?.toLowerCase() !== 'remote';
                 const isNoShow = isOnSite && !job.otpVerifiedAt;
 

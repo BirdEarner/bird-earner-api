@@ -4,7 +4,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
 const progressSchema = z.object({
-    action: z.enum(['TRAVELLING', 'ARRIVED', 'REQUEST_OTP', 'VERIFY_OTP', 'CONFIRM_WORK_COMPLETED', 'EMERGENCY_CANCEL', 'RAISE_DISPUTE']),
+    action: z.enum(['TRAVELLING', 'ARRIVED', 'REQUEST_OTP', 'VERIFY_OTP', 'CONFIRM_WORK_COMPLETED', 'EMERGENCY_CANCEL', 'RAISE_DISPUTE', 'CANCEL_SCOPE_MISMATCH']),
     otpCode: z.string().optional(),
     reason: z.string().optional(),
 });

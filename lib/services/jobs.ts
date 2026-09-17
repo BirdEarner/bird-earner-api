@@ -1095,7 +1095,7 @@ export async function cancelJob(jobId: string, userId: string, reason?: string) 
  */
 export async function updatePhysicalJobProgress(
     jobId: string,
-    action: 'TRAVELLING' | 'ARRIVED' | 'REQUEST_OTP' | 'VERIFY_OTP' | 'CONFIRM_WORK_COMPLETED' | 'EMERGENCY_CANCEL' | 'RAISE_DISPUTE',
+    action: 'TRAVELLING' | 'ARRIVED' | 'REQUEST_OTP' | 'VERIFY_OTP' | 'CONFIRM_WORK_COMPLETED' | 'EMERGENCY_CANCEL' | 'RAISE_DISPUTE' | 'CANCEL_SCOPE_MISMATCH',
     userId: string,
     payload?: { otpCode?: string; reason?: string }
 ) {
@@ -1111,6 +1111,10 @@ export async function updatePhysicalJobProgress(
                 'jobs.otpCode',
                 'jobs.assignedFreelancerId',
                 'jobs.postOtpCancellationWindowExpiresAt',
+                'jobs.paymentMethod',
+                'jobs.isAmountReserved',
+                'jobs.clientPenaltyAmount',
+                'jobs.clientId',
                 'clients.userId as clientUserId',
                 'freelancers.userId as freelancerUserId',
             ])
@@ -1409,6 +1413,114 @@ export async function updatePhysicalJobProgress(
                     'Dispute Opened',
                     `A dispute has been raised for job "${job.jobTitle}". Our team will review the case.`,
                     'DISPUTE_OPENED',
+                    { jobId }
+                );
+            }
+
+            return updatedJob;
+        }
+
+        if (action === 'CANCEL_SCOPE_MISMATCH') {
+            if (job.freelancerUserId !== userId) {
+                throw new Error('Unauthorized - only assigned freelancer can cancel for scope mismatch');
+            }
+            if (job.jobStatus !== 'JOB_STARTED') {
+                throw new Error('Scope mismatch cancellation is only valid after OTP verification (JOB_STARTED)');
+            }
+
+            const reason = payload?.reason?.trim();
+            if (!reason) {
+                throw new Error('A mandatory reason is required for scope mismatch cancellation');
+            }
+
+            // 1. Release reserved amount for Platform payment jobs
+            if (job.isAmountReserved && job.paymentMethod === 'PLATFORM') {
+                await releaseReservedAmountInTransaction(trx, job.clientUserId, jobId);
+            }
+
+            // 2. Carry forward existing client penalty for Cash payment jobs
+            const existingPenalty = parseFloat(job.clientPenaltyAmount?.toString() || '0');
+            if (existingPenalty > 0 && job.paymentMethod !== 'PLATFORM') {
+                await trx
+                    .updateTable('clients')
+                    .set((eb) => ({
+                        pendingPenaltyAmount: eb('pendingPenaltyAmount', '+', existingPenalty.toString()),
+                        updatedAt: now
+                    }))
+                    .where('id', '=', job.clientId)
+                    .execute();
+            }
+
+            // 3. Update job status to CANCELLED_SCOPE_MISMATCH with 0 penalty to freelancer
+            const updatedJob = await trx
+                .updateTable('jobs')
+                .set({
+                    jobStatus: 'CANCELLED_SCOPE_MISMATCH',
+                    paymentStatus: 'CANCELLED',
+                    isAmountReserved: false,
+                    cancellationReason: `SCOPE MISMATCH: ${reason}`,
+                    clientPenaltyAmount: '0',
+                    cancelledAt: now,
+                    updatedAt: now,
+                })
+                .where('id', '=', jobId)
+                .returningAll()
+                .executeTakeFirstOrThrow();
+
+            await recordJobStatusHistory(
+                trx,
+                jobId,
+                'CANCELLED_SCOPE_MISMATCH',
+                userId,
+                'FREELANCER',
+                'CANCEL_SCOPE_MISMATCH',
+                `Cancelled by freelancer due to scope mismatch: ${reason}`
+            );
+
+            // Insert system notification message in chat thread
+            const thread = await trx
+                .selectFrom('chatThreads')
+                .select('id')
+                .where('jobId', '=', jobId)
+                .executeTakeFirst();
+
+            if (thread) {
+                await trx.insertInto('messages').values({
+                    id: crypto.randomUUID(),
+                    chatThreadId: thread.id,
+                    senderId: userId,
+                    receiverId: job.clientUserId,
+                    messageContent: `⚠️ BOOKING CANCELLED BY FREELANCER (Scope Mismatch): Actual work differed from job description. Reason: ${reason}. Full refund issued to client (No penalty applied).`,
+                    messageType: 'notification',
+                    senderType: 'SYSTEM',
+                    isRead: false,
+                    updatedAt: now
+                }).execute();
+
+                await trx
+                    .updateTable('chatThreads')
+                    .set({ status: 'REJECTED', updatedAt: now })
+                    .where('id', '=', thread.id)
+                    .execute();
+            }
+
+            // Push notifications to client and freelancer
+            sendNotification(
+                job.clientUserId,
+                'CLIENT',
+                'Booking Cancelled - Scope Mismatch',
+                `Freelancer cancelled job "${job.jobTitle}" due to scope mismatch. Reason: ${reason}.`,
+                'JOB_CANCELLED',
+                { jobId }
+            );
+
+            if (job.freelancerUserId) {
+                sendNotification(
+                    job.freelancerUserId,
+                    'FREELANCER',
+                    'Booking Cancelled - Scope Mismatch',
+                    `Job "${job.jobTitle}" was cancelled due to scope mismatch. No penalty applied.`,
+                    'JOB_CANCELLED',
                     { jobId }
                 );
             }

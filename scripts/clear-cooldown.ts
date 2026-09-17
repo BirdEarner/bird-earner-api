@@ -1,53 +1,48 @@
-import { PrismaClient } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import 'dotenv/config';
+import { db } from '../lib/db';
 
 async function main() {
-  // 1. Clear freelancer cooldown & strikes
-  const freelancerUser = await prisma.user.findUnique({
-    where: { email: 'dhanshreeshinde276@gmail.com' },
-    include: { freelancer: true },
-  });
+    const email = 'dhanshreeshinde276@gmail.com';
 
-  if (freelancerUser?.freelancer) {
-    await prisma.freelancer.update({
-      where: { id: freelancerUser.freelancer.id },
-      data: {
-        cancellationStrikes: 0,
-        cooldownExpiresAt: null,
-      },
-    });
-    console.log('Freelancer dhanshreeshinde276@gmail.com: strikes=0, cooldown=null');
-  } else {
-    console.log('Freelancer not found');
-  }
+    const user = await db
+        .selectFrom('users')
+        .select(['id', 'email'])
+        .where('email', '=', email)
+        .executeTakeFirst();
 
-  // 2. Clear client pending penalty
-  const clientUser = await prisma.user.findUnique({
-    where: { email: 'dhanshreeshinde2003@gmail.com' },
-    include: { client: true },
-  });
+    if (!user) {
+        console.error(`User not found for email: ${email}`);
+        process.exit(1);
+    }
 
-  if (clientUser?.client) {
-    await prisma.client.update({
-      where: { id: clientUser.client.id },
-      data: {
-        pendingPenaltyAmount: 0,
-      },
-    });
-    console.log('Client dhanshreeshinde2003@gmail.com: pendingPenalty=0');
-  } else {
-    console.log('Client not found');
-  }
+    const freelancer = await db
+        .selectFrom('freelancers')
+        .select(['id', 'cooldownExpiresAt', 'cancellationStrikes'])
+        .where('userId', '=', user.id)
+        .executeTakeFirst();
 
-  // 3. Verify
-  const f = await prisma.freelancer.findUnique({ where: { id: freelancerUser?.freelancer?.id } });
-  const c = await prisma.client.findUnique({ where: { id: clientUser?.client?.id } });
-  console.log('\n=== Verification ===');
-  console.log('Freelancer strikes:', f?.cancellationStrikes, '| cooldown:', f?.cooldownExpiresAt);
-  console.log('Client pendingPenalty:', c?.pendingPenaltyAmount?.toString());
+    if (!freelancer) {
+        console.error(`Freelancer profile not found for user: ${user.id}`);
+        process.exit(1);
+    }
 
-  await prisma.$disconnect();
+    console.log(`Found Freelancer ID: ${freelancer.id}`);
+    console.log(`Current Cooldown Expiry: ${freelancer.cooldownExpiresAt}`);
+
+    await db
+        .updateTable('freelancers')
+        .set({
+            cooldownExpiresAt: null,
+            updatedAt: new Date()
+        })
+        .where('id', '=', freelancer.id)
+        .execute();
+
+    console.log(`Successfully cleared cooldown for user ${email}`);
+    process.exit(0);
 }
 
-main().catch(console.error).finally(() => prisma.$disconnect());
+main().catch(err => {
+    console.error('Error clearing cooldown:', err);
+    process.exit(1);
+});

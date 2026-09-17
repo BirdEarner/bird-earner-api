@@ -474,23 +474,73 @@ export async function getTransactionHistory(
 
     let query = db
         .selectFrom('walletTransactions')
-        .where('userId', '=', userId);
+        .leftJoin('jobs', 'jobs.id', 'walletTransactions.jobId')
+        .where('walletTransactions.userId', '=', userId);
 
     if (transactionType) {
-        query = query.where('transactionType', '=', transactionType);
+        query = query.where('walletTransactions.transactionType', '=', transactionType);
     }
 
     if (userType) {
-        query = query.where('userType', '=', userType);
+        query = query.where('walletTransactions.userType', '=', userType);
+    }
+
+    // Fetch current wallet info for metadata
+    let walletSnapshot: any = { wallet: 0, reservedAmount: 0, availableBalance: 0 };
+    if (userType === 'CLIENT' || !userType) {
+        const client = await db
+            .selectFrom('clients')
+            .select(['wallet', 'reservedAmount'])
+            .where('userId', '=', userId)
+            .executeTakeFirst();
+        if (client) {
+            const w = parseFloat(client.wallet?.toString() || '0');
+            const r = parseFloat(client.reservedAmount?.toString() || '0');
+            walletSnapshot = {
+                wallet: w,
+                reservedAmount: r,
+                availableBalance: Math.max(0, w - r)
+            };
+        }
+    }
+    if (userType === 'FREELANCER') {
+        const freelancer = await db
+            .selectFrom('freelancers')
+            .select(['withdrawableAmount', 'totalEarnings'])
+            .where('userId', '=', userId)
+            .executeTakeFirst();
+        if (freelancer) {
+            const w = parseFloat(freelancer.withdrawableAmount?.toString() || '0');
+            walletSnapshot = {
+                wallet: w,
+                reservedAmount: 0,
+                availableBalance: w,
+                totalEarnings: parseFloat(freelancer.totalEarnings?.toString() || '0')
+            };
+        }
     }
 
     const [total, transactions] = await Promise.all([
         query
-            .select(({ fn }) => fn.count('id').as('count'))
+            .select(({ fn }) => fn.count('walletTransactions.id').as('count'))
             .executeTakeFirst(),
         query
-            .selectAll()
-            .orderBy('createdAt', 'desc')
+            .select([
+                'walletTransactions.id',
+                'walletTransactions.userId',
+                'walletTransactions.userType',
+                'walletTransactions.jobId',
+                'walletTransactions.transactionType',
+                'walletTransactions.amount',
+                'walletTransactions.balanceBefore',
+                'walletTransactions.balanceAfter',
+                'walletTransactions.description',
+                'walletTransactions.referenceId',
+                'walletTransactions.createdAt',
+                'walletTransactions.updatedAt',
+                'jobs.jobTitle as jobTitle',
+            ])
+            .orderBy('walletTransactions.createdAt', 'desc')
             .offset(skip)
             .limit(limit)
             .execute()
@@ -498,6 +548,7 @@ export async function getTransactionHistory(
 
     return {
         transactions,
+        walletInfo: walletSnapshot,
         pagination: {
             total: Number(total?.count || 0),
             page,
