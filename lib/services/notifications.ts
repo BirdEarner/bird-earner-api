@@ -26,6 +26,7 @@ export async function sendNotification(
                 type,
                 data: JSON.stringify(data || {}),
                 isRead: false,
+                createdAt: new Date(),
                 updatedAt: new Date()
             })
             .returningAll()

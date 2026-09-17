@@ -205,6 +205,7 @@ export async function processJobTimers() {
                                 balanceBefore: currentBalance.toString(),
                                 balanceAfter: newBalance.toString(),
                                 description: `No-show 2% penalty deducted to BirdEarner - ${job.jobTitle}`,
+                                createdAt: now,
                                 updatedAt: now
                             }).execute();
 
@@ -283,35 +284,8 @@ export async function processJobTimers() {
                         'JOB_CANCELLED',
                         { jobId: job.id }
                     );
-                } else if (!job.freelancerGracePeriodExpiresAt) {
-                    // Set 12h final grace period (for remote jobs or on-site with OTP verified)
-                    const graceExpiry = new Date(now.getTime() + 12 * 60 * 60 * 1000);
-                    await trx
-                        .updateTable('jobs')
-                        .set({ freelancerGracePeriodExpiresAt: graceExpiry, updatedAt: now })
-                        .where('id', '=', job.id)
-                        .execute();
-
-                    if (job.assignedFreelancerId) {
-                        const freelancer = await trx
-                            .selectFrom('freelancers')
-                            .select('userId')
-                            .where('id', '=', job.assignedFreelancerId)
-                            .executeTakeFirst();
-
-                        if (freelancer) {
-                            sendNotification(
-                                freelancer.userId,
-                                'FREELANCER',
-                                'Deadline Expired - 12h Grace Period',
-                                `Your deadline for "${job.jobTitle}" has expired. You have 12 hours remaining to submit agreed work.`,
-                                'DEADLINE_WARNING',
-                                { jobId: job.id }
-                            );
-                        }
-                    }
-                } else if (job.freelancerGracePeriodExpiresAt <= now) {
-                    // Grace period expired -> DEADLINE_EXPIRED / BOOKING_FAILED
+                } else if (isOnSite || (job.freelancerGracePeriodExpiresAt && job.freelancerGracePeriodExpiresAt <= now)) {
+                    // Grace period expired (or On-site job deadline expired) -> DEADLINE_EXPIRED / BOOKING_FAILED
                     if (job.isAmountReserved) {
                         await releaseReservedAmountInTransaction(trx, job.clientUserId, job.id);
                     }
@@ -353,7 +327,9 @@ export async function processJobTimers() {
                                 penaltyType: 'FREELANCER_NON_COMPLETION',
                                 amount: penaltyAmount.toString(),
                                 status: 'DEDUCTED',
-                                description: `Freelancer failed to submit work by deadline + 12h grace period for "${job.jobTitle}". 2% penalty deducted.`,
+                                description: isOnSite
+                                    ? `On-site work deadline expired for "${job.jobTitle}". 2% penalty deducted.`
+                                    : `Freelancer failed to submit work by deadline + 12h grace period for "${job.jobTitle}". 2% penalty deducted.`,
                                 createdAt: now,
                                 updatedAt: now,
                             }).execute();
@@ -369,6 +345,7 @@ export async function processJobTimers() {
                                 balanceBefore: currentBalance.toString(),
                                 balanceAfter: newBalance.toString(),
                                 description: `Deadline expired 2% penalty deducted to BirdEarner - ${job.jobTitle}`,
+                                createdAt: now,
                                 updatedAt: now
                             }).execute();
                         }
@@ -384,6 +361,43 @@ export async function processJobTimers() {
                         .where('id', '=', job.id)
                         .execute();
 
+                    // Close any active completion_request messages in chat for this job
+                    const thread = await trx
+                        .selectFrom('chatThreads')
+                        .select('id')
+                        .where('jobId', '=', job.id)
+                        .executeTakeFirst();
+
+                    if (thread) {
+                        await trx
+                            .updateTable('messages')
+                            .set({
+                                messageData: sql`jsonb_set("messageData"::jsonb, '{status}', '"closed"'::jsonb)`,
+                                updatedAt: now
+                            } as any)
+                            .where('chatThreadId', '=', thread.id)
+                            .where('messageType', '=', 'completion_request')
+                            .execute();
+
+                        // Insert system notification message in chat
+                        await trx
+                            .insertInto('messages')
+                            .values({
+                                id: crypto.randomUUID(),
+                                chatThreadId: thread.id,
+                                senderId: job.clientUserId,
+                                receiverId: job.clientUserId,
+                                messageContent: isOnSite
+                                    ? `⚠️ BOOKING AUTO-CANCELLED: On-site work deadline expired. Reason: FREELANCER NON-COMPLETION. Full 100% refund issued to client. 2% penalty (₹${penaltyAmount.toFixed(2)}) deducted from freelancer.`
+                                    : `⚠️ BOOKING AUTO-CANCELLED: Freelancer failed to submit work after deadline and 12-hour grace period. Full 100% refund issued to client. 2% penalty (₹${penaltyAmount.toFixed(2)}) deducted from freelancer.`,
+                                messageType: 'notification',
+                                senderType: 'SYSTEM',
+                                createdAt: now,
+                                updatedAt: now
+                            })
+                            .execute();
+                    }
+
                     await recordJobStatusHistory(
                         trx,
                         job.id,
@@ -391,17 +405,46 @@ export async function processJobTimers() {
                         undefined,
                         'SYSTEM',
                         'FREELANCER_NON_COMPLETION',
-                        'Freelancer failed to submit work after deadline and 12-hour grace period'
+                        isOnSite
+                            ? 'On-site work deadline expired without completion'
+                            : 'Freelancer failed to submit work after deadline and 12-hour grace period'
                     );
 
                     sendNotification(
                         job.clientUserId,
                         'CLIENT',
                         'Booking Cancelled - Freelancer Non-Completion',
-                        `Job "${job.jobTitle}" was cancelled because the freelancer failed to submit work. 100% full refund issued to your account.`,
+                        `Job "${job.jobTitle}" was cancelled because the work deadline expired. 100% full refund issued to your account.`,
                         'JOB_CANCELLED',
                         { jobId: job.id }
                     );
+                } else if (!job.freelancerGracePeriodExpiresAt) {
+                    // Set 12h final grace period ONLY for remote jobs
+                    const graceExpiry = new Date(now.getTime() + 12 * 60 * 60 * 1000);
+                    await trx
+                        .updateTable('jobs')
+                        .set({ freelancerGracePeriodExpiresAt: graceExpiry, updatedAt: now })
+                        .where('id', '=', job.id)
+                        .execute();
+
+                    if (job.assignedFreelancerId) {
+                        const freelancer = await trx
+                            .selectFrom('freelancers')
+                            .select('userId')
+                            .where('id', '=', job.assignedFreelancerId)
+                            .executeTakeFirst();
+
+                        if (freelancer) {
+                            sendNotification(
+                                freelancer.userId,
+                                'FREELANCER',
+                                'Deadline Expired - 12h Grace Period',
+                                `Your deadline for "${job.jobTitle}" has expired. You have 12 hours remaining to submit agreed work.`,
+                                'DEADLINE_WARNING',
+                                { jobId: job.id }
+                            );
+                        }
+                    }
                 }
             });
         } catch (err) {

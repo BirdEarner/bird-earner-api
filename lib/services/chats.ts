@@ -140,6 +140,7 @@ export async function createOrGetThread(jobId: string, freelancerId: string, cli
                     clientId,
                     clientOffer: initialBudget,
                     freelancerOffer: initialBudget,
+                    createdAt: new Date(),
                     updatedAt: new Date()
                 })
                 .returningAll()
@@ -275,6 +276,7 @@ export async function sendMessage(data: any) {
             messageType,
             attachments: attachments ? JSON.stringify(attachments) : null,
             senderType,
+            createdAt: new Date(),
             updatedAt: new Date()
         })
         .returningAll()

@@ -92,6 +92,7 @@ export const createReview = async (data: CreateReviewData) => {
                 reviewType,
                 freelancerId,
                 clientId,
+                createdAt: new Date(),
                 updatedAt: new Date(),
             })
             .returningAll()

@@ -143,6 +143,7 @@ export async function createJob(jobData: any, userId: string, clientId: string) 
                 jobStatus: 'OPEN',
                 paymentStatus: 'PENDING',
                 isAmountReserved: false,
+                createdAt: new Date(),
                 updatedAt: new Date()
             })
             .returningAll()
@@ -186,6 +187,7 @@ export async function createJob(jobData: any, userId: string, clientId: string) 
                     balanceBefore: currentWallet.toString(),
                     balanceAfter: newWalletBalance.toString(),
                     description: `Outstanding cancellation penalty collected from wallet for Platform job: ${job.jobTitle}`,
+                    createdAt: new Date(),
                     updatedAt: new Date()
                 }).execute();
 

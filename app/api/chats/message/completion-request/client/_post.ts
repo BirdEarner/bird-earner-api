@@ -84,6 +84,7 @@ export async function POST(request: Request) {
                         paymentMethod: job.paymentMethod,
                         budgetAmount: job.budgetAmount.toString()
                     },
+                    createdAt: new Date(),
                     updatedAt: new Date()
                 })
                 .returningAll()

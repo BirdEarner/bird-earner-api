@@ -108,6 +108,7 @@ export async function reserveAmountForJobInTransaction(
             balanceBefore: currentWallet.toString(),
             balanceAfter: currentWallet.toString(),
             description: 'Amount reserved for job',
+            createdAt: new Date(),
             updatedAt: new Date()
         })
         .returningAll()
@@ -179,6 +180,7 @@ export async function releaseReservedAmountInTransaction(
             balanceBefore: currentWallet.toString(),
             balanceAfter: currentWallet.toString(),
             description: 'Released reserved amount for cancelled job',
+            createdAt: new Date(),
             updatedAt: new Date()
         })
         .returningAll()
@@ -295,6 +297,7 @@ export async function processJobPaymentInTransaction(
             balanceBefore: clientCurrentWallet.toString(),
             balanceAfter: (clientCurrentWallet - effectiveAmount).toString(),
             description: `Payment for job: ${job.jobTitle}${negotiatedAmount ? ` (negotiated ₹${negotiatedAmount.toFixed(2)})` : ''}`,
+            createdAt: new Date(),
             updatedAt: new Date()
         })
         .returningAll()
@@ -313,6 +316,7 @@ export async function processJobPaymentInTransaction(
             balanceBefore: freelancerCurrentWithdrawable.toString(),
             balanceAfter: (freelancerCurrentWithdrawable + freelancerPaymentAmount).toString(),
             description: `Earnings from job: ${job.jobTitle} (after platform fee)`,
+            createdAt: new Date(),
             updatedAt: new Date()
         })
         .returningAll()
@@ -332,6 +336,7 @@ export async function processJobPaymentInTransaction(
                 balanceBefore: (freelancerCurrentWithdrawable + freelancerPaymentAmount).toString(),
                 balanceAfter: (freelancerCurrentWithdrawable + freelancerPaymentAmount).toString(),
                 description: `Platform fee for job: ${job.jobTitle}`,
+                createdAt: new Date(),
                 updatedAt: new Date()
             })
             .execute();
@@ -447,6 +452,7 @@ export async function settleFreelancerBalance(
                 balanceAfter: newWithdrawable.toString(),
                 description,
                 referenceId,
+                createdAt: new Date(),
                 updatedAt: new Date()
             })
             .returningAll()
@@ -618,6 +624,7 @@ export async function updateReservedAmountForBudgetChange(
                 description: budgetDifference > 0
                     ? `Additional amount reserved for job budget increase`
                     : `Amount released from job budget decrease`,
+                createdAt: new Date(),
                 updatedAt: new Date()
             })
             .returningAll()
@@ -689,6 +696,7 @@ export async function depositClientFunds(
                 balanceAfter: newWallet.toString(),
                 description,
                 referenceId,
+                createdAt: new Date(),
                 updatedAt: new Date()
             })
             .returningAll()
@@ -719,6 +727,7 @@ export async function depositClientFunds(
                 balanceBefore: walletBeforePenalty.toString(),
                 balanceAfter: newWallet.toString(),
                 description: `Outstanding cancellation penalty (₹${pendingPenalty.toFixed(2)}) auto-deducted upon wallet deposit`,
+                createdAt: new Date(),
                 updatedAt: new Date()
             }).execute();
         } else {
