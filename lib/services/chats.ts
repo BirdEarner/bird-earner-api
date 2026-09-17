@@ -130,19 +130,36 @@ export async function createOrGetThread(jobId: string, freelancerId: string, cli
 
         const initialBudget = job?.budgetAmount ? job.budgetAmount.toString() : '0';
 
-        thread = await db
-            .insertInto('chatThreads')
-            .values({
-                id: crypto.randomUUID(),
-                jobId,
-                freelancerId,
-                clientId,
-                clientOffer: initialBudget,
-                freelancerOffer: initialBudget,
-                updatedAt: new Date()
-            })
-            .returningAll()
-            .executeTakeFirstOrThrow();
+        try {
+            thread = await db
+                .insertInto('chatThreads')
+                .values({
+                    id: crypto.randomUUID(),
+                    jobId,
+                    freelancerId,
+                    clientId,
+                    clientOffer: initialBudget,
+                    freelancerOffer: initialBudget,
+                    updatedAt: new Date()
+                })
+                .returningAll()
+                .executeTakeFirstOrThrow();
+        } catch (insertError: any) {
+            const errStr = String(insertError?.message || insertError || '');
+            const isDuplicate = errStr.includes('duplicate key') || errStr.includes('unique constraint') || insertError?.code === '23505';
+            if (isDuplicate) {
+                thread = await db
+                    .selectFrom('chatThreads')
+                    .selectAll()
+                    .where('jobId', '=', jobId)
+                    .where('freelancerId', '=', freelancerId)
+                    .where('clientId', '=', clientId)
+                    .executeTakeFirst();
+            }
+            if (!thread) {
+                throw insertError;
+            }
+        }
 
         // Notify Client
         if (client) {

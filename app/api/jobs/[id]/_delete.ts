@@ -1,5 +1,6 @@
 import { db } from '@/lib/db';
 import { getAuthUser } from '@/lib/auth';
+import { releaseReservedAmountInTransaction } from '@/lib/services/wallet';
 import { NextResponse } from 'next/server';
 
 export async function DELETE(
@@ -17,7 +18,7 @@ export async function DELETE(
         const jobExists = await db
             .selectFrom('jobs')
             .innerJoin('clients', 'clients.id', 'jobs.clientId')
-            .select(['clients.userId', 'jobs.cashbackOfferId', 'jobs.jobStatus', 'jobs.deleted'])
+            .select(['clients.userId', 'jobs.cashbackOfferId', 'jobs.jobStatus', 'jobs.deleted', 'jobs.isAmountReserved'])
             .where('jobs.id', '=', id)
             .executeTakeFirst();
 
@@ -34,6 +35,10 @@ export async function DELETE(
         }
 
         await db.transaction().execute(async (trx) => {
+            if (jobExists.isAmountReserved) {
+                await releaseReservedAmountInTransaction(trx, user.id, id);
+            }
+
             if (jobExists.cashbackOfferId) {
                 await trx
                     .updateTable('cashbackOffers')
@@ -44,7 +49,13 @@ export async function DELETE(
 
             await trx
                 .updateTable('jobs')
-                .set({ deleted: true, updatedAt: new Date() })
+                .set({
+                    deleted: true,
+                    isAmountReserved: false,
+                    paymentStatus: 'CANCELLED',
+                    jobStatus: 'CANCELLED_BY_CLIENT',
+                    updatedAt: new Date()
+                })
                 .where('id', '=', id)
                 .execute();
         });
