@@ -2,6 +2,7 @@ import { db } from '@/lib/db';
 import { getAdminUser } from '@/lib/auth';
 import { sendNotification } from '@/lib/services/notifications';
 import { recordJobStatusHistory } from '@/lib/services/timers';
+import { releaseReservedAmountInTransaction, processJobPaymentInTransaction } from '@/lib/services/wallet';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
@@ -44,6 +45,7 @@ export async function POST(
                 'jobs.budgetAmount',
                 'jobs.birdFeeAmount',
                 'jobs.paymentMethod',
+                'jobs.isAmountReserved',
                 'jobs.clientId',
                 'jobs.assignedFreelancerId',
                 'clientUser.id as clientUserId',
@@ -66,15 +68,21 @@ export async function POST(
             let targetPaymentStatus = job.jobStatus;
 
             if (action === 'REFUND_CLIENT') {
-                targetJobStatus = isCashJob ? 'CANCELLED' : 'REFUNDED';
+                targetJobStatus = 'DISPUTE_RESOLVED';
                 targetPaymentStatus = isCashJob ? 'CANCELLED' : 'REFUNDED';
+
+                if (!isCashJob && job.isAmountReserved) {
+                    // Release reserved/held funds back to client available wallet balance
+                    await releaseReservedAmountInTransaction(trx, job.clientUserId, job.id);
+                }
 
                 await trx
                     .updateTable('jobs')
                     .set({
-                        jobStatus: targetJobStatus as any,
+                        jobStatus: 'DISPUTE_RESOLVED',
                         paymentStatus: targetPaymentStatus as any,
                         cancellationReason: `Dispute resolved by Admin (${admin.email}): ${isCashJob ? 'In Favor of Client (No Cash Payment Required)' : 'Refund Client'}. ${resolutionNotes}`,
+                        isAmountReserved: false,
                         updatedAt: now,
                     })
                     .where('id', '=', id)
@@ -82,17 +90,6 @@ export async function POST(
             } else if (action === 'PAY_FREELANCER') {
                 targetJobStatus = 'DISPUTE_RESOLVED';
                 targetPaymentStatus = 'COMPLETED';
-
-                await trx
-                    .updateTable('jobs')
-                    .set({
-                        jobStatus: 'DISPUTE_RESOLVED',
-                        paymentStatus: 'COMPLETED',
-                        amountPaid: job.budgetAmount,
-                        updatedAt: now,
-                    })
-                    .where('id', '=', id)
-                    .execute();
 
                 if (isCashJob) {
                     // CASH JOB: Client pays agreed budget directly to freelancer in CASH in person.
@@ -134,8 +131,10 @@ export async function POST(
                             .execute();
                     }
                 } else {
-                    // ONLINE PLATFORM PAYMENT JOB: Credit freelancer wallet with held funds
-                    if (job.assignedFreelancerId && budget > 0) {
+                    // ONLINE PLATFORM PAYMENT JOB: Release client reserved funds and pay freelancer
+                    if (job.isAmountReserved) {
+                        await processJobPaymentInTransaction(trx, id);
+                    } else if (job.assignedFreelancerId && budget > 0) {
                         const freelancer = await trx
                             .selectFrom('freelancers')
                             .select(['withdrawableAmount', 'totalEarnings'])
@@ -173,12 +172,34 @@ export async function POST(
                             .execute();
                     }
                 }
-            } else {
-                // CLOSE_DISPUTE
+
                 await trx
                     .updateTable('jobs')
                     .set({
                         jobStatus: 'DISPUTE_RESOLVED',
+                        paymentStatus: 'COMPLETED',
+                        amountPaid: job.budgetAmount,
+                        isAmountReserved: false,
+                        updatedAt: now,
+                    })
+                    .where('id', '=', id)
+                    .execute();
+            } else {
+                // CLOSE_DISPUTE: Restore previous status from history (or fallback to IN_PROGRESS) so workflow and timers resume
+                const previousHistory = await trx
+                    .selectFrom('jobStatusHistory')
+                    .select('status')
+                    .where('jobId', '=', id)
+                    .where('status', 'not in', ['DISPUTE_OPEN', 'DISPUTED'])
+                    .orderBy('createdAt', 'desc')
+                    .executeTakeFirst();
+
+                targetJobStatus = previousHistory?.status || 'IN_PROGRESS';
+
+                await trx
+                    .updateTable('jobs')
+                    .set({
+                        jobStatus: targetJobStatus as any,
                         updatedAt: now,
                     })
                     .where('id', '=', id)
@@ -211,8 +232,8 @@ export async function POST(
                     'CLIENT',
                     'Dispute Resolved - In Favor of Client',
                     isCashJob
-                        ? `Your dispute for job "${job.jobTitle}" has been resolved in your favor. You do not need to pay cash to the freelancer.`
-                        : `Your dispute for job "${job.jobTitle}" has been resolved. A full refund of ₹${budget} has been issued.`,
+                        ? `"${job.jobTitle}" dispute was resolved in your favor. You do not need to make any cash payment to the freelancer for this job.`
+                        : `"${job.jobTitle}" dispute was resolved in your favor with a full refund to your wallet.`,
                     'DISPUTE_RESOLVED',
                     { jobId: id }
                 );
@@ -223,8 +244,8 @@ export async function POST(
                     'FREELANCER',
                     'Dispute Resolved - In Favor of Client',
                     isCashJob
-                        ? `The dispute for job "${job.jobTitle}" was resolved by support in favor of the client. No cash payment will be collected.`
-                        : `The dispute for job "${job.jobTitle}" was resolved by support with a client refund.`,
+                        ? `"${job.jobTitle}" dispute was resolved in favor of the client. The client does not need to pay you anything for this job.`
+                        : `"${job.jobTitle}" dispute was resolved in favor of the client. The client has received a full refund.`,
                     'DISPUTE_RESOLVED',
                     { jobId: id }
                 );
@@ -236,7 +257,7 @@ export async function POST(
                         job.freelancerUserId,
                         'FREELANCER',
                         'Dispute Resolved - Collect Cash Payment',
-                        `The dispute for job "${job.jobTitle}" was resolved in your favor. Please collect ₹${budget} in CASH directly from the client.`,
+                        `"${job.jobTitle}" dispute was resolved in your favor. You can collect the applicable cash payment directly from the client.`,
                         'DISPUTE_RESOLVED',
                         { jobId: id }
                     );
@@ -246,7 +267,7 @@ export async function POST(
                         job.clientUserId,
                         'CLIENT',
                         'Dispute Resolved - Pay Freelancer in Cash',
-                        `The dispute for job "${job.jobTitle}" was resolved in favor of the freelancer. Please pay ₹${budget} in CASH directly to the freelancer.`,
+                        `"${job.jobTitle}" dispute was resolved in favor of the freelancer and the applicable cash payment is due according to the booking.`,
                         'DISPUTE_RESOLVED',
                         { jobId: id }
                     );
@@ -257,7 +278,7 @@ export async function POST(
                         job.freelancerUserId,
                         'FREELANCER',
                         'Dispute Resolved - Payment Released',
-                        `The dispute for job "${job.jobTitle}" was resolved in your favor. ₹${budget} has been credited to your wallet.`,
+                        `"${job.jobTitle}" dispute was resolved in your favor and the funds have been released to your wallet.`,
                         'DISPUTE_RESOLVED',
                         { jobId: id }
                     );
@@ -267,7 +288,7 @@ export async function POST(
                         job.clientUserId,
                         'CLIENT',
                         'Dispute Resolved',
-                        `The dispute for job "${job.jobTitle}" has been resolved and funds released to freelancer.`,
+                        `"${job.jobTitle}" dispute was resolved in favor of the freelancer and the funds have been released to the freelancer.`,
                         'DISPUTE_RESOLVED',
                         { jobId: id }
                     );
@@ -275,10 +296,10 @@ export async function POST(
             }
         } else {
             if (job.clientUserId) {
-                sendNotification(job.clientUserId, 'CLIENT', 'Dispute Closed', `The dispute for job "${job.jobTitle}" has been closed by support.`, 'DISPUTE_RESOLVED', { jobId: id });
+                sendNotification(job.clientUserId, 'CLIENT', 'Dispute Closed', `"${job.jobTitle}" dispute has been closed by BirdEarner Support. The job workflow will continue.`, 'DISPUTE_RESOLVED', { jobId: id });
             }
             if (job.freelancerUserId) {
-                sendNotification(job.freelancerUserId, 'FREELANCER', 'Dispute Closed', `The dispute for job "${job.jobTitle}" has been closed by support.`, 'DISPUTE_RESOLVED', { jobId: id });
+                sendNotification(job.freelancerUserId, 'FREELANCER', 'Dispute Closed', `"${job.jobTitle}" dispute has been closed by BirdEarner Support. The job workflow will continue.`, 'DISPUTE_RESOLVED', { jobId: id });
             }
         }
 
