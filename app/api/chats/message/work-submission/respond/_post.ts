@@ -1,18 +1,13 @@
 import { getAuthUser } from '@/lib/auth';
-import { sendMessage } from '@/lib/services/chats';
+import { respondToWorkSubmissionMessage } from '@/lib/services/chats';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { validateParams } from '@/lib/validation';
 
-const messageSchema = z.object({
-    chatThreadId: z.string(),
-    senderId: z.string(),
-    receiverId: z.string(),
-    messageContent: z.string(),
-    messageType: z.string().optional().default('text'),
-    attachments: z.array(z.any()).optional(),
-    messageData: z.any().optional(),
-    senderType: z.string(),
+const respondSchema = z.object({
+    messageId: z.string(),
+    decision: z.enum(['ACCEPT', 'REVISE_REQUESTED']),
+    revisionNotes: z.string().optional(),
 });
 
 export async function POST(request: Request) {
@@ -23,20 +18,25 @@ export async function POST(request: Request) {
         }
 
         const body = await request.json();
-        const validation = await validateParams(Promise.resolve(body), messageSchema);
+        const validation = await validateParams(Promise.resolve(body), respondSchema);
 
         if (!validation.success) {
             return NextResponse.json({ message: validation.error }, { status: 400 });
         }
 
-        const message = await sendMessage(validation.data);
+        const result = await respondToWorkSubmissionMessage(
+            validation.data.messageId,
+            user.id,
+            validation.data.decision,
+            validation.data.revisionNotes
+        );
 
         return NextResponse.json({
             success: true,
-            data: message
+            data: result
         });
     } catch (error: any) {
-        console.error('Send message error:', error);
+        console.error('Work submission respond error:', error);
         return NextResponse.json({
             success: false,
             message: error.message || 'Server error'

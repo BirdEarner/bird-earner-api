@@ -191,7 +191,7 @@ export async function createOrGetThread(jobId: string, freelancerId: string, cli
  * Send a message
  */
 export async function sendMessage(data: any) {
-    const { chatThreadId, senderId, receiverId, messageContent, messageType, attachments, senderType } = data;
+    const { chatThreadId, senderId, receiverId, messageContent, messageType, attachments, messageData, senderType } = data;
 
     if (!chatThreadId) throw new Error('chatThreadId is required');
 
@@ -275,6 +275,7 @@ export async function sendMessage(data: any) {
             messageContent,
             messageType,
             attachments: attachments ? JSON.stringify(attachments) : null,
+            messageData: messageData ? (typeof messageData === 'string' ? messageData : JSON.stringify(messageData)) : null,
             senderType,
             createdAt: new Date(),
             updatedAt: new Date()
@@ -299,6 +300,74 @@ export async function sendMessage(data: any) {
     );
 
     return message;
+}
+
+/**
+ * Respond to work submission attachment message (ACCEPT or REVISE_REQUESTED)
+ */
+export async function respondToWorkSubmissionMessage(
+    messageId: string,
+    clientUserId: string,
+    decision: 'ACCEPT' | 'REVISE_REQUESTED',
+    revisionNotes?: string
+) {
+    const msg = await db
+        .selectFrom('messages')
+        .innerJoin('chatThreads', 'chatThreads.id', 'messages.chatThreadId')
+        .innerJoin('jobs', 'jobs.id', 'chatThreads.jobId')
+        .select([
+            'messages.id',
+            'messages.messageData',
+            'messages.attachments',
+            'jobs.id as jobId',
+            'jobs.projectType',
+            'chatThreads.clientId',
+            'chatThreads.id as chatThreadId'
+        ])
+        .where('messages.id', '=', messageId)
+        .executeTakeFirst();
+
+    if (!msg) throw new Error('Submission message not found');
+
+    const client = await db.selectFrom('clients').select('userId').where('id', '=', msg.clientId).executeTakeFirst();
+    if (!client || client.userId !== clientUserId) {
+        throw new Error('Unauthorized');
+    }
+
+    let parsedData: any = {};
+    try {
+        if (msg.messageData) parsedData = JSON.parse(msg.messageData);
+    } catch (e) {}
+
+    if (parsedData.submissionStatus && parsedData.submissionStatus !== 'PENDING') {
+        throw new Error('Decision has already been selected for this submission.');
+    }
+
+    const newStatus = decision === 'ACCEPT' ? 'ACCEPTED' : 'REVISE_REQUESTED';
+    parsedData.submissionStatus = newStatus;
+    parsedData.decisionMadeAt = new Date().toISOString();
+    if (decision === 'REVISE_REQUESTED') {
+        parsedData.revisionNotes = revisionNotes || 'Client requested revisions';
+    }
+
+    await db
+        .updateTable('messages')
+        .set({
+            messageData: JSON.stringify(parsedData),
+            updatedAt: new Date()
+        })
+        .where('id', '=', messageId)
+        .execute();
+
+    const { respondToDigitalWork } = await import('./jobs');
+
+    if (decision === 'ACCEPT') {
+        await respondToDigitalWork(msg.jobId, clientUserId, 'ACCEPT');
+    } else {
+        await respondToDigitalWork(msg.jobId, clientUserId, 'REQUEST_REVISION', revisionNotes);
+    }
+
+    return { success: true, messageId, submissionStatus: newStatus };
 }
 
 /**

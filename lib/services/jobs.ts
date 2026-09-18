@@ -720,6 +720,7 @@ export async function cancelJob(jobId: string, userId: string, reason?: string) 
                 'jobs.clientId',
                 'jobs.jobTitle',
                 'jobs.confirmedAt',
+                'jobs.assignedAt',
                 'jobs.otpVerifiedAt',
                 'jobs.submittedWorkData',
                 'jobs.postOtpCancellationWindowExpiresAt',
@@ -741,8 +742,8 @@ export async function cancelJob(jobId: string, userId: string, reason?: string) 
             throw new Error('Unauthorized');
         }
 
-        // Check 5-minute cancellation grace window
-        const confirmedAtTime = job.confirmedAt ? new Date(job.confirmedAt).getTime() : 0;
+        // Check 5-minute cancellation grace window starting from assignment timestamp
+        const confirmedAtTime = job.confirmedAt ? new Date(job.confirmedAt).getTime() : (job.assignedAt ? new Date(job.assignedAt).getTime() : 0);
         const isWithin5MinGrace = confirmedAtTime > 0 && (Date.now() - confirmedAtTime <= 5 * 60 * 1000);
 
         // Check 5-minute post-OTP emergency cancellation window
@@ -949,13 +950,23 @@ export async function cancelJob(jobId: string, userId: string, reason?: string) 
                     .execute();
             }
 
+            const cancelTitleClient = penaltyAmount > 0 ? 'Job Cancelled - 2% Penalty Charged' : 'Job Cancelled by Client';
+            const cancelMsgClient = penaltyAmount > 0
+                ? `Job "${job.jobTitle}" was cancelled after 5 minutes. 100% of reserved funds (₹${effectiveAmount.toFixed(2)}) were released to your available balance, and a 2% penalty of ₹${penaltyAmount.toFixed(2)} was deducted.`
+                : `Job "${job.jobTitle}" has been cancelled by the client (within grace period, no penalty).`;
+
+            const cancelTitleFreelancer = 'Job Cancelled by Client';
+            const cancelMsgFreelancer = penaltyAmount > 0
+                ? `Job "${job.jobTitle}" was cancelled by the client after the 5-minute grace period. The reserved funds have been returned to the client.`
+                : `Job "${job.jobTitle}" has been cancelled by the client within the grace period.`;
+
             // Notify freelancer
             if (job.freelancerUserId) {
                 sendNotification(
                     job.freelancerUserId,
                     'FREELANCER',
-                    'Job Cancelled by Client',
-                    cancelMsg,
+                    cancelTitleFreelancer,
+                    cancelMsgFreelancer,
                     'JOB_CANCELLED',
                     { jobId }
                 );
@@ -965,8 +976,8 @@ export async function cancelJob(jobId: string, userId: string, reason?: string) 
             sendNotification(
                 job.clientUserId,
                 'CLIENT',
-                'Job Cancelled by Client',
-                cancelMsg,
+                cancelTitleClient,
+                cancelMsgClient,
                 'JOB_CANCELLED',
                 { jobId }
             );
@@ -1065,13 +1076,23 @@ export async function cancelJob(jobId: string, userId: string, reason?: string) 
                     .execute();
             }
 
+            const cancelTitleFreelancer = penaltyAmount > 0 ? 'Job Cancelled - 2% Penalty Charged' : 'Job Cancelled by Freelancer';
+            const cancelMsgFreelancer = penaltyAmount > 0
+                ? `You cancelled job "${job.jobTitle}" after 5 minutes. A 2% penalty of ₹${penaltyAmount.toFixed(2)} was deducted from your wallet, and +1 strike & 24h cooldown were applied.`
+                : `Job "${job.jobTitle}" has been cancelled by the freelancer (within grace period, no penalty).`;
+
+            const cancelTitleClient = 'Job Cancelled by Freelancer';
+            const cancelMsgClient = penaltyAmount > 0
+                ? `Job "${job.jobTitle}" was cancelled by the freelancer. 100% of reserved funds (₹${effectiveAmount.toFixed(2)}) have been refunded to your available wallet balance.`
+                : `Job "${job.jobTitle}" has been cancelled by the freelancer within grace period. Funds returned to your available balance.`;
+
             // Notify freelancer
             if (job.freelancerUserId) {
                 sendNotification(
                     job.freelancerUserId,
                     'FREELANCER',
-                    'Job Cancelled by Freelancer',
-                    cancelMsg,
+                    cancelTitleFreelancer,
+                    cancelMsgFreelancer,
                     'JOB_CANCELLED',
                     { jobId }
                 );
@@ -1081,8 +1102,8 @@ export async function cancelJob(jobId: string, userId: string, reason?: string) 
             sendNotification(
                 job.clientUserId,
                 'CLIENT',
-                'Job Cancelled by Freelancer',
-                cancelMsg,
+                cancelTitleClient,
+                cancelMsgClient,
                 'JOB_CANCELLED',
                 { jobId }
             );

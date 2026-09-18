@@ -132,7 +132,7 @@ export async function releaseReservedAmountInTransaction(
 ) {
     const job = await trx
         .selectFrom('jobs')
-        .select(['budgetAmount', 'isAmountReserved'])
+        .select(['budgetAmount', 'negotiatedAmount', 'isAmountReserved'])
         .where('id', '=', jobId)
         .executeTakeFirst();
 
@@ -150,7 +150,7 @@ export async function releaseReservedAmountInTransaction(
         throw new Error('Client not found');
     }
 
-    const releaseAmount = parseFloat(job.budgetAmount);
+    const releaseAmount = job.negotiatedAmount ? parseFloat(job.negotiatedAmount.toString()) : parseFloat(job.budgetAmount.toString());
     const currentWallet = parseFloat(client.wallet);
     const currentReserved = parseFloat(client.reservedAmount);
     const newReserved = Math.max(0, currentReserved - releaseAmount);
