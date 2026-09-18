@@ -526,7 +526,7 @@ export async function getTransactionHistory(
         }
     }
 
-    const [total, transactions] = await Promise.all([
+    const [total, rawTransactions] = await Promise.all([
         query
             .select(({ fn }) => fn.count('walletTransactions.id').as('count'))
             .executeTakeFirst(),
@@ -547,13 +547,59 @@ export async function getTransactionHistory(
                 'jobs.jobTitle as jobTitle',
             ])
             .orderBy('walletTransactions.createdAt', 'desc')
-            .offset(skip)
-            .limit(limit)
             .execute()
     ]);
 
+    // Compute point-in-time historical balance and reserve snapshots per transaction
+    let runningReserved = walletSnapshot.reservedAmount || 0;
+    const enrichedTransactions = rawTransactions.map((tx) => {
+        const amount = parseFloat(tx.amount?.toString() || '0');
+        const balBefore = parseFloat(tx.balanceBefore?.toString() || '0');
+        const balAfter = parseFloat(tx.balanceAfter?.toString() || '0');
+
+        let reservedAfter = runningReserved;
+        let reservedBefore = runningReserved;
+        let currentReserveValue = amount;
+
+        if (userType === 'FREELANCER') {
+            reservedBefore = 0;
+            reservedAfter = 0;
+            currentReserveValue = amount;
+        } else {
+            const type = tx.transactionType;
+            if (type === 'JOB_RESERVE') {
+                reservedBefore = Math.max(0, runningReserved - amount);
+                runningReserved = reservedBefore;
+                currentReserveValue = amount;
+            } else if (type === 'JOB_RELEASE' || type === 'JOB_PAYMENT' || type === 'JOB_REFUND') {
+                reservedBefore = runningReserved + amount;
+                runningReserved = reservedBefore;
+                currentReserveValue = amount;
+            } else {
+                reservedBefore = runningReserved;
+                currentReserveValue = reservedAfter;
+            }
+        }
+
+        const availableAfter = Math.max(0, balAfter - reservedAfter);
+        const availableBefore = Math.max(0, balBefore - reservedBefore);
+
+        return {
+            ...tx,
+            balanceBefore: balBefore,
+            balanceAfter: balAfter,
+            reservedBefore,
+            reservedAfter,
+            availableBefore,
+            availableAfter,
+            currentReserveValue
+        };
+    });
+
+    const paginatedTransactions = enrichedTransactions.slice(skip, skip + limit);
+
     return {
-        transactions,
+        transactions: paginatedTransactions,
         walletInfo: walletSnapshot,
         pagination: {
             total: Number(total?.count || 0),
