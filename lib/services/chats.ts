@@ -275,7 +275,7 @@ export async function sendMessage(data: any) {
             messageContent,
             messageType,
             attachments: attachments ? JSON.stringify(attachments) : null,
-            messageData: messageData ? (typeof messageData === 'string' ? messageData : JSON.stringify(messageData)) : null,
+            messageData: messageData ? (typeof messageData === 'string' ? messageData : JSON.stringify(messageData)) : '{}',
             senderType,
             createdAt: new Date(),
             updatedAt: new Date()

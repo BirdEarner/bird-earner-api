@@ -36,10 +36,10 @@ async function testRemoteAttachmentFlow() {
     .where('id', '=', client.clientId)
     .execute();
 
-  // Ensure Freelancer has no negative balance or outstanding penalty blocking thread creation
+  // Ensure Freelancer has no negative balance or outstanding penalty or cooldown blocking thread creation
   await db
     .updateTable('freelancers')
-    .set({ outstandingAmount: '0.00', withdrawableAmount: '0.00' })
+    .set({ outstandingAmount: '0.00', withdrawableAmount: '0.00', cooldownExpiresAt: null })
     .where('id', '=', freelancer.freelancerId)
     .execute();
 
