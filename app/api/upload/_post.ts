@@ -1,5 +1,8 @@
 import { NextResponse } from 'next/server';
 import { v2 as cloudinary } from 'cloudinary';
+import { watermarkPdfBuffer, getCloudinaryWatermarkTransformation } from '@/lib/utils/watermark';
+
+export const maxDuration = 60; // Allow 60s for video/large file uploads
 
 // Configure Cloudinary
 cloudinary.config({
@@ -22,61 +25,154 @@ const uploadCategories: Record<string, string> = {
     home_promo_images: "bird_earner/home_promo_images",
 };
 
+function getResourceType(file: File): 'image' | 'video' | 'raw' | 'auto' {
+    const mime = (file.type || '').toLowerCase();
+    const name = (file.name || '').toLowerCase();
+
+    if (
+        mime.startsWith('video/') ||
+        name.endsWith('.mp4') ||
+        name.endsWith('.mov') ||
+        name.endsWith('.avi') ||
+        name.endsWith('.mkv') ||
+        name.endsWith('.webm') ||
+        name.endsWith('.3gp')
+    ) {
+        return 'video';
+    }
+
+    if (
+        mime.startsWith('image/') ||
+        name.endsWith('.jpg') ||
+        name.endsWith('.jpeg') ||
+        name.endsWith('.png') ||
+        name.endsWith('.webp') ||
+        name.endsWith('.gif') ||
+        name.endsWith('.svg')
+    ) {
+        return 'image';
+    }
+
+    return 'auto';
+}
+
+function uploadToCloudinary(buffer: Buffer, options: any): Promise<any> {
+    return new Promise((resolve, reject) => {
+        const isLargeOrVideo = options.resource_type === 'video' || buffer.length > 10 * 1024 * 1024;
+        const uploadOptions = {
+            ...options,
+            chunk_size: 6000000, // 6MB chunks for large files/videos to prevent HTTP 413 Payload Too Large
+        };
+
+        if (isLargeOrVideo) {
+            const stream = cloudinary.uploader.upload_large_stream(uploadOptions, (error: any, result: any) => {
+                if (error) reject(error);
+                else resolve(result);
+            });
+            stream.end(buffer);
+        } else {
+            const stream = cloudinary.uploader.upload_stream(uploadOptions, (error: any, result: any) => {
+                if (error) reject(error);
+                else resolve(result);
+            });
+            stream.end(buffer);
+        }
+    });
+}
+
 export async function POST(request: Request) {
     try {
         const formData = await request.formData();
         const file = formData.get('file') as File;
-        const category = (formData.get('uploadCategory') || formData.get('category')) as string;
+        const category = (formData.get('uploadCategory') || formData.get('category')) as string || "chat_media";
 
         if (!file) {
             return NextResponse.json({ success: false, message: 'No file uploaded' }, { status: 400 });
         }
 
-        if (!category || !uploadCategories[category]) {
+        if (!uploadCategories[category]) {
             return NextResponse.json({
                 success: false,
-                message: `Invalid or missing upload category. Valid options: ${Object.keys(uploadCategories).join(', ')}`
+                message: `Invalid upload category. Valid options: ${Object.keys(uploadCategories).join(', ')}`
             }, { status: 400 });
         }
 
         // Convert file to buffer
         const bytes = await file.arrayBuffer();
-        const buffer = Buffer.from(bytes);
+        const originalBuffer = Buffer.from(bytes);
+        let watermarkedBuffer = Buffer.from(bytes);
 
-        // Upload to Cloudinary
-        const result = await new Promise<any>((resolve, reject) => {
-            cloudinary.uploader.upload_stream(
-                {
-                    folder: uploadCategories[category],
-                    resource_type: 'auto',
-                    public_id: `${Date.now()}-${Math.round(Math.random() * 1e9)}`,
-                },
-                (error, result) => {
-                    if (error) reject(error);
-                    else resolve(result);
-                }
-            ).end(buffer);
-        });
+        const resourceType = getResourceType(file);
+        const isPdf = file.type === 'application/pdf' || file.name?.toLowerCase().endsWith('.pdf');
+        const isImageOrVideo = resourceType === 'image' || resourceType === 'video';
+        const requiresWatermark = ['chat_media', 'file_manager', 'job_portfolios', 'freelancer_portfolios'].includes(category);
+
+        let originalResult: any = null;
+        let watermarkedResult: any = null;
+
+        if (requiresWatermark) {
+            // Upload original unwatermarked file
+            const originalOptions: any = {
+                folder: `${uploadCategories[category]}/originals`,
+                resource_type: resourceType,
+                public_id: `original-${Date.now()}-${Math.round(Math.random() * 1e9)}`,
+            };
+
+            // Prepare watermarked version
+            if (isPdf) {
+                watermarkedBuffer = await watermarkPdfBuffer(originalBuffer, '©BIRDEARNER');
+            }
+
+            const uploadOptions: any = {
+                folder: uploadCategories[category],
+                resource_type: resourceType,
+                public_id: `wm-${Date.now()}-${Math.round(Math.random() * 1e9)}`,
+            };
+
+            if (isImageOrVideo) {
+                uploadOptions.transformation = getCloudinaryWatermarkTransformation('©BIRDEARNER');
+            }
+
+            [originalResult, watermarkedResult] = await Promise.all([
+                uploadToCloudinary(originalBuffer, originalOptions),
+                uploadToCloudinary(watermarkedBuffer, uploadOptions),
+            ]);
+        } else {
+            // Standard single file upload without watermarking
+            const singleOptions: any = {
+                folder: uploadCategories[category],
+                resource_type: resourceType,
+                public_id: `${Date.now()}-${Math.round(Math.random() * 1e9)}`,
+            };
+
+            watermarkedResult = await uploadToCloudinary(originalBuffer, singleOptions);
+            originalResult = watermarkedResult;
+        }
 
         return NextResponse.json({
             success: true,
             message: "File uploaded successfully",
-            secure_url: result.secure_url,
-            public_id: result.public_id,
-            filename: result.public_id,
+            secure_url: watermarkedResult.secure_url,
+            url: watermarkedResult.secure_url,
+            original_secure_url: originalResult.secure_url,
+            originalUrl: originalResult.secure_url,
+            public_id: watermarkedResult.public_id,
+            filename: watermarkedResult.public_id,
             originalName: file.name,
             size: file.size,
             mimetype: file.type,
             category,
-            // For backward compatibility
             data: {
-                url: result.secure_url,
-                filename: result.public_id,
+                url: watermarkedResult.secure_url,
+                originalUrl: originalResult.secure_url,
+                filename: watermarkedResult.public_id,
+                originalFilename: originalResult.public_id,
                 originalName: file.name,
                 size: file.size,
                 mimetype: file.type,
                 category,
-                cloudinaryPublicId: result.public_id,
+                cloudinaryPublicId: watermarkedResult.public_id,
+                originalCloudinaryPublicId: originalResult.public_id,
             },
         });
 
