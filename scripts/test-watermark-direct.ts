@@ -10,10 +10,14 @@ async function testWatermarkDirect() {
   const cloudTrans = getCloudinaryWatermarkTransformation('©BIRDEARNER');
   console.log('Cloudinary Transformation:', JSON.stringify(cloudTrans, null, 2));
 
-  if (cloudTrans[0].overlay.text !== '©BIRDEARNER' || cloudTrans[0].flags !== 'tiled') {
+  const hasTiledFlag = Array.isArray(cloudTrans[0].flags)
+    ? cloudTrans[0].flags.includes('tiled')
+    : cloudTrans[0].flags === 'tiled';
+
+  if (cloudTrans[0].overlay.text !== '©BIRDEARNER' || !hasTiledFlag) {
     throw new Error('Cloudinary transformation configuration incorrect');
   }
-  console.log('✅ Cloudinary watermark configuration verified: ©BIRDEARNER with tiled grid flag!');
+  console.log('✅ Cloudinary watermark configuration verified: ©BIRDEARNER with full-screen tiled grid flags!');
 
   // 2. Test PDF Watermark Buffer Generation
   console.log('\n2. Testing PDF Watermark Generation with pdf-lib...');

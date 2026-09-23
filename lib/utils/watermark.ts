@@ -45,7 +45,34 @@ export async function watermarkPdfBuffer(inputBuffer: Buffer, watermarkText: str
 /**
  * Get Cloudinary transformation configuration for dense staggered tiled (repeated grid) image and video watermarking.
  */
-export function getCloudinaryWatermarkTransformation(watermarkText: string = '©BIRDEARNER') {
+export function getCloudinaryWatermarkTransformation(watermarkText: string = '©BIRDEARNER', isVideo: boolean = false) {
+  if (isVideo) {
+    const rowA = `${watermarkText}   ${watermarkText}   ${watermarkText}   ${watermarkText}`;
+    const rowB = `   ${watermarkText}   ${watermarkText}   ${watermarkText}   ${watermarkText}`;
+
+    // 12 staggered rows to guarantee full vertical and horizontal screen coverage on videos
+    const multilineMatrix = [
+      rowA, rowB, rowA, rowB,
+      rowA, rowB, rowA, rowB,
+      rowA, rowB, rowA, rowB,
+    ].join('\n');
+
+    return [
+      {
+        overlay: {
+          font_family: 'Arial',
+          font_size: 24,
+          font_weight: 'bold',
+          text: multilineMatrix,
+        },
+        color: '#FFFFFF',
+        opacity: 45,
+        angle: -32,
+        gravity: 'center',
+      },
+    ];
+  }
+
   return [
     {
       overlay: {

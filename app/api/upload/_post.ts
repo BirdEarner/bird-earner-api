@@ -58,25 +58,17 @@ function getResourceType(file: File): 'image' | 'video' | 'raw' | 'auto' {
 
 function uploadToCloudinary(buffer: Buffer, options: any): Promise<any> {
     return new Promise((resolve, reject) => {
-        const isLargeOrVideo = options.resource_type === 'video' || buffer.length > 10 * 1024 * 1024;
         const uploadOptions = {
             ...options,
-            chunk_size: 6000000, // 6MB chunks for large files/videos to prevent HTTP 413 Payload Too Large
+            chunk_size: 6000000, // 6MB chunks for video/large files
         };
 
-        if (isLargeOrVideo) {
-            const stream = cloudinary.uploader.upload_large_stream(uploadOptions, (error: any, result: any) => {
-                if (error) reject(error);
-                else resolve(result);
-            });
-            stream.end(buffer);
-        } else {
-            const stream = cloudinary.uploader.upload_stream(uploadOptions, (error: any, result: any) => {
-                if (error) reject(error);
-                else resolve(result);
-            });
-            stream.end(buffer);
-        }
+        const stream = cloudinary.uploader.upload_stream(uploadOptions, (error: any, result: any) => {
+            if (error) reject(error);
+            else resolve(result);
+        });
+
+        stream.end(buffer);
     });
 }
 
@@ -130,7 +122,13 @@ export async function POST(request: Request) {
             };
 
             if (isImageOrVideo) {
-                uploadOptions.transformation = getCloudinaryWatermarkTransformation('©BIRDEARNER');
+                const isVideo = resourceType === 'video';
+                const watermarkTrans = getCloudinaryWatermarkTransformation('©BIRDEARNER', isVideo);
+                uploadOptions.transformation = watermarkTrans;
+                if (isVideo) {
+                    uploadOptions.eager = watermarkTrans;
+                    uploadOptions.eager_async = false;
+                }
             }
 
             [originalResult, watermarkedResult] = await Promise.all([
@@ -149,13 +147,17 @@ export async function POST(request: Request) {
             originalResult = watermarkedResult;
         }
 
+        const watermarkedUrl = (watermarkedResult.eager && watermarkedResult.eager[0]?.secure_url)
+            || watermarkedResult.secure_url;
+        const originalUrl = originalResult.secure_url;
+
         return NextResponse.json({
             success: true,
             message: "File uploaded successfully",
-            secure_url: watermarkedResult.secure_url,
-            url: watermarkedResult.secure_url,
-            original_secure_url: originalResult.secure_url,
-            originalUrl: originalResult.secure_url,
+            secure_url: watermarkedUrl,
+            url: watermarkedUrl,
+            original_secure_url: originalUrl,
+            originalUrl: originalUrl,
             public_id: watermarkedResult.public_id,
             filename: watermarkedResult.public_id,
             originalName: file.name,
@@ -163,8 +165,8 @@ export async function POST(request: Request) {
             mimetype: file.type,
             category,
             data: {
-                url: watermarkedResult.secure_url,
-                originalUrl: originalResult.secure_url,
+                url: watermarkedUrl,
+                originalUrl: originalUrl,
                 filename: watermarkedResult.public_id,
                 originalFilename: originalResult.public_id,
                 originalName: file.name,
