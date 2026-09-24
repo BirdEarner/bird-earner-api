@@ -26,10 +26,24 @@ export async function GET(
         const threeDaysAgo = new Date();
         threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
 
+        // Resolve targetClientId: check if clientId matches a client record or user ID
+        let targetClientId = clientId;
+        const clientRecord = await db
+            .selectFrom("clients")
+            .select("id")
+            .where((eb) => eb.or([
+                eb("id", "=", clientId),
+                eb("userId", "=", clientId)
+            ]))
+            .executeTakeFirst();
+        if (clientRecord) {
+            targetClientId = clientRecord.id;
+        }
+
         let query = db
             .selectFrom("jobs")
             .selectAll("jobs")
-            .where("clientId", "=", clientId)
+            .where("clientId", "=", targetClientId)
             .where("deleted", "=", false)
             .where((eb) =>
                 eb.or([
@@ -54,7 +68,7 @@ export async function GET(
             db
                 .selectFrom("jobs")
                 .select(db.fn.count("id").as("count"))
-                .where("clientId", "=", clientId)
+                .where("clientId", "=", targetClientId)
                 .where("deleted", "=", false)
                 .where((eb) =>
                     eb.or([
@@ -159,6 +173,7 @@ export async function GET(
         return NextResponse.json({
             success: true,
             message: "Client jobs retrieved successfully",
+            jobs: enhancedJobs,
             data: {
                 jobs: enhancedJobs,
                 pagination: {
