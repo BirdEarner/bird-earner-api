@@ -199,6 +199,7 @@ export async function sendMessage(data: any) {
         .selectFrom('chatThreads')
         .innerJoin('jobs', 'jobs.id', 'chatThreads.jobId')
         .select([
+            'jobs.projectType',
             'jobs.jobStatus',
             'chatThreads.characterLimit',
             'chatThreads.status',
@@ -265,6 +266,113 @@ export async function sendMessage(data: any) {
         }
     }
 
+    let finalMessageData: any = {};
+    if (messageData) {
+        try {
+            finalMessageData = typeof messageData === 'string' ? JSON.parse(messageData) : { ...messageData };
+        } catch (e) {
+            finalMessageData = {};
+        }
+    }
+
+    const parsedAtts = Array.isArray(attachments) ? attachments : (typeof attachments === 'string' ? JSON.parse(attachments) : []);
+    const hasAttachments = parsedAtts.length > 0;
+    const isRemoteJob = (thread.projectType || '').toLowerCase() === 'remote';
+    const isSubmissionMessage = Boolean(finalMessageData.isWorkSubmission || (hasAttachments && isRemoteJob) || messageType === 'ATTACHMENT');
+
+    if (isSubmissionMessage && hasAttachments) {
+        // Find existing work submission messages in this chatThreadId
+        const existingMsgs = await db
+            .selectFrom('messages')
+            .select(['id', 'messageData', 'attachments', 'createdAt'])
+            .where('chatThreadId', '=', chatThreadId)
+            .orderBy('createdAt', 'asc')
+            .execute();
+
+        const submissions: Array<{
+            id: string;
+            version: number;
+            submissionStatus: string;
+            reviewed: boolean;
+            msgData: any;
+            createdAt: Date;
+        }> = [];
+
+        for (const msg of existingMsgs) {
+            let mData: any = {};
+            try {
+                if (msg.messageData) mData = typeof msg.messageData === 'string' ? JSON.parse(msg.messageData) : msg.messageData;
+            } catch (e) {}
+
+            let msgAtts: any[] = [];
+            try {
+                if (msg.attachments) msgAtts = typeof msg.attachments === 'string' ? JSON.parse(msg.attachments) : msg.attachments;
+            } catch (e) {}
+
+            if (mData.isWorkSubmission || mData.version !== undefined || (msgAtts.length > 0 && isRemoteJob)) {
+                const version = typeof mData.version === 'number' ? mData.version : 1;
+                const submissionStatus = mData.submissionStatus || 'PENDING';
+                const reviewed = Boolean(mData.reviewed || submissionStatus === 'ACCEPTED' || submissionStatus === 'REVISE_REQUESTED');
+
+                submissions.push({
+                    id: msg.id,
+                    version,
+                    submissionStatus,
+                    reviewed,
+                    msgData: mData,
+                    createdAt: msg.createdAt,
+                });
+            }
+        }
+
+        let targetVersion = 1;
+
+        if (submissions.length > 0) {
+            const latestSub = submissions[submissions.length - 1];
+            targetVersion = latestSub.version;
+
+            if (!latestSub.reviewed) {
+                // CASE A: Latest submission version is UNREVIEWED -> Keep same version (targetVersion)
+                // Disable previous review controls on all messages belonging to this unreviewed version
+                for (const sub of submissions) {
+                    if (sub.version === targetVersion) {
+                        const updatedData = {
+                            ...sub.msgData,
+                            isLatestForVersion: false,
+                            reviewControlActive: false,
+                        };
+                        await db
+                            .updateTable('messages')
+                            .set({
+                                messageData: JSON.stringify(updatedData),
+                                updatedAt: new Date(),
+                            })
+                            .where('id', '=', sub.id)
+                            .execute();
+                    }
+                }
+            } else {
+                // CASE B: Latest submission version HAS BEEN REVIEWED -> Create Version + 1
+                targetVersion = latestSub.version + 1;
+            }
+        } else {
+            // First submission -> Version 1
+            targetVersion = 1;
+        }
+
+        finalMessageData = {
+            ...finalMessageData,
+            isWorkSubmission: true,
+            version: targetVersion,
+            submissionStatus: 'PENDING',
+            reviewed: false,
+            reviewedAt: null,
+            reviewedBy: null,
+            isLatestForVersion: true,
+            reviewControlActive: true,
+        };
+    }
+
     const message = await db
         .insertInto('messages')
         .values({
@@ -274,8 +382,8 @@ export async function sendMessage(data: any) {
             receiverId,
             messageContent,
             messageType,
-            attachments: attachments ? JSON.stringify(attachments) : null,
-            messageData: messageData ? (typeof messageData === 'string' ? messageData : JSON.stringify(messageData)) : '{}',
+            attachments: attachments ? (typeof attachments === 'string' ? attachments : JSON.stringify(attachments)) : null,
+            messageData: JSON.stringify(finalMessageData),
             senderType,
             createdAt: new Date(),
             updatedAt: new Date()
@@ -336,28 +444,51 @@ export async function respondToWorkSubmissionMessage(
 
     let parsedData: any = {};
     try {
-        if (msg.messageData) parsedData = JSON.parse(msg.messageData);
+        if (msg.messageData) parsedData = typeof msg.messageData === 'string' ? JSON.parse(msg.messageData) : msg.messageData;
     } catch (e) {}
 
-    if (parsedData.submissionStatus && parsedData.submissionStatus !== 'PENDING') {
-        throw new Error('Decision has already been selected for this submission.');
+    if (parsedData.reviewed || (parsedData.submissionStatus && parsedData.submissionStatus !== 'PENDING')) {
+        throw new Error('Decision has already been selected for this submission version.');
     }
 
+    const targetVersion = typeof parsedData.version === 'number' ? parsedData.version : 1;
     const newStatus = decision === 'ACCEPT' ? 'ACCEPTED' : 'REVISE_REQUESTED';
-    parsedData.submissionStatus = newStatus;
-    parsedData.decisionMadeAt = new Date().toISOString();
-    if (decision === 'REVISE_REQUESTED') {
-        parsedData.revisionNotes = revisionNotes || 'Client requested revisions';
-    }
+    const reviewedAt = new Date().toISOString();
 
-    await db
-        .updateTable('messages')
-        .set({
-            messageData: JSON.stringify(parsedData),
-            updatedAt: new Date()
-        })
-        .where('id', '=', messageId)
+    // Query all messages in this chatThreadId to update all messages belonging to targetVersion
+    const threadMsgs = await db
+        .selectFrom('messages')
+        .select(['id', 'messageData'])
+        .where('chatThreadId', '=', msg.chatThreadId)
         .execute();
+
+    for (const threadMsg of threadMsgs) {
+        let mData: any = {};
+        try {
+            if (threadMsg.messageData) mData = typeof threadMsg.messageData === 'string' ? JSON.parse(threadMsg.messageData) : threadMsg.messageData;
+        } catch (e) {}
+
+        const msgVersion = typeof mData.version === 'number' ? mData.version : 1;
+        if (mData.isWorkSubmission && msgVersion === targetVersion) {
+            mData.submissionStatus = newStatus;
+            mData.reviewed = true;
+            mData.reviewedAt = reviewedAt;
+            mData.reviewedBy = clientUserId;
+            mData.decisionMadeAt = reviewedAt;
+            if (decision === 'REVISE_REQUESTED') {
+                mData.revisionNotes = revisionNotes || 'Client requested revisions';
+            }
+
+            await db
+                .updateTable('messages')
+                .set({
+                    messageData: JSON.stringify(mData),
+                    updatedAt: new Date()
+                })
+                .where('id', '=', threadMsg.id)
+                .execute();
+        }
+    }
 
     const { respondToDigitalWork } = await import('./jobs');
 
@@ -367,7 +498,7 @@ export async function respondToWorkSubmissionMessage(
         await respondToDigitalWork(msg.jobId, clientUserId, 'REQUEST_REVISION', revisionNotes);
     }
 
-    return { success: true, messageId, submissionStatus: newStatus };
+    return { success: true, messageId, submissionStatus: newStatus, version: targetVersion };
 }
 
 /**

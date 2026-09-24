@@ -76,43 +76,68 @@ export async function POST(request: Request) {
     const isPdf = file.type === 'application/pdf' || file.name?.toLowerCase().endsWith('.pdf');
     const isImageOrVideo = resourceType === 'image' || resourceType === 'video';
 
-    // 1. Upload original unwatermarked file
-    const originalOptions: any = {
-      folder: 'bird_earner/chat_media/originals',
-      resource_type: resourceType,
-      public_id: `original-${Date.now()}-${Math.round(Math.random() * 1e9)}`,
-    };
-
-    // 2. Prepare watermarked version
-    if (isPdf) {
-      watermarkedBuffer = await watermarkPdfBuffer(originalBuffer, '©BIRDEARNER');
-    }
-
-    const watermarkedUploadOptions: any = {
-      folder: 'bird_earner/chat_media',
-      resource_type: resourceType,
-      public_id: `wm-${Date.now()}-${Math.round(Math.random() * 1e9)}`,
-    };
+    let originalResult: any;
+    let watermarkedResult: any;
+    let originalUrl = '';
+    let watermarkedUrl = '';
 
     if (isImageOrVideo) {
+      // Fast Single Upload for Image/Video - Dynamic CDN Watermark Transformation
+      const singleOptions: any = {
+        folder: 'bird_earner/chat_media/originals',
+        resource_type: resourceType,
+        public_id: `original-${Date.now()}-${Math.round(Math.random() * 1e9)}`,
+      };
+
+      originalResult = await uploadToCloudinary(originalBuffer, singleOptions);
+      watermarkedResult = originalResult;
+
+      originalUrl = originalResult.secure_url;
+
       const isVideo = resourceType === 'video';
       const watermarkTrans = getCloudinaryWatermarkTransformation('©BIRDEARNER', isVideo);
-      watermarkedUploadOptions.transformation = watermarkTrans;
-      if (isVideo) {
-        watermarkedUploadOptions.eager = watermarkTrans;
-        watermarkedUploadOptions.eager_async = false;
-      }
+      
+      watermarkedUrl = cloudinary.url(originalResult.public_id, {
+        resource_type: resourceType,
+        transformation: watermarkTrans,
+        secure: true,
+      });
+    } else if (isPdf) {
+      // PDF watermarked locally via pdf-lib
+      watermarkedBuffer = await watermarkPdfBuffer(originalBuffer, '©BIRDEARNER');
+
+      const originalOptions: any = {
+        folder: 'bird_earner/chat_media/originals',
+        resource_type: resourceType,
+        public_id: `original-${Date.now()}-${Math.round(Math.random() * 1e9)}`,
+      };
+
+      const watermarkedUploadOptions: any = {
+        folder: 'bird_earner/chat_media',
+        resource_type: resourceType,
+        public_id: `wm-${Date.now()}-${Math.round(Math.random() * 1e9)}`,
+      };
+
+      [originalResult, watermarkedResult] = await Promise.all([
+        uploadToCloudinary(originalBuffer, originalOptions),
+        uploadToCloudinary(watermarkedBuffer, watermarkedUploadOptions),
+      ]);
+
+      originalUrl = originalResult.secure_url;
+      watermarkedUrl = watermarkedResult.secure_url;
+    } else {
+      // Generic Raw File
+      const singleOptions: any = {
+        folder: 'bird_earner/chat_media/originals',
+        resource_type: resourceType,
+        public_id: `original-${Date.now()}-${Math.round(Math.random() * 1e9)}`,
+      };
+
+      originalResult = await uploadToCloudinary(originalBuffer, singleOptions);
+      watermarkedResult = originalResult;
+      originalUrl = originalResult.secure_url;
+      watermarkedUrl = originalResult.secure_url;
     }
-
-    // Execute both uploads in parallel using uploadToCloudinary
-    const [originalResult, watermarkedResult] = await Promise.all([
-      uploadToCloudinary(originalBuffer, originalOptions),
-      uploadToCloudinary(watermarkedBuffer, watermarkedUploadOptions),
-    ]);
-
-    const watermarkedUrl = (watermarkedResult.eager && watermarkedResult.eager[0]?.secure_url)
-      || watermarkedResult.secure_url;
-    const originalUrl = originalResult.secure_url;
 
     return NextResponse.json({
       success: true,

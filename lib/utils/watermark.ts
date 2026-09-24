@@ -47,21 +47,18 @@ export async function watermarkPdfBuffer(inputBuffer: Buffer, watermarkText: str
  */
 export function getCloudinaryWatermarkTransformation(watermarkText: string = '©BIRDEARNER', isVideo: boolean = false) {
   if (isVideo) {
-    const rowA = `${watermarkText}   ${watermarkText}   ${watermarkText}   ${watermarkText}`;
-    const rowB = `   ${watermarkText}   ${watermarkText}   ${watermarkText}   ${watermarkText}`;
+    const spaces = '               '; // 15 spaces for wide spaced watermark pattern
+    const rowA = `${watermarkText}${spaces}${watermarkText}${spaces}${watermarkText}${spaces}${watermarkText}${spaces}${watermarkText}`;
+    const rowB = `        ${watermarkText}${spaces}${watermarkText}${spaces}${watermarkText}${spaces}${watermarkText}${spaces}${watermarkText}`;
 
-    // 12 staggered rows to guarantee full vertical and horizontal screen coverage on videos
-    const multilineMatrix = [
-      rowA, rowB, rowA, rowB,
-      rowA, rowB, rowA, rowB,
-      rowA, rowB, rowA, rowB,
-    ].join('\n');
+    // 24 staggered rows to ensure complete edge-to-edge coverage even on vertical HD videos
+    const multilineMatrix = Array(12).fill(null).map(() => `${rowA}\n${rowB}`).join('\n');
 
     return [
       {
         overlay: {
           font_family: 'Arial',
-          font_size: 24,
+          font_size: 40,
           font_weight: 'bold',
           text: multilineMatrix,
         },

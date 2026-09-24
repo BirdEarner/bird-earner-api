@@ -102,18 +102,39 @@ export async function POST(request: Request) {
         let originalResult: any = null;
         let watermarkedResult: any = null;
 
-        if (requiresWatermark) {
-            // Upload original unwatermarked file
-            const originalOptions: any = {
+        let originalUrl = '';
+        let watermarkedUrl = '';
+
+        if (requiresWatermark && isImageOrVideo) {
+            // Fast Single Upload for Image/Video - Dynamic CDN Watermark Transformation
+            const singleOptions: any = {
                 folder: `${uploadCategories[category]}/originals`,
                 resource_type: resourceType,
                 public_id: `original-${Date.now()}-${Math.round(Math.random() * 1e9)}`,
             };
 
-            // Prepare watermarked version
-            if (isPdf) {
-                watermarkedBuffer = await watermarkPdfBuffer(originalBuffer, '©BIRDEARNER');
-            }
+            originalResult = await uploadToCloudinary(originalBuffer, singleOptions);
+            watermarkedResult = originalResult;
+
+            originalUrl = originalResult.secure_url;
+
+            const isVideo = resourceType === 'video';
+            const watermarkTrans = getCloudinaryWatermarkTransformation('©BIRDEARNER', isVideo);
+
+            watermarkedUrl = cloudinary.url(originalResult.public_id, {
+                resource_type: resourceType,
+                transformation: watermarkTrans,
+                secure: true,
+            });
+        } else if (requiresWatermark && isPdf) {
+            // PDF watermarked locally via pdf-lib
+            watermarkedBuffer = await watermarkPdfBuffer(originalBuffer, '©BIRDEARNER');
+
+            const originalOptions: any = {
+                folder: `${uploadCategories[category]}/originals`,
+                resource_type: resourceType,
+                public_id: `original-${Date.now()}-${Math.round(Math.random() * 1e9)}`,
+            };
 
             const uploadOptions: any = {
                 folder: uploadCategories[category],
@@ -121,20 +142,13 @@ export async function POST(request: Request) {
                 public_id: `wm-${Date.now()}-${Math.round(Math.random() * 1e9)}`,
             };
 
-            if (isImageOrVideo) {
-                const isVideo = resourceType === 'video';
-                const watermarkTrans = getCloudinaryWatermarkTransformation('©BIRDEARNER', isVideo);
-                uploadOptions.transformation = watermarkTrans;
-                if (isVideo) {
-                    uploadOptions.eager = watermarkTrans;
-                    uploadOptions.eager_async = false;
-                }
-            }
-
             [originalResult, watermarkedResult] = await Promise.all([
                 uploadToCloudinary(originalBuffer, originalOptions),
                 uploadToCloudinary(watermarkedBuffer, uploadOptions),
             ]);
+
+            originalUrl = originalResult.secure_url;
+            watermarkedUrl = watermarkedResult.secure_url;
         } else {
             // Standard single file upload without watermarking
             const singleOptions: any = {
@@ -145,11 +159,9 @@ export async function POST(request: Request) {
 
             watermarkedResult = await uploadToCloudinary(originalBuffer, singleOptions);
             originalResult = watermarkedResult;
+            originalUrl = originalResult.secure_url;
+            watermarkedUrl = originalResult.secure_url;
         }
-
-        const watermarkedUrl = (watermarkedResult.eager && watermarkedResult.eager[0]?.secure_url)
-            || watermarkedResult.secure_url;
-        const originalUrl = originalResult.secure_url;
 
         return NextResponse.json({
             success: true,
