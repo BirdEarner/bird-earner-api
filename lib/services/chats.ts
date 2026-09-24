@@ -275,12 +275,9 @@ export async function sendMessage(data: any) {
         }
     }
 
-    const parsedAtts = Array.isArray(attachments) ? attachments : (typeof attachments === 'string' ? JSON.parse(attachments) : []);
-    const hasAttachments = parsedAtts.length > 0;
-    const isRemoteJob = (thread.projectType || '').toLowerCase() === 'remote';
-    const isSubmissionMessage = Boolean(finalMessageData.isWorkSubmission || (hasAttachments && isRemoteJob) || messageType === 'ATTACHMENT');
+    const isSubmissionMessage = Boolean(finalMessageData.isWorkSubmission);
 
-    if (isSubmissionMessage && hasAttachments) {
+    if (isSubmissionMessage) {
         // Find existing work submission messages in this chatThreadId
         const existingMsgs = await db
             .selectFrom('messages')
@@ -304,12 +301,7 @@ export async function sendMessage(data: any) {
                 if (msg.messageData) mData = typeof msg.messageData === 'string' ? JSON.parse(msg.messageData) : msg.messageData;
             } catch (e) {}
 
-            let msgAtts: any[] = [];
-            try {
-                if (msg.attachments) msgAtts = typeof msg.attachments === 'string' ? JSON.parse(msg.attachments) : msg.attachments;
-            } catch (e) {}
-
-            if (mData.isWorkSubmission || mData.version !== undefined || (msgAtts.length > 0 && isRemoteJob)) {
+            if (mData.isWorkSubmission || mData.version !== undefined) {
                 const version = typeof mData.version === 'number' ? mData.version : 1;
                 const submissionStatus = mData.submissionStatus || 'PENDING';
                 const reviewed = Boolean(mData.reviewed || submissionStatus === 'ACCEPTED' || submissionStatus === 'REVISE_REQUESTED');
