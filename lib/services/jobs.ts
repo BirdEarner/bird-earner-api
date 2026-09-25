@@ -1114,6 +1114,267 @@ export async function cancelJob(jobId: string, userId: string, reason?: string) 
 }
 
 /**
+ * Report Freelancer - Work Not Submitted (Remote jobs only)
+ * Client action after work deadline + 12-hour grace period passed with no submission.
+ * Full refund to client + 2% penalty, 1-day cooldown and cancellation strike on freelancer.
+ */
+export async function reportFreelancerNonSubmission(jobId: string, userId: string, reason?: string) {
+    return await db.transaction().execute(async (trx) => {
+        const job = await trx
+            .selectFrom('jobs')
+            .innerJoin('clients', 'clients.id', 'jobs.clientId')
+            .leftJoin('freelancers', 'freelancers.id', 'jobs.assignedFreelancerId')
+            .select([
+                'jobs.id',
+                'jobs.jobTitle',
+                'jobs.jobStatus',
+                'jobs.budgetAmount',
+                'jobs.negotiatedAmount',
+                'jobs.isAmountReserved',
+                'jobs.assignedFreelancerId',
+                'jobs.clientId',
+                'jobs.cashbackOfferId',
+                'jobs.workDeadline',
+                'jobs.freelancerGracePeriodExpiresAt',
+                'jobs.submittedWorkData',
+                'jobs.projectType',
+                'jobs.location',
+                'clients.userId as clientUserId',
+                'freelancers.id as freelancerId',
+                'freelancers.userId as freelancerUserId',
+            ])
+            .where('jobs.id', '=', jobId)
+            .where('jobs.deleted', '=', false)
+            .forUpdate()
+            .executeTakeFirst();
+
+        if (!job) throw new Error('Job not found');
+
+        // Client-only action
+        if (job.clientUserId !== userId) throw new Error('Unauthorized');
+
+        // Remote jobs only (same detection as cancelJob / processJobTimers)
+        const isOnSite = (job.projectType || '').toLowerCase() === 'on-site' ||
+            ((job.projectType || '').toLowerCase() !== 'remote' &&
+                (job.location || '').toLowerCase() !== 'remote');
+        if (isOnSite) {
+            throw new Error('This action is only available for remote jobs.');
+        }
+
+        // Booking must still be active (excludes submitted / revision / dispute / cancelled / completed)
+        if (!['CONFIRMED', 'IN_PROGRESS'].includes(job.jobStatus)) {
+            throw new Error('This job is no longer eligible for a no-submission report.');
+        }
+
+        if (!job.assignedFreelancerId || !job.freelancerId) {
+            throw new Error('No freelancer is assigned to this job.');
+        }
+
+        // Condition: work deadline must have passed
+        if (!job.workDeadline) throw new Error('Work deadline has not been set for this job.');
+        const workDeadlineTs = new Date(job.workDeadline).getTime();
+        if (Date.now() <= workDeadlineTs) {
+            throw new Error('The work deadline has not passed yet.');
+        }
+
+        // Condition: 12-hour grace period must have expired (falls back to deadline + 12h if cron hasn't set it)
+        const graceExpiryTs = job.freelancerGracePeriodExpiresAt
+            ? new Date(job.freelancerGracePeriodExpiresAt).getTime()
+            : workDeadlineTs + 12 * 60 * 60 * 1000;
+        if (Date.now() < graceExpiryTs) {
+            throw new Error('The 12-hour grace period after the deadline has not passed yet.');
+        }
+
+        // Condition: no work submission (job-level payload from the work-submission API)
+        if (job.submittedWorkData) {
+            throw new Error('Work has already been submitted for this job. Please use Accept / Revise or Raise a Dispute instead.');
+        }
+
+        // Condition: no work submission chat messages (chat submissions don't change jobStatus)
+        const thread = await trx
+            .selectFrom('chatThreads')
+            .select(['id', 'freelancerId'])
+            .where('jobId', '=', jobId)
+            .executeTakeFirst();
+
+        if (thread) {
+            const threadMessages = await trx
+                .selectFrom('messages')
+                .select(['id', 'messageData'])
+                .where('chatThreadId', '=', thread.id)
+                .execute();
+
+            for (const msg of threadMessages) {
+                let mData: { isWorkSubmission?: boolean } = {};
+                try {
+                    const raw = msg.messageData;
+                    if (typeof raw === 'string') {
+                        mData = JSON.parse(raw);
+                    } else if (raw && typeof raw === 'object') {
+                        mData = raw as { isWorkSubmission?: boolean };
+                    }
+                } catch {
+                    mData = {};
+                }
+                if (mData.isWorkSubmission) {
+                    throw new Error('Work has already been submitted for this job. Please use Accept / Revise or Raise a Dispute instead.');
+                }
+            }
+        }
+
+        const now = new Date();
+        const effectiveAmount = job.negotiatedAmount ? parseFloat(job.negotiatedAmount.toString()) : parseFloat(job.budgetAmount.toString());
+        const penaltyAmount = effectiveAmount * 0.02;
+
+        // 1. Full refund: release reserved funds back to the client
+        if (job.isAmountReserved) {
+            await releaseReservedAmountInTransaction(trx, job.clientUserId, jobId);
+        }
+
+        // 2. 2% penalty + 1 strike + 1-day cooldown on freelancer
+        const freelancer = await trx
+            .selectFrom('freelancers')
+            .select(['id', 'userId', 'withdrawableAmount'])
+            .where('id', '=', job.assignedFreelancerId)
+            .executeTakeFirst();
+
+        if (freelancer) {
+            const currentBalance = parseFloat(freelancer.withdrawableAmount?.toString() || '0');
+            const newBalance = currentBalance - penaltyAmount;
+            const cooldownExpiry = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+
+            await trx
+                .updateTable('freelancers')
+                .set((eb) => ({
+                    withdrawableAmount: newBalance.toString(),
+                    totalPenaltyDeducted: eb('totalPenaltyDeducted', '+', penaltyAmount.toString()),
+                    cancellationStrikes: eb('cancellationStrikes', '+', 1),
+                    cooldownExpiresAt: cooldownExpiry,
+                    updatedAt: now,
+                }))
+                .where('id', '=', freelancer.id)
+                .execute();
+
+            await trx.insertInto('penaltyLogs').values({
+                id: crypto.randomUUID(),
+                jobId: job.id,
+                clientId: job.clientId,
+                freelancerId: freelancer.id,
+                penaltyType: 'FREELANCER_NON_COMPLETION',
+                amount: penaltyAmount.toString(),
+                status: 'DEDUCTED',
+                description: `Client reported no submission after deadline + 12h grace period for "${job.jobTitle}". 2% penalty deducted.`,
+                createdAt: now,
+                updatedAt: now,
+            }).execute();
+
+            await trx.insertInto('walletTransactions').values({
+                id: crypto.randomUUID(),
+                userId: freelancer.userId,
+                userType: 'FREELANCER',
+                jobId: job.id,
+                transactionType: 'PENALTY',
+                amount: (-penaltyAmount).toString(),
+                balanceBefore: currentBalance.toString(),
+                balanceAfter: newBalance.toString(),
+                description: `No-submission report 2% penalty deducted to BirdEarner - ${job.jobTitle}`,
+                createdAt: now,
+                updatedAt: now
+            }).execute();
+        }
+
+        // 3. Close job as client cancellation with full refund recorded
+        const updatedJob = await trx
+            .updateTable('jobs')
+            .set({
+                jobStatus: 'CANCELLED_BY_CLIENT',
+                paymentStatus: 'REFUNDED',
+                isAmountReserved: false,
+                cancellationReason: reason || 'Freelancer did not submit work after deadline and 12-hour grace period',
+                cancelledAt: now,
+                updatedAt: now,
+            })
+            .where('id', '=', jobId)
+            .returningAll()
+            .executeTakeFirstOrThrow();
+
+        // Release reserved coupon if any
+        if (job.cashbackOfferId) {
+            await trx
+                .updateTable('cashbackOffers')
+                .set({ reservedJobId: null, updatedAt: now })
+                .where('id', '=', job.cashbackOfferId)
+                .execute();
+        }
+
+        const closeMsg = `Job "${job.jobTitle}" was closed by the client: work was not submitted after the deadline and 12-hour grace period. 100% full refund issued to the client.`;
+
+        await recordJobStatusHistory(
+            trx,
+            jobId,
+            'CANCELLED_BY_CLIENT',
+            userId,
+            'CLIENT',
+            'FREELANCER_NON_COMPLETION',
+            closeMsg,
+            { effectiveAmount, penaltyAmount, graceExpiry: new Date(graceExpiryTs) }
+        );
+
+        // System message in chat thread + close accept/reject controls
+        if (thread) {
+            const threadFreelancer = thread.freelancerId ? await trx
+                .selectFrom('freelancers')
+                .select('userId')
+                .where('id', '=', thread.freelancerId)
+                .executeTakeFirst() : null;
+
+            await trx.insertInto('messages').values({
+                id: crypto.randomUUID(),
+                chatThreadId: thread.id,
+                senderId: job.clientUserId,
+                receiverId: threadFreelancer?.userId || '',
+                messageContent: closeMsg,
+                messageType: 'text',
+                messageData: JSON.stringify({ type: 'SYSTEM_CANCEL', cancelledBy: 'client', reason: 'NO_SUBMISSION' }),
+                senderType: 'SYSTEM',
+                isRead: false,
+                updatedAt: now,
+            }).execute();
+
+            // Update thread status so accept/reject options don't reappear
+            await trx
+                .updateTable('chatThreads')
+                .set({ status: 'REJECTED', updatedAt: now })
+                .where('id', '=', thread.id)
+                .execute();
+        }
+
+        // 4. Notify both parties
+        sendNotification(
+            job.clientUserId,
+            'CLIENT',
+            'Report Accepted - Full Refund Issued',
+            `Job "${job.jobTitle}" was closed because no work was submitted after the deadline and 12-hour grace period. 100% of the booking amount (₹${effectiveAmount.toFixed(2)}) has been released back to your available balance.`,
+            'JOB_CANCELLED',
+            { jobId }
+        );
+
+        if (freelancer) {
+            sendNotification(
+                freelancer.userId,
+                'FREELANCER',
+                'Job Closed - Work Not Submitted',
+                `Job "${job.jobTitle}" was closed because no work was submitted after the deadline and the 12-hour grace period. A 2% penalty of ₹${penaltyAmount.toFixed(2)} was deducted, with +1 strike and a 1-day cooldown.`,
+                'JOB_CANCELLED',
+                { jobId }
+            );
+        }
+
+        return updatedJob;
+    });
+}
+
+/**
  * Handle Physical Service Progress Steps (I'm On My Way, Arrived, Request OTP, Verify OTP)
  */
 export async function updatePhysicalJobProgress(
@@ -1646,6 +1907,7 @@ export async function respondToDigitalWork(
             .select([
                 'jobs.id',
                 'jobs.jobTitle',
+                'jobs.jobStatus',
                 'jobs.budgetAmount',
                 'jobs.revisionCount',
                 'clients.userId as clientUserId',
@@ -1657,6 +1919,9 @@ export async function respondToDigitalWork(
 
         if (!job) throw new Error('Job not found');
         if (job.clientUserId !== clientUserId) throw new Error('Unauthorized');
+        if (job.jobStatus === 'DISPUTE_OPEN') {
+            throw new Error('A dispute is open for this job. Accept / Revise is disabled until an admin resolves the dispute.');
+        }
 
         const now = new Date();
 

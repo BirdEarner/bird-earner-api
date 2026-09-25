@@ -421,6 +421,7 @@ export async function respondToWorkSubmissionMessage(
             'messages.attachments',
             'jobs.id as jobId',
             'jobs.projectType',
+            'jobs.jobStatus',
             'chatThreads.clientId',
             'chatThreads.id as chatThreadId'
         ])
@@ -432,6 +433,10 @@ export async function respondToWorkSubmissionMessage(
     const client = await db.selectFrom('clients').select('userId').where('id', '=', msg.clientId).executeTakeFirst();
     if (!client || client.userId !== clientUserId) {
         throw new Error('Unauthorized');
+    }
+
+    if (msg.jobStatus === 'DISPUTE_OPEN') {
+        throw new Error('A dispute is open for this job. Accept / Revise is disabled until an admin resolves the dispute.');
     }
 
     let parsedData: any = {};
