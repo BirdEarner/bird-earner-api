@@ -11,10 +11,10 @@ export async function watermarkPdfBuffer(inputBuffer: Buffer, watermarkText: str
 
     for (const page of pages) {
       const { width, height } = page.getSize();
-      const fontSize = Math.max(16, Math.min(width, height) / 22);
+      const fontSize = Math.max(28, Math.min(width, height) / 12);
 
-      const stepX = 140;
-      const stepY = 90;
+      const stepX = 160;
+      const stepY = 100;
 
       let rowIndex = 0;
       for (let y = -60; y < height + 120; y += stepY) {
@@ -25,9 +25,9 @@ export async function watermarkPdfBuffer(inputBuffer: Buffer, watermarkText: str
             y: y,
             size: fontSize,
             font: font,
-            color: rgb(0.7, 0.7, 0.7),
-            opacity: 0.42,
-            rotate: degrees(32),
+            color: rgb(0.85, 0.85, 0.85),
+            opacity: 0.65,
+            rotate: degrees(35),
           });
         }
         rowIndex++;
@@ -46,41 +46,19 @@ export async function watermarkPdfBuffer(inputBuffer: Buffer, watermarkText: str
  * Get Cloudinary transformation configuration for dense staggered tiled (repeated grid) image and video watermarking.
  */
 export function getCloudinaryWatermarkTransformation(watermarkText: string = '©BIRDEARNER', isVideo: boolean = false) {
-  if (isVideo) {
-    const spaces = '               '; // 15 spaces for wide spaced watermark pattern
-    const rowA = `${watermarkText}${spaces}${watermarkText}${spaces}${watermarkText}${spaces}${watermarkText}${spaces}${watermarkText}`;
-    const rowB = `        ${watermarkText}${spaces}${watermarkText}${spaces}${watermarkText}${spaces}${watermarkText}${spaces}${watermarkText}`;
-
-    // 24 staggered rows to ensure complete edge-to-edge coverage even on vertical HD videos
-    const multilineMatrix = Array(12).fill(null).map(() => `${rowA}\n${rowB}`).join('\n');
-
-    return [
-      {
-        overlay: {
-          font_family: 'Arial',
-          font_size: 40,
-          font_weight: 'bold',
-          text: multilineMatrix,
-        },
-        color: '#FFFFFF',
-        opacity: 45,
-        angle: -32,
-        gravity: 'center',
-      },
-    ];
-  }
+  const textToUse = watermarkText || '©BIRDEARNER';
 
   return [
     {
       overlay: {
         font_family: 'Arial',
-        font_size: 30,
+        font_size: 50,
         font_weight: 'bold',
-        text: watermarkText,
+        text: `${textToUse}          `,
       },
       color: '#FFFFFF',
-      opacity: 45,
-      angle: -32,
+      opacity: 60,
+      angle: -35,
       flags: 'tiled',
     },
   ];

@@ -43,12 +43,16 @@ function getResourceType(file: File): 'image' | 'video' | 'raw' | 'auto' {
 
     if (
         mime.startsWith('image/') ||
+        mime.includes('image') ||
         name.endsWith('.jpg') ||
         name.endsWith('.jpeg') ||
         name.endsWith('.png') ||
         name.endsWith('.webp') ||
         name.endsWith('.gif') ||
-        name.endsWith('.svg')
+        name.endsWith('.svg') ||
+        name.endsWith('.heic') ||
+        name.endsWith('.heif') ||
+        name.endsWith('.bmp')
     ) {
         return 'image';
     }
@@ -106,26 +110,29 @@ export async function POST(request: Request) {
         let watermarkedUrl = '';
 
         if (requiresWatermark && isImageOrVideo) {
-            // Fast Single Upload for Image/Video - Dynamic CDN Watermark Transformation
-            const singleOptions: any = {
+            const isVideo = resourceType === 'video';
+            const watermarkTrans = getCloudinaryWatermarkTransformation('©BIRDEARNER', isVideo);
+
+            const originalOptions: any = {
                 folder: `${uploadCategories[category]}/originals`,
                 resource_type: resourceType,
                 public_id: `original-${Date.now()}-${Math.round(Math.random() * 1e9)}`,
             };
 
-            originalResult = await uploadToCloudinary(originalBuffer, singleOptions);
-            watermarkedResult = originalResult;
+            const watermarkedUploadOptions: any = {
+                folder: uploadCategories[category],
+                resource_type: resourceType,
+                public_id: `wm-${Date.now()}-${Math.round(Math.random() * 1e9)}`,
+                transformation: watermarkTrans,
+            };
+
+            [originalResult, watermarkedResult] = await Promise.all([
+                uploadToCloudinary(originalBuffer, originalOptions),
+                uploadToCloudinary(originalBuffer, watermarkedUploadOptions),
+            ]);
 
             originalUrl = originalResult.secure_url;
-
-            const isVideo = resourceType === 'video';
-            const watermarkTrans = getCloudinaryWatermarkTransformation('©BIRDEARNER', isVideo);
-
-            watermarkedUrl = cloudinary.url(originalResult.public_id, {
-                resource_type: resourceType,
-                transformation: watermarkTrans,
-                secure: true,
-            });
+            watermarkedUrl = watermarkedResult.secure_url;
         } else if (requiresWatermark && isPdf) {
             // PDF watermarked locally via pdf-lib
             watermarkedBuffer = await watermarkPdfBuffer(originalBuffer, '©BIRDEARNER');
