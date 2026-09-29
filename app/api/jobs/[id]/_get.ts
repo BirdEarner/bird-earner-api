@@ -52,6 +52,7 @@ export async function GET(
                 'jobs.applicationDeadline',
                 'jobs.applicationExtended',
                 'jobs.workDeadline',
+                'jobs.freelancerGracePeriodExpiresAt',
                 'jobs.otpCode',
                 'jobs.otpVerifiedAt',
                 'jobs.travelStartedAt',
