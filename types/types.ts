@@ -384,6 +384,8 @@ export type Job = {
     submittedWorkData: unknown | null;
     revisionCount: Generated<number>;
     clientReviewPeriodExpiresAt: Timestamp | null;
+    clientReviewReminderSentAt: Timestamp | null;
+    clientReviewFinalReminderSentAt: Timestamp | null;
     freelancerGracePeriodExpiresAt: Timestamp | null;
     cancellationReason: string | null;
     priceChangeRequested: string | null;

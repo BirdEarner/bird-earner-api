@@ -72,8 +72,6 @@ model User {
   password                 String?
   fullName                 String?             @map("fullName")
   isTestAccount            Boolean             @default(false) @map("isTestAccount")
-  provider                 String              @default("email")
-  providerAccountId        String?             @unique
   createdAt                DateTime            @default(now()) @map("createdAt")
   updatedAt                DateTime            @updatedAt @map("updatedAt")
   resetPasswordExpires     BigInt?             @map("resetPasswordExpires")
@@ -82,6 +80,8 @@ model User {
   isEmailVerified          Boolean             @default(false) @map("isEmailVerified")
   emailVerificationToken   String?             @map("emailVerificationToken") @db.VarChar(255)
   emailVerificationExpires BigInt?             @map("emailVerificationExpires")
+  provider                 String              @default("email") @db.VarChar(255)
+  providerAccountId        String?             @unique @db.VarChar(255)
   profilePhoto             String?             @map("profilePhoto")
   dob                      DateTime?
   gender                   String?
@@ -155,9 +155,6 @@ model Freelancer {
   profileDescription    String?             @map("profileDescription")
   portfolioImages       Json?               @map("portfolioImages")
   coverPhoto            String?             @map("coverPhoto")
-  freelancerCategory    String?             @map("freelancerCategory")
-  skills                Json?               @map("skills")
-  languages             Json?               @map("languages")
   currentlyAvailable    Boolean?            @default(true) @map("currentlyAvailable")
   nextAvailable         String?             @map("nextAvailable")
   termsAccepted         Boolean?            @map("termsAccepted")
@@ -171,21 +168,24 @@ model Freelancer {
   monthlyEarnings       Decimal             @default(0.00) @map("monthlyEarnings") @db.Decimal(10, 2)
   outstandingAmount     Decimal             @default(0.00) @map("outstandingAmount") @db.Decimal(10, 2)
   withdrawableAmount    Decimal             @default(0.00) @map("withdrawableAmount") @db.Decimal(10, 2)
-  totalPenaltyReceived  Decimal             @default(0.00) @map("totalPenaltyReceived") @db.Decimal(10, 2)
-  totalPenaltyDeducted  Decimal             @default(0.00) @map("totalPenaltyDeducted") @db.Decimal(10, 2)
-  cancellationStrikes   Int                 @default(0) @map("cancellationStrikes")
-  cooldownExpiresAt     DateTime?           @map("cooldownExpiresAt")
   createdAt             DateTime            @default(now()) @map("createdAt")
   updatedAt             DateTime            @updatedAt @map("updatedAt")
   availabilityUpdatedAt DateTime?           @map("availabilityUpdatedAt")
+  totalPenaltyDeducted  Decimal             @default(0.00) @map("totalPenaltyDeducted") @db.Decimal(10, 2)
+  totalPenaltyReceived  Decimal             @default(0.00) @map("totalPenaltyReceived") @db.Decimal(10, 2)
+  freelancerCategory    String?             @map("freelancerCategory")
+  skills                Json?               @map("skills")
+  languages             Json?               @map("languages")
+  cancellationStrikes   Int?                @default(0) @map("cancellationStrikes")
+  cooldownExpiresAt     DateTime?           @map("cooldownExpiresAt") @db.Timestamp(6)
   chatThreads           ChatThread[]        @relation("FreelancerChatThreads")
   earnings              Earning[]
   user                  User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   assignedJobs_rel      Job[]               @relation("AssignedFreelancer")
   jobsCreated           Job[]               @relation("FreelancerJobs")
   paymentHistory        PaymentHistory[]
-  reviews               Review[]
   penaltyLogs           PenaltyLog[]
+  reviews               Review[]
   userEggs              UserEgg[]
   withdrawalRequests    WithdrawalRequest[]
 
@@ -228,77 +228,80 @@ model Client {
 }
 
 model Job {
-  id                   String              @id @default(uuid())
-  jobTitle             String              @map("jobTitle")
-  jobDescription       String              @map("jobDescription")
-  jobCategory          String              @map("jobCategory")
-  jobSubCategory       String              @map("jobSubCategory")
-  skillsRequired       Json                @map("skillsRequired")
-  projectType          String              @map("projectType")
-  budgetType           String              @map("budgetType")
-  budgetAmount         Decimal             @map("budgetAmount") @db.Decimal(10, 2)
-  clientId             String              @map("clientId")
-  paymentMethod        String              @default("PLATFORM") @map("paymentMethod")
-  birdFeeAmount        Decimal?            @map("birdFeeAmount") @db.Decimal(10, 2)
-  birdFeePaid          Boolean             @default(false) @map("birdFeePaid")
-  assignedFreelancerId String?             @map("assignedFreelancerId")
-  createdBy            String?             @map("createdBy")
-  serviceId            String?             @map("serviceId")
-  jobStatus            JobStatus           @default(OPEN) @map("jobStatus")
-  proposalCount        Int                 @default(0) @map("proposalCount")
-  deadlineDate         DateTime?           @map("deadlineDate")
-  assignedAt           DateTime?           @map("assignedAt")
-  attachedFiles        Json?               @map("attachedFiles")
-  location             String?
-  latitude             Decimal?            @db.Decimal(10, 8)
-  longitude            Decimal?            @db.Decimal(11, 8)
-  isUrgent             Boolean?            @default(false) @map("isUrgent")
-  createdAt            DateTime            @default(now()) @map("createdAt")
-  updatedAt            DateTime            @updatedAt @map("updatedAt")
-  amountPaid           Decimal?            @default(0.00) @map("amountPaid") @db.Decimal(10, 2)
-  isAmountReserved     Boolean             @default(false) @map("isAmountReserved")
-  paymentStatus        PaymentStatus       @default(PENDING) @map("paymentStatus")
-  completedAt          DateTime?           @map("completedAt")
-  cancelledAt          DateTime?           @map("cancelledAt")
-  cashbackOfferId      String?             @map("cashbackOfferId")
-  discountAmount       Decimal?            @default(0) @map("discountAmount") @db.Decimal(10, 2)
-  deleted              Boolean             @default(false) @map("deleted")
-  clientPenaltyAmount  Decimal?            @default(0) @map("clientPenaltyAmount") @db.Decimal(10, 2)
-  applicationDeadline         DateTime?           @map("applicationDeadline")
-  applicationExtended         Boolean             @default(false) @map("applicationExtended")
-  applicationDeadlineOriginal DateTime?           @map("applicationDeadlineOriginal")
-  applicationExtensionCount   Int                 @default(0) @map("applicationExtensionCount")
-  workDurationDays            Int?                @map("workDurationDays")
-  workDeadline                DateTime?           @map("workDeadline")
-  confirmedAt                 DateTime?           @map("confirmedAt")
-  negotiatedAmount            Decimal?            @map("negotiatedAmount") @db.Decimal(10, 2)
-  arrivedAt                   DateTime?           @map("arrivedAt")
-  travelStartedAt             DateTime?           @map("travelStartedAt")
-  jobStartTime                DateTime?           @map("jobStartTime")
-  workCompletedAt             DateTime?           @map("workCompletedAt")
-  clientConfirmedWorkAt       DateTime?           @map("clientConfirmedWorkAt")
-  postOtpCancellationWindowExpiresAt DateTime?    @map("postOtpCancellationWindowExpiresAt")
-  otpCode                     String?             @map("otpCode") @db.VarChar(6)
-  otpVerifiedAt               DateTime?           @map("otpVerifiedAt")
-  submittedWorkData           Json?               @map("submittedWorkData")
-  revisionCount               Int                 @default(0) @map("revisionCount")
-  clientReviewPeriodExpiresAt DateTime?           @map("clientReviewPeriodExpiresAt")
-  freelancerGracePeriodExpiresAt DateTime?        @map("freelancerGracePeriodExpiresAt")
-  cancellationReason          String?             @map("cancellationReason")
-  priceChangeRequested        Decimal?            @map("priceChangeRequested") @db.Decimal(10, 2)
-  priceChangeReason           String?             @map("priceChangeReason")
-  chatThreads          ChatThread[]        @relation("JobChatThreads")
-  bookmarks            JobBookmark[]
-  statusHistory        JobStatusHistory[]
-  assignedFreelancer   Freelancer?         @relation("AssignedFreelancer", fields: [assignedFreelancerId], references: [id], map: "jobsAssignedFreelancerFkey")
-  createdByFreelancer  Freelancer?         @relation("FreelancerJobs", fields: [createdBy], references: [id], map: "jobsCreatedByFreelancerFkey")
-  service              Service?            @relation("JobService", fields: [serviceId], references: [id], map: "jobsServiceIdFkey")
-  client               Client              @relation("ClientJobs", fields: [clientId], references: [id], onDelete: Cascade)
-  messages             Message[]
-  reviews              Review[]
-  walletTransactions   WalletTransaction[]
-  penaltyLogs          PenaltyLog[]
-  penaltySourceJobs    PenaltyLog[] @relation("PenaltySourceJob")
+  id                                 String              @id @default(uuid())
+  jobTitle                           String              @map("jobTitle")
+  jobDescription                     String              @map("jobDescription")
+  jobCategory                        String              @map("jobCategory")
+  jobSubCategory                     String              @map("jobSubCategory")
+  skillsRequired                     Json                @map("skillsRequired")
+  projectType                        String              @map("projectType")
+  budgetType                         String              @map("budgetType")
+  budgetAmount                       Decimal             @map("budgetAmount") @db.Decimal(10, 2)
+  clientId                           String              @map("clientId")
+  paymentMethod                      String              @default("PLATFORM") @map("paymentMethod")
+  birdFeeAmount                      Decimal?            @map("birdFeeAmount") @db.Decimal(10, 2)
+  birdFeePaid                        Boolean             @default(false) @map("birdFeePaid")
+  assignedFreelancerId               String?             @map("assignedFreelancerId")
+  createdBy                          String?             @map("createdBy")
+  serviceId                          String?             @map("serviceId")
+  jobStatus                          JobStatus           @default(OPEN) @map("jobStatus")
+  proposalCount                      Int                 @default(0) @map("proposalCount")
+  deadlineDate                       DateTime?           @map("deadlineDate")
+  assignedAt                         DateTime?           @map("assignedAt")
+  attachedFiles                      Json?               @map("attachedFiles")
+  location                           String?
+  latitude                           Decimal?            @db.Decimal(10, 8)
+  longitude                          Decimal?            @db.Decimal(11, 8)
+  isUrgent                           Boolean?            @default(false) @map("isUrgent")
+  createdAt                          DateTime            @default(now()) @map("createdAt")
+  updatedAt                          DateTime            @updatedAt @map("updatedAt")
+  amountPaid                         Decimal?            @default(0.00) @map("amountPaid") @db.Decimal(10, 2)
+  isAmountReserved                   Boolean             @default(false) @map("isAmountReserved")
+  paymentStatus                      PaymentStatus       @default(PENDING) @map("paymentStatus")
+  completedAt                        DateTime?           @map("completedAt")
+  cashbackOfferId                    String?             @map("cashbackOfferId")
+  discountAmount                     Decimal?            @default(0) @map("discountAmount") @db.Decimal(10, 2)
+  deleted                            Boolean             @default(false) @map("deleted")
+  clientPenaltyAmount                Decimal?            @default(0) @map("clientPenaltyAmount") @db.Decimal(10, 2)
+  cancelledAt                        DateTime?           @map("cancelledAt")
+  applicationDeadline                DateTime?           @map("applicationDeadline")
+  applicationExtended                Boolean             @default(false) @map("applicationExtended")
+  workDurationDays                   Int?                @map("workDurationDays")
+  workDeadline                       DateTime?           @map("workDeadline")
+  confirmedAt                        DateTime?           @map("confirmedAt")
+  arrivedAt                          DateTime?           @map("arrivedAt")
+  otpCode                            String?             @map("otpCode") @db.VarChar(6)
+  otpVerifiedAt                      DateTime?           @map("otpVerifiedAt")
+  submittedWorkData                  Json?               @map("submittedWorkData")
+  revisionCount                      Int                 @default(0) @map("revisionCount")
+  clientReviewPeriodExpiresAt        DateTime?           @map("clientReviewPeriodExpiresAt")
+  freelancerGracePeriodExpiresAt     DateTime?           @map("freelancerGracePeriodExpiresAt")
+  cancellationReason                 String?             @map("cancellationReason")
+  priceChangeRequested               Decimal?            @map("priceChangeRequested") @db.Decimal(10, 2)
+  priceChangeReason                  String?             @map("priceChangeReason")
+  applicationDeadlineOriginal        DateTime?           @map("applicationDeadlineOriginal")
+  applicationExtensionCount          Int                 @default(0) @map("applicationExtensionCount")
+  negotiatedAmount                   Decimal?            @map("negotiatedAmount") @db.Decimal(10, 2)
+  travelStartedAt                    DateTime?           @map("travelStartedAt")
+  jobStartTime                       DateTime?           @map("jobStartTime")
+  workCompletedAt                    DateTime?           @map("workCompletedAt")
+  clientConfirmedWorkAt              DateTime?           @map("clientConfirmedWorkAt")
+  postOtpCancellationWindowExpiresAt DateTime?           @map("postOtpCancellationWindowExpiresAt")
+  priceChangeAcceptedAt              DateTime?
+  clientReviewReminderSentAt         DateTime?
+  clientReviewFinalReminderSentAt    DateTime?
+  chatThreads                        ChatThread[]        @relation("JobChatThreads")
+  bookmarks                          JobBookmark[]
+  statusHistory                      JobStatusHistory[]
+  assignedFreelancer                 Freelancer?         @relation("AssignedFreelancer", fields: [assignedFreelancerId], references: [id], map: "jobsAssignedFreelancerFkey")
+  createdByFreelancer                Freelancer?         @relation("FreelancerJobs", fields: [createdBy], references: [id], map: "jobsCreatedByFreelancerFkey")
+  service                            Service?            @relation("JobService", fields: [serviceId], references: [id], map: "jobsServiceIdFkey")
+  client                             Client              @relation("ClientJobs", fields: [clientId], references: [id], onDelete: Cascade)
+  messages                           Message[]
+  penaltySourceJobs                  PenaltyLog[]        @relation("PenaltySourceJob")
+  penaltyLogs                        PenaltyLog[]
+  reviews                            Review[]
+  walletTransactions                 WalletTransaction[]
 
   @@index([assignedFreelancerId], map: "jobsAssignedFreelancerIdx")
   @@index([clientId], map: "jobsClientIdIdx")
@@ -442,21 +445,21 @@ model WalletTransaction {
 }
 
 model PenaltyLog {
-  id              String         @id @default(uuid())
-  jobId           String         @map("jobId")
-  clientId        String         @map("clientId")
-  freelancerId    String?        @map("freelancerId")
-  penaltyType     String         @map("penaltyType")
-  amount          Decimal        @db.Decimal(10, 2)
-  status          String         @default("PENDING")
-  description     String?        @db.Text
-  createdByJobId  String?        @map("createdByJobId")
-  createdAt       DateTime       @default(now()) @map("createdAt")
-  updatedAt       DateTime       @updatedAt @map("updatedAt")
-  job             Job            @relation(fields: [jobId], references: [id])
-  client          Client         @relation(fields: [clientId], references: [id])
-  freelancer      Freelancer?    @relation(fields: [freelancerId], references: [id])
-  sourceJob       Job?           @relation("PenaltySourceJob", fields: [createdByJobId], references: [id])
+  id             String      @id @default(uuid())
+  jobId          String      @map("jobId")
+  clientId       String      @map("clientId")
+  freelancerId   String?     @map("freelancerId")
+  penaltyType    String      @map("penaltyType")
+  amount         Decimal     @db.Decimal(10, 2)
+  status         String      @default("PENDING")
+  description    String?
+  createdByJobId String?     @map("createdByJobId")
+  createdAt      DateTime    @default(now()) @map("createdAt")
+  updatedAt      DateTime    @updatedAt @map("updatedAt")
+  client         Client      @relation(fields: [clientId], references: [id])
+  sourceJob      Job?        @relation("PenaltySourceJob", fields: [createdByJobId], references: [id])
+  freelancer     Freelancer? @relation(fields: [freelancerId], references: [id], onDelete: Restrict)
+  job            Job         @relation(fields: [jobId], references: [id])
 
   @@index([jobId], map: "penaltyLogsJobIdIdx")
   @@index([clientId], map: "penaltyLogsClientIdIdx")
@@ -481,13 +484,13 @@ model UserEgg {
 }
 
 model BlockedUser {
-  id                String     @id @default(uuid())
-  blockerId         String     @map("blockerId")
-  blockedId         String     @map("blockedId")
-  blockerType       String     @map("blockerType")
-  blockedType       String     @map("blockedType")
-  reason            String?
-  createdAt         DateTime   @default(now()) @map("createdAt")
+  id          String   @id @default(uuid())
+  blockerId   String   @map("blockerId")
+  blockedId   String   @map("blockedId")
+  blockerType String   @map("blockerType")
+  blockedType String   @map("blockedType")
+  reason      String?
+  createdAt   DateTime @default(now()) @map("createdAt")
 
   @@unique([blockerId, blockedId], map: "uniqueBlockRelationship")
   @@index([blockerId], map: "blockedUsersBlockerIdIdx")
@@ -699,10 +702,10 @@ model NegotiationHistory {
   offerType      String     @map("offerType")
   amount         Decimal    @map("amount") @db.Decimal(10, 2)
   previousAmount Decimal?   @map("previousAmount") @db.Decimal(10, 2)
-  days           Int?       @map("days")
-  previousDays   Int?       @map("previousDays")
   note           String?    @map("note")
   createdAt      DateTime   @default(now()) @map("createdAt")
+  days           Int?       @map("days")
+  previousDays   Int?       @map("previousDays")
   chatThread     ChatThread @relation("NegotiationThreadHistory", fields: [chatThreadId], references: [id])
 
   @@index([jobId], map: "negotiationHistoryJobIdIdx")
@@ -765,18 +768,6 @@ model OtpVerification {
   @@map("otpVerifications")
 }
 
-enum AdminRole {
-  admin
-  superadmin
-}
-
-enum ContactStatus {
-  pending
-  in_progress
-  resolved
-  closed
-}
-
 model JobStatusHistory {
   id        String   @id @default(uuid())
   jobId     String   @map("jobId")
@@ -794,14 +785,29 @@ model JobStatusHistory {
   @@map("jobStatusHistory")
 }
 
+enum AdminRole {
+  admin
+  superadmin
+}
+
+enum ContactStatus {
+  pending
+  in_progress
+  resolved
+  closed
+}
+
 enum JobStatus {
   OPEN
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  PAUSED
   FREELANCER_APPLIED
   NEGOTIATING
   AWAITING_CLIENT_CONFIRMATION
   PAYMENT_PENDING
   CONFIRMED
-  IN_PROGRESS
   FREELANCER_TRAVELLING
   ARRIVED
   JOB_STARTED
@@ -811,18 +817,15 @@ enum JobStatus {
   AWAITING_CLIENT_ACCEPTANCE
   AUTO_ACCEPTED
   WORK_ACCEPTED
-  COMPLETED
-  CANCELLED
   CANCELLED_BY_CLIENT
   CANCELLED_BY_FREELANCER
-  CANCELLED_SCOPE_MISMATCH
   DISPUTE_OPEN
   DISPUTE_RESOLVED
   DEADLINE_EXPIRED
   EXPIRED
   FAILED
   REFUNDED
-  PAUSED
+  CANCELLED_SCOPE_MISMATCH
 }
 
 enum EarningStatus {

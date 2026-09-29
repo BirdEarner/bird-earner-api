@@ -106,6 +106,93 @@ export async function processJobTimers() {
         }
     }
 
+    // 2. Client review period reminders (6h midpoint + final 1h before expiry)
+    const sixHoursFromNow = new Date(now.getTime() + 6 * 60 * 60 * 1000);
+    const oneHourFromNow = new Date(now.getTime() + 60 * 60 * 1000);
+
+    const reviewReminderJobs = await db
+        .selectFrom('jobs')
+        .innerJoin('clients', 'clients.id', 'jobs.clientId')
+        .select([
+            'jobs.id as id',
+            'jobs.jobTitle as jobTitle',
+            'jobs.clientReviewPeriodExpiresAt as clientReviewPeriodExpiresAt',
+            'jobs.clientReviewReminderSentAt as clientReviewReminderSentAt',
+            'jobs.clientReviewFinalReminderSentAt as clientReviewFinalReminderSentAt',
+            'clients.userId as clientUserId',
+        ])
+        .where('jobs.jobStatus', '=', 'WORK_SUBMITTED')
+        .where('jobs.clientReviewPeriodExpiresAt', 'is not', null)
+        .where('jobs.clientReviewPeriodExpiresAt', '<=', sixHoursFromNow)
+        .where('jobs.clientReviewPeriodExpiresAt', '>', now)
+        .where((eb) => eb.or([eb('jobs.clientReviewReminderSentAt', 'is', null), eb('jobs.clientReviewFinalReminderSentAt', 'is', null)]))
+        .execute();
+
+    for (const job of reviewReminderJobs) {
+        const expiresAt = job.clientReviewPeriodExpiresAt;
+        if (!expiresAt) continue;
+
+        const sendMidReminder = !job.clientReviewReminderSentAt && expiresAt.getTime() <= sixHoursFromNow.getTime();
+        const sendFinalReminder = !job.clientReviewFinalReminderSentAt && expiresAt.getTime() <= oneHourFromNow.getTime();
+        if (!sendMidReminder && !sendFinalReminder) continue;
+
+        try {
+            await db.transaction().execute(async (trx) => {
+                const currentJob = await trx
+                    .selectFrom('jobs')
+                    .select(['jobStatus', 'clientReviewPeriodExpiresAt', 'clientReviewReminderSentAt', 'clientReviewFinalReminderSentAt'])
+                    .where('id', '=', job.id)
+                    .forUpdate()
+                    .executeTakeFirst();
+
+                if (!currentJob || currentJob.jobStatus !== 'WORK_SUBMITTED') {
+                    return;
+                }
+
+                const currentExpiresAt = currentJob.clientReviewPeriodExpiresAt;
+                if (!currentExpiresAt || currentExpiresAt.getTime() <= now.getTime()) {
+                    return;
+                }
+
+                if (sendMidReminder && !currentJob.clientReviewReminderSentAt && currentExpiresAt.getTime() <= sixHoursFromNow.getTime()) {
+                    await trx
+                        .updateTable('jobs')
+                        .set({ clientReviewReminderSentAt: new Date(), updatedAt: new Date() })
+                        .where('id', '=', job.id)
+                        .execute();
+
+                    sendNotification(
+                        job.clientUserId,
+                        'CLIENT',
+                        'Work Review Reminder',
+                        'Reminder: Your Freelancer is waiting for your review. Please review the submitted work and respond.',
+                        'WORK_SUBMITTED',
+                        { jobId: job.id }
+                    );
+                }
+
+                if (sendFinalReminder && !currentJob.clientReviewFinalReminderSentAt && currentExpiresAt.getTime() <= oneHourFromNow.getTime()) {
+                    await trx
+                        .updateTable('jobs')
+                        .set({ clientReviewFinalReminderSentAt: new Date(), updatedAt: new Date() })
+                        .where('id', '=', job.id)
+                        .execute();
+
+                    sendNotification(
+                        job.clientUserId,
+                        'CLIENT',
+                        'Final Review Reminder',
+                        "Final Review Reminder: Please review the submitted work. If you do not respond within the remaining review period, the work may be automatically accepted according to BirdEarner's completion policy.",
+                        'WORK_SUBMITTED',
+                        { jobId: job.id }
+                    );
+                }
+            });
+        } catch (err) {
+            console.error(`Failed to send client review reminders for job ${job.id}:`, err);
+        }
+    }
+
     // 3. Work Deadline Missed handling (12-hour grace period for remote / Auto-cancel for On-site NO-SHOW)
     const missedDeadlineJobs = await db
         .selectFrom('jobs')

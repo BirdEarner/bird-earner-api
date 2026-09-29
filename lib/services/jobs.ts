@@ -1860,6 +1860,8 @@ export async function submitDigitalWork(
                 jobStatus: 'WORK_SUBMITTED',
                 submittedWorkData: JSON.stringify(submissionPayload),
                 clientReviewPeriodExpiresAt: clientReviewPeriodExpiresAt,
+                clientReviewReminderSentAt: null,
+                clientReviewFinalReminderSentAt: null,
                 updatedAt: now,
             })
             .where('id', '=', jobId)
@@ -1881,7 +1883,7 @@ export async function submitDigitalWork(
             job.clientUserId,
             'CLIENT',
             'Work Submitted for Review',
-            `Your freelancer uploaded work for "${job.jobTitle}". Please review the submitted work within 12 hours.`,
+            `Your Freelancer has submitted work for review for "${job.jobTitle}". Please review the submitted work.`,
             'WORK_SUBMITTED',
             { jobId }
         );
