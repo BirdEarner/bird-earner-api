@@ -30,6 +30,20 @@ export async function recordJobStatusHistory(
 }
 
 /**
+ * Add N business days to a date (skips Saturdays and Sundays)
+ */
+function addBusinessDays(from: Date, days: number): Date {
+    const result = new Date(from.getTime());
+    let added = 0;
+    while (added < days) {
+        result.setDate(result.getDate() + 1);
+        const day = result.getDay();
+        if (day !== 0 && day !== 6) added++;
+    }
+    return result;
+}
+
+/**
  * Process automatic job timers (Application deadline, 12h review auto-accept, 12h work deadline grace period / On-site auto-cancel)
  */
 export async function processJobTimers() {
@@ -38,7 +52,7 @@ export async function processJobTimers() {
     // 1. Auto-accept WORK_SUBMITTED jobs where clientReviewPeriodExpiresAt <= now
     const autoAcceptJobs = await db
         .selectFrom('jobs')
-        .select(['id', 'jobTitle', 'assignedFreelancerId', 'clientId', 'budgetAmount'])
+        .select(['id', 'jobTitle', 'assignedFreelancerId', 'clientId', 'budgetAmount', 'negotiatedAmount'])
         .where('jobStatus', '=', 'WORK_SUBMITTED')
         .where('clientReviewPeriodExpiresAt', '<=', now)
         .execute();
@@ -65,7 +79,7 @@ export async function processJobTimers() {
                         jobStatus: 'AUTO_ACCEPTED',
                         completedAt: now,
                         paymentStatus: 'COMPLETED',
-                        amountPaid: job.budgetAmount,
+                        amountPaid: job.negotiatedAmount || job.budgetAmount,
                         isAmountReserved: false,
                         updatedAt: now,
                     })
@@ -190,6 +204,81 @@ export async function processJobTimers() {
             });
         } catch (err) {
             console.error(`Failed to send client review reminders for job ${job.id}:`, err);
+        }
+    }
+
+    // 2.5. Release matured withdrawal holds (WITHDRAWAL_HOLD_BUSINESS_DAYS, default 3 business days)
+    const holdBusinessDays = Math.max(1, parseInt(process.env.WITHDRAWAL_HOLD_BUSINESS_DAYS || '3', 10) || 3);
+    const heldEarnings = await db
+        .selectFrom('earnings')
+        .select(['id', 'freelancerId', 'jobId', 'amount', 'description', 'createdAt'])
+        .where('status', '=', 'PENDING')
+        .orderBy('createdAt', 'asc')
+        .limit(200)
+        .execute();
+
+    for (const earning of heldEarnings) {
+        const releaseAt = addBusinessDays(new Date(earning.createdAt), holdBusinessDays);
+        if (releaseAt.getTime() > now.getTime()) continue;
+
+        try {
+            await db.transaction().execute(async (trx) => {
+                const locked = await trx
+                    .selectFrom('earnings')
+                    .select(['status'])
+                    .where('id', '=', earning.id)
+                    .forUpdate()
+                    .executeTakeFirst();
+
+                if (!locked || locked.status !== 'PENDING') {
+                    return; // Already released by a concurrent request
+                }
+
+                const freelancer = await trx
+                    .selectFrom('freelancers')
+                    .select(['id', 'userId', 'withdrawableAmount'])
+                    .where('id', '=', earning.freelancerId)
+                    .executeTakeFirst();
+
+                if (!freelancer) return;
+
+                const currentBalance = parseFloat(freelancer.withdrawableAmount?.toString() || '0');
+                const releaseAmount = parseFloat(earning.amount);
+
+                await trx
+                    .updateTable('earnings')
+                    .set({ status: 'APPROVED', updatedAt: new Date() })
+                    .where('id', '=', earning.id)
+                    .execute();
+
+                await trx
+                    .updateTable('freelancers')
+                    .set({
+                        withdrawableAmount: (currentBalance + releaseAmount).toString(),
+                        updatedAt: new Date()
+                    })
+                    .where('id', '=', earning.freelancerId)
+                    .execute();
+
+                await trx
+                    .insertInto('walletTransactions')
+                    .values({
+                        id: crypto.randomUUID(),
+                        userId: freelancer.userId,
+                        userType: 'FREELANCER',
+                        jobId: earning.jobId,
+                        transactionType: 'HOLD_RELEASE',
+                        amount: releaseAmount.toString(),
+                        balanceBefore: currentBalance.toString(),
+                        balanceAfter: (currentBalance + releaseAmount).toString(),
+                        description: `Withdrawal hold released${earning.description ? ` — ${earning.description}` : ''}`,
+                        createdAt: new Date(),
+                        updatedAt: new Date()
+                    })
+                    .execute();
+            });
+        } catch (err) {
+            console.error(`Failed to release held earning ${earning.id}:`, err);
         }
     }
 

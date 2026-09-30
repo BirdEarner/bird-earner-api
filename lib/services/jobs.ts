@@ -381,14 +381,14 @@ export async function assignFreelancer(jobId: string, freelancerId: string, clie
                 } as any;
             }
 
-            // Deduct additional amount from wallet
-            const newWalletBalance = currentWallet - additionalAmount;
+            const newReserved = currentReserved + additionalAmount;
+            const newAvailableBalance = Math.max(0, currentWallet - newReserved);
 
             await trx
                 .updateTable('clients')
                 .set({
-                    wallet: newWalletBalance.toString(),
-                    reservedAmount: (currentReserved + additionalAmount).toString(),
+                    reservedAmount: newReserved.toString(),
+                    availableBalance: newAvailableBalance.toString(),
                     updatedAt: new Date()
                 })
                 .where('id', '=', clientRow.id)
@@ -400,10 +400,10 @@ export async function assignFreelancer(jobId: string, freelancerId: string, clie
                 userId: clientRow.userId,
                 userType: 'CLIENT',
                 jobId: jobId,
-                amount: (-additionalAmount).toString(),
+                amount: additionalAmount.toString(),
                 transactionType: 'JOB_RESERVE',
                 balanceBefore: currentWallet.toString(),
-                balanceAfter: newWalletBalance.toString(),
+                balanceAfter: currentWallet.toString(),
                 description: `Additional amount reserved for negotiated price (₹${originalBudgetNum.toFixed(2)} → ₹${finalAmountNum.toFixed(2)})`,
                 updatedAt: new Date()
             }).execute();
@@ -641,7 +641,7 @@ export async function completeJob(jobId: string, clientUserId: string) {
     return await db.transaction().execute(async (trx) => {
         const job = await trx
             .selectFrom('jobs')
-            .select(['id', 'clientId', 'assignedFreelancerId', 'jobTitle', 'budgetAmount'])
+            .select(['id', 'clientId', 'assignedFreelancerId', 'jobTitle', 'budgetAmount', 'negotiatedAmount', 'paymentStatus'])
             .where('id', '=', jobId)
             .executeTakeFirst();
 
@@ -658,8 +658,10 @@ export async function completeJob(jobId: string, clientUserId: string) {
             throw new Error('Unauthorized');
         }
 
-        // 1. Process Payment
-        await processJobPaymentInTransaction(trx, jobId);
+        // 1. Process Payment (only if not already settled, e.g. by Accept Work)
+        if (job.paymentStatus !== 'COMPLETED') {
+            await processJobPaymentInTransaction(trx, jobId);
+        }
 
         // 2. Update Status
         const completedJob = await trx
@@ -668,7 +670,7 @@ export async function completeJob(jobId: string, clientUserId: string) {
                 jobStatus: 'COMPLETED',
                 completedAt: new Date(),
                 paymentStatus: 'COMPLETED',
-                amountPaid: job.budgetAmount,
+                amountPaid: job.negotiatedAmount || job.budgetAmount,
                 isAmountReserved: false,
                 updatedAt: new Date()
             })
@@ -1911,6 +1913,7 @@ export async function respondToDigitalWork(
                 'jobs.jobTitle',
                 'jobs.jobStatus',
                 'jobs.budgetAmount',
+                'jobs.negotiatedAmount',
                 'jobs.revisionCount',
                 'clients.userId as clientUserId',
                 'freelancers.id as freelancerId',
@@ -1936,7 +1939,7 @@ export async function respondToDigitalWork(
                     jobStatus: 'WORK_ACCEPTED',
                     completedAt: now,
                     paymentStatus: 'COMPLETED',
-                    amountPaid: job.budgetAmount,
+                    amountPaid: job.negotiatedAmount || job.budgetAmount,
                     isAmountReserved: false,
                     clientReviewPeriodExpiresAt: null,
                     updatedAt: now,

@@ -826,6 +826,7 @@ enum JobStatus {
   FAILED
   REFUNDED
   CANCELLED_SCOPE_MISMATCH
+  CLOSED
 }
 
 enum EarningStatus {
@@ -861,6 +862,7 @@ enum TransactionType {
   PENALTY
   BONUS
   PLATFORM_FEE
+  HOLD_RELEASE
 }
 
 enum ServiceCategory {

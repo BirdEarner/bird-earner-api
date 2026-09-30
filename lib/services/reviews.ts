@@ -1,4 +1,5 @@
 import { db } from "../db";
+import { recordJobStatusHistory } from "./timers";
 
 /**
  * Calculates current level based on total XP
@@ -174,6 +175,33 @@ export const createReview = async (data: CreateReviewData) => {
                         .where('id', '=', messageId)
                         .execute();
                 }
+            }
+        }
+
+        // 4. Close the job after the client's review (COMPLETED → CLOSED)
+        if (jobId && reviewType === 'FREELANCER') {
+            const job = await trx
+                .selectFrom('jobs')
+                .select(['id', 'jobStatus'])
+                .where('id', '=', jobId)
+                .executeTakeFirst();
+
+            if (job && job.jobStatus === 'COMPLETED') {
+                await trx
+                    .updateTable('jobs')
+                    .set({ jobStatus: 'CLOSED', updatedAt: new Date() })
+                    .where('id', '=', jobId)
+                    .execute();
+
+                await recordJobStatusHistory(
+                    trx,
+                    jobId,
+                    'CLOSED',
+                    reviewerId,
+                    'CLIENT',
+                    'CLOSE_JOB',
+                    'Job closed after client review'
+                );
             }
         }
 

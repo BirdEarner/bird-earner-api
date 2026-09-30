@@ -273,15 +273,33 @@ export async function processJobPaymentInTransaction(
         .execute();
 
     // 2. Add freelancer payment amount to freelancer earnings
+    // Note: withdrawableAmount is NOT credited here — the amount is held for the
+    // withdrawal-hold period (WITHDRAWAL_HOLD_BUSINESS_DAYS, default 3 business days)
+    // and credited to withdrawableAmount by the job timers once the hold matures.
     await trx
         .updateTable('freelancers')
         .set({
             totalEarnings: (freelancerCurrentEarnings + freelancerPaymentAmount).toString(),
             monthlyEarnings: (freelancerCurrentMonthly + freelancerPaymentAmount).toString(),
-            withdrawableAmount: (freelancerCurrentWithdrawable + freelancerPaymentAmount).toString(),
             updatedAt: new Date()
         })
         .where('id', '=', job.freelancerId)
+        .execute();
+
+    // 2b. Record the earning under withdrawal hold (PENDING until the hold matures)
+    await trx
+        .insertInto('earnings')
+        .values({
+            id: crypto.randomUUID(),
+            freelancerId: job.freelancerId,
+            jobId,
+            amount: freelancerPaymentAmount.toFixed(2),
+            earningType: 'JOB_PAYMENT',
+            description: `Earnings from job: ${job.jobTitle}`,
+            status: 'PENDING',
+            createdAt: new Date(),
+            updatedAt: new Date()
+        })
         .execute();
 
     // 3. Create wallet transaction for client (debit effective amount)
@@ -314,7 +332,7 @@ export async function processJobPaymentInTransaction(
             transactionType: 'JOB_PAYMENT',
             amount: freelancerPaymentAmount.toString(),
             balanceBefore: freelancerCurrentWithdrawable.toString(),
-            balanceAfter: (freelancerCurrentWithdrawable + freelancerPaymentAmount).toString(),
+            balanceAfter: freelancerCurrentWithdrawable.toString(),
             description: `Earnings from job: ${job.jobTitle} (after platform fee)`,
             createdAt: new Date(),
             updatedAt: new Date()
@@ -331,10 +349,10 @@ export async function processJobPaymentInTransaction(
                 userId: job.freelancerUserId!,
                 userType: 'FREELANCER',
                 jobId,
-                transactionType: 'PLATFORM_FEE',
-                amount: (-birdFeeAmount).toString(),
-                balanceBefore: (freelancerCurrentWithdrawable + freelancerPaymentAmount).toString(),
-                balanceAfter: (freelancerCurrentWithdrawable + freelancerPaymentAmount).toString(),
+            transactionType: 'PLATFORM_FEE',
+            amount: (-birdFeeAmount).toString(),
+            balanceBefore: freelancerCurrentWithdrawable.toString(),
+            balanceAfter: freelancerCurrentWithdrawable.toString(),
                 description: `Platform fee for job: ${job.jobTitle}`,
                 createdAt: new Date(),
                 updatedAt: new Date()

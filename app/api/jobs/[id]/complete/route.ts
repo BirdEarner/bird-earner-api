@@ -1,1 +1,1 @@
-export { POST } from './_post';
+export { POST, POST as PATCH } from './_post';

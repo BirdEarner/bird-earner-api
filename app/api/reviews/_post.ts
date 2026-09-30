@@ -29,11 +29,19 @@ export async function POST(request: Request) {
             }, { status: 400 });
         }
 
+        const integerRating = Math.round(Number(rating));
+        if (!Number.isFinite(integerRating) || integerRating < 1 || integerRating > 5) {
+            return NextResponse.json({
+                success: false,
+                error: "Rating must be an integer between 1 and 5"
+            }, { status: 400 });
+        }
+
         const review = await createReview({
             reviewerId,
             revieweeId,
             jobId,
-            rating,
+            rating: integerRating,
             ratingDetails,
             reviewText,
             reviewType,

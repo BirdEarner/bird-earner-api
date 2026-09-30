@@ -44,7 +44,8 @@ export const JobStatus = {
     EXPIRED: "EXPIRED",
     FAILED: "FAILED",
     REFUNDED: "REFUNDED",
-    PAUSED: "PAUSED"
+    PAUSED: "PAUSED",
+    CLOSED: "CLOSED"
 } as const;
 export type JobStatus = (typeof JobStatus)[keyof typeof JobStatus];
 export const EarningStatus = {
@@ -79,7 +80,8 @@ export const TransactionType = {
     JOB_RELEASE: "JOB_RELEASE",
     PENALTY: "PENALTY",
     BONUS: "BONUS",
-    PLATFORM_FEE: "PLATFORM_FEE"
+    PLATFORM_FEE: "PLATFORM_FEE",
+    HOLD_RELEASE: "HOLD_RELEASE"
 } as const;
 export type TransactionType = (typeof TransactionType)[keyof typeof TransactionType];
 export const ServiceCategory = {
