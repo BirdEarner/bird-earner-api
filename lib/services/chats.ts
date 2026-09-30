@@ -201,6 +201,7 @@ export async function sendMessage(data: any) {
         .select([
             'jobs.projectType',
             'jobs.jobStatus',
+            'chatThreads.jobId',
             'chatThreads.characterLimit',
             'chatThreads.status',
             'chatThreads.isAccepted',
@@ -277,7 +278,45 @@ export async function sendMessage(data: any) {
 
     const isSubmissionMessage = Boolean(finalMessageData.isWorkSubmission);
 
+    let jobSubmissionVersion: number | undefined;
+
     if (isSubmissionMessage) {
+        // Work submission is ONLY through a file attachment
+        let parsedAttachments: any[] = [];
+        try {
+            if (Array.isArray(attachments)) parsedAttachments = attachments;
+            else if (typeof attachments === 'string' && attachments) parsedAttachments = JSON.parse(attachments);
+        } catch (e) {
+            parsedAttachments = [];
+        }
+
+        const associatedAttachments = Array.isArray(finalMessageData.submissionAttachments)
+            ? finalMessageData.submissionAttachments
+            : [];
+        const primaryFile = associatedAttachments[0] || parsedAttachments[0];
+        if (!primaryFile || !primaryFile.attachmentUrl) {
+            throw new Error('Work submission must include a file attachment');
+        }
+
+        const submittableStatuses = ['CONFIRMED', 'IN_PROGRESS', 'REVISION_REQUESTED', 'WORK_SUBMITTED'];
+        if (!submittableStatuses.includes(thread.jobStatus)) {
+            throw new Error(`Work cannot be submitted while job status is ${thread.jobStatus}`);
+        }
+
+        const { submitDigitalWork } = await import('./jobs');
+        const updatedJob = await submitDigitalWork(thread.jobId, senderId, {
+            fileUrl: primaryFile.attachmentUrl,
+            notes: messageContent || '',
+        });
+
+        let jobSwd: any = updatedJob.submittedWorkData;
+        try {
+            if (typeof jobSwd === 'string') jobSwd = JSON.parse(jobSwd);
+        } catch (e) {}
+        if (jobSwd && typeof jobSwd.version === 'number') {
+            jobSubmissionVersion = jobSwd.version;
+        }
+
         // Find existing work submission messages in this chatThreadId
         const existingMsgs = await db
             .selectFrom('messages')
@@ -355,7 +394,7 @@ export async function sendMessage(data: any) {
         finalMessageData = {
             ...finalMessageData,
             isWorkSubmission: true,
-            version: targetVersion,
+            version: jobSubmissionVersion ?? targetVersion,
             submissionStatus: 'PENDING',
             reviewed: false,
             reviewedAt: null,
