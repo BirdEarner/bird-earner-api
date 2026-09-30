@@ -63,6 +63,7 @@ export async function GET(
                 'jobs.negotiatedAmount',
                 'jobs.priceChangeRequested',
                 'jobs.priceChangeReason',
+                'jobs.submittedWorkData',
                 'clientUser.fullName as clientName',
                 'clientUser.email as clientEmail',
                 'clients.id as clientId',
