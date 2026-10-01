@@ -1910,6 +1910,7 @@ export async function respondToDigitalWork(
             .leftJoin('freelancers', 'freelancers.id', 'jobs.assignedFreelancerId')
             .select([
                 'jobs.id',
+                'jobs.clientId',
                 'jobs.jobTitle',
                 'jobs.jobStatus',
                 'jobs.budgetAmount',
@@ -1936,7 +1937,7 @@ export async function respondToDigitalWork(
             const updatedJob = await trx
                 .updateTable('jobs')
                 .set({
-                    jobStatus: 'WORK_ACCEPTED',
+                    jobStatus: 'COMPLETED',
                     completedAt: now,
                     paymentStatus: 'COMPLETED',
                     amountPaid: job.negotiatedAmount || job.budgetAmount,
@@ -1949,6 +1950,46 @@ export async function respondToDigitalWork(
                 .executeTakeFirstOrThrow();
 
             await recordJobStatusHistory(trx, jobId, 'WORK_ACCEPTED', clientUserId, 'CLIENT', 'ACCEPT_WORK', 'Client accepted final work submission');
+            await recordJobStatusHistory(trx, jobId, 'COMPLETED', clientUserId, 'CLIENT', 'ACCEPT_WORK', 'Job completed on work acceptance. Payment released.');
+
+            // Insert a review_request message so the client gets a Write Review prompt in chat
+            if (job.freelancerUserId) {
+                const acceptThread = await trx
+                    .selectFrom('chatThreads')
+                    .select('id')
+                    .where('jobId', '=', jobId)
+                    .executeTakeFirst();
+
+                if (acceptThread) {
+                    const existingReviewMsg = await trx
+                        .selectFrom('messages')
+                        .select('id')
+                        .where('chatThreadId', '=', acceptThread.id)
+                        .where('messageType', '=', 'review_request')
+                        .executeTakeFirst();
+
+                    if (!existingReviewMsg) {
+                        await trx
+                            .insertInto('messages')
+                            .values({
+                                id: crypto.randomUUID(),
+                                chatThreadId: acceptThread.id,
+                                senderId: job.freelancerUserId,
+                                receiverId: job.clientUserId,
+                                messageContent: JSON.stringify({ status: 'pending' }),
+                                messageType: 'review_request',
+                                senderType: 'SYSTEM',
+                                messageData: {
+                                    jobId: jobId,
+                                    freelancerId: job.freelancerUserId,
+                                    clientId: job.clientId
+                                },
+                                updatedAt: now
+                            })
+                            .execute();
+                    }
+                }
+            }
 
             if (job.freelancerUserId) {
                 sendNotification(
