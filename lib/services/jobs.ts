@@ -1984,7 +1984,8 @@ export async function respondToDigitalWork(
                                     freelancerId: job.freelancerUserId,
                                     clientId: job.clientId
                                 },
-                                updatedAt: now
+                                updatedAt: now,
+                                createdAt: now
                             })
                             .execute();
                     }
