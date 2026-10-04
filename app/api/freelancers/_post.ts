@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { v4 as uuidv4 } from 'uuid';
 import { z } from 'zod';
 import { validateBody } from '@/lib/validation';
+import { validatePerTypeServiceLimits } from '@/lib/service-limits';
 
 const createFreelancerSchema = z.object({
     userId: z.string().uuid(),
@@ -72,6 +73,7 @@ export async function POST(request: Request) {
         const { fullName, full_name, suggestedService, ...freelancerData } = data;
 
         let servicesList: string[] = Array.isArray(freelancerData.selectedServices) ? [...freelancerData.selectedServices] : (typeof freelancerData.selectedServices === 'string' ? JSON.parse(freelancerData.selectedServices) : []);
+        let suggestedResolvedToList = false;
 
         if (suggestedService && suggestedService.serviceName) {
             const suggestedName = suggestedService.serviceName.trim();
@@ -96,6 +98,7 @@ export async function POST(request: Request) {
                 if (!servicesList.includes(matchingService.id)) {
                     servicesList.push(matchingService.id);
                 }
+                suggestedResolvedToList = true;
             } else {
                 const suggestionId = uuidv4();
                 // @ts-ignore
@@ -112,6 +115,17 @@ export async function POST(request: Request) {
 
                 servicesList.push(`suggested:${suggestionId}`);
             }
+        }
+
+        // Per-type service limits (Part 3)
+        const suggestedProvided = !!(suggestedService && suggestedService.serviceName);
+        const limitError = await validatePerTypeServiceLimits(
+            servicesList,
+            freelancerData.workType ?? null,
+            suggestedProvided && !suggestedResolvedToList
+        );
+        if (limitError) {
+            return NextResponse.json({ success: false, message: limitError }, { status: 400 });
         }
 
         await db.insertInto('freelancers')

@@ -1,5 +1,6 @@
 import { db } from '@/lib/db';
 import { NextResponse } from 'next/server';
+import { parseSelectedServices, validatePerTypeServiceLimits } from '@/lib/service-limits';
 
 export async function PUT(
     request: Request,
@@ -22,7 +23,7 @@ export async function PUT(
         // Get current freelancer to find userId and current selectedServices
         const currentFreelancer = await db
             .selectFrom('freelancers')
-            .select(['id', 'userId', 'selectedServices'])
+            .select(['id', 'userId', 'selectedServices', 'workType', 'typeChangedAt'])
             .where('id', '=', id)
             .executeTakeFirst();
 
@@ -56,6 +57,7 @@ export async function PUT(
         const safeStringify = (val: any) => typeof val === 'object' ? JSON.stringify(val) : val;
 
         // Handle suggestedService if provided
+        let suggestedResolvedToList = false;
         if (freelancerUpdateData.suggestedService && freelancerUpdateData.suggestedService.serviceName) {
             const suggestedName = freelancerUpdateData.suggestedService.serviceName.trim();
             const matchingService = await db.selectFrom('services')
@@ -87,6 +89,7 @@ export async function PUT(
                 if (!existingServices.includes(matchingService.id)) {
                     existingServices.push(matchingService.id);
                 }
+                suggestedResolvedToList = true;
             } else {
                 const suggestionId = crypto.randomUUID();
                 // @ts-ignore
@@ -131,11 +134,54 @@ export async function PUT(
                     message: 'workType must be "remote" or "onsite"'
                 }, { status: 400 });
             }
+            // 14-day cooldown (Part 4): only an ACTUAL type change starts/enforces it
+            const isActualTypeChange =
+                freelancerUpdateData.workType !== currentFreelancer.workType;
+            if (isActualTypeChange) {
+                const TYPE_CHANGE_COOLDOWN_MS = 14 * 24 * 60 * 60 * 1000; // exactly 14 x 24 hours
+                const lastChange = currentFreelancer.typeChangedAt
+                    ? new Date(currentFreelancer.typeChangedAt).getTime()
+                    : null;
+
+                if (lastChange !== null && Date.now() - lastChange < TYPE_CHANGE_COOLDOWN_MS) {
+                    const remainingMs = TYPE_CHANGE_COOLDOWN_MS - (Date.now() - lastChange);
+                    const remainingDays = Math.ceil(remainingMs / (24 * 60 * 60 * 1000));
+                    return NextResponse.json({
+                        success: false,
+                        message: `Freelancer type can only be changed once every 14 days. Try again in ${remainingDays} day${remainingDays === 1 ? '' : 's'}.`,
+                        retryAfterMs: remainingMs
+                    }, { status: 400 });
+                }
+                // Actual change allowed -> record it (never set for same-type updates)
+                updatePayload.typeChangedAt = new Date();
+            }
             updatePayload.workType = freelancerUpdateData.workType;
         }
         if (freelancerUpdateData.skills !== undefined) updatePayload.skills = safeStringify(freelancerUpdateData.skills);
         if (freelancerUpdateData.languages !== undefined) updatePayload.languages = safeStringify(freelancerUpdateData.languages);
 
+
+        // Per-type service limits (Part 3) — only when services/type/suggestion are part of this save
+        const servicesOrTypeChanged =
+            freelancerUpdateData.selectedServices !== undefined ||
+            freelancerUpdateData.workType !== undefined ||
+            !!(freelancerUpdateData.suggestedService && freelancerUpdateData.suggestedService.serviceName);
+        if (servicesOrTypeChanged) {
+            const servicesForValidation = updatePayload.selectedServices !== undefined
+                ? updatePayload.selectedServices
+                : currentFreelancer.selectedServices;
+            const effectiveWorkType = updatePayload.workType !== undefined
+                ? updatePayload.workType
+                : currentFreelancer.workType ?? null;
+            const limitError = await validatePerTypeServiceLimits(
+                servicesForValidation,
+                effectiveWorkType,
+                !!(freelancerUpdateData.suggestedService && freelancerUpdateData.suggestedService.serviceName) && !suggestedResolvedToList
+            );
+            if (limitError) {
+                return NextResponse.json({ success: false, message: limitError }, { status: 400 });
+            }
+        }
 
         if (Object.keys(updatePayload).length > 1) { // 1 because updatedAt is always there
             await db.updateTable('freelancers')

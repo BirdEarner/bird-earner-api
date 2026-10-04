@@ -2,6 +2,7 @@ import { db } from '@/lib/db';
 import { validateBody } from '@/lib/validation';
 import { generateToken } from '@/lib/auth';
 import { sendEmailVerificationLink } from '@/lib/services/email';
+import { validatePerTypeServiceLimits } from '@/lib/service-limits';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import bcrypt from 'bcryptjs';
@@ -75,16 +76,12 @@ export async function POST(request: Request) {
             extraUIKeys: Object.keys(body).filter(k => !(k in { email:1, password:1, full_name:1, mobile:1, selectedServices:1, suggestedService:1, qualification:1, experience:1, heading:1, city:1, state:1, zipCode:1, country:1, gender:1, dob:1, certifications:1, socialLinks:1, bio:1, profileImage:1, coverImage:1, portfolioImages:1, termsAccepted:1, workType:1 })),
         }));
 
-        // Enforce min 1 and max 5 services (including suggested service)
+        // Enforce per-type limits (Part 3): current type min 1 / max 5, each type max 5
         const selectedList: string[] = profileData.selectedServices || [];
         const hasSuggested = !!(profileData.suggestedService && profileData.suggestedService.serviceName);
-        const totalServicesCount = selectedList.length + (hasSuggested ? 1 : 0);
-
-        if (totalServicesCount < 1) {
-            return NextResponse.json({ success: false, message: 'Please select at least 1 service or suggest a service.' }, { status: 400 });
-        }
-        if (totalServicesCount > 5) {
-            return NextResponse.json({ success: false, message: 'You can select a maximum of 5 services.' }, { status: 400 });
+        const limitError = await validatePerTypeServiceLimits(selectedList, profileData.workType ?? null, hasSuggested);
+        if (limitError) {
+            return NextResponse.json({ success: false, message: limitError }, { status: 400 });
         }
 
         const otpRecord = await db

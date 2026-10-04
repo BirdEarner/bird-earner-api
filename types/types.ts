@@ -304,6 +304,7 @@ export type Freelancer = {
     cancellationStrikes: Generated<number | null>;
     cooldownExpiresAt: Timestamp | null;
     workType: string | null;
+    typeChangedAt: Timestamp | null;
 };
 export type HomePromo = {
     id: string;

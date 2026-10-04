@@ -179,6 +179,7 @@ model Freelancer {
   cancellationStrikes   Int?                @default(0) @map("cancellationStrikes")
   cooldownExpiresAt     DateTime?           @map("cooldownExpiresAt") @db.Timestamp(6)
   workType              String?
+  typeChangedAt         DateTime?
   chatThreads           ChatThread[]        @relation("FreelancerChatThreads")
   earnings              Earning[]
   user                  User                @relation(fields: [userId], references: [id], onDelete: Cascade)
