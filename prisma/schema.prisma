@@ -178,6 +178,7 @@ model Freelancer {
   languages             Json?               @map("languages")
   cancellationStrikes   Int?                @default(0) @map("cancellationStrikes")
   cooldownExpiresAt     DateTime?           @map("cooldownExpiresAt") @db.Timestamp(6)
+  workType              String?
   chatThreads           ChatThread[]        @relation("FreelancerChatThreads")
   earnings              Earning[]
   user                  User                @relation(fields: [userId], references: [id], onDelete: Cascade)

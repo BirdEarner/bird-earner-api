@@ -18,12 +18,15 @@ export const ContactStatus = {
 export type ContactStatus = (typeof ContactStatus)[keyof typeof ContactStatus];
 export const JobStatus = {
     OPEN: "OPEN",
+    IN_PROGRESS: "IN_PROGRESS",
+    COMPLETED: "COMPLETED",
+    CANCELLED: "CANCELLED",
+    PAUSED: "PAUSED",
     FREELANCER_APPLIED: "FREELANCER_APPLIED",
     NEGOTIATING: "NEGOTIATING",
     AWAITING_CLIENT_CONFIRMATION: "AWAITING_CLIENT_CONFIRMATION",
     PAYMENT_PENDING: "PAYMENT_PENDING",
     CONFIRMED: "CONFIRMED",
-    IN_PROGRESS: "IN_PROGRESS",
     FREELANCER_TRAVELLING: "FREELANCER_TRAVELLING",
     ARRIVED: "ARRIVED",
     JOB_STARTED: "JOB_STARTED",
@@ -33,18 +36,15 @@ export const JobStatus = {
     AWAITING_CLIENT_ACCEPTANCE: "AWAITING_CLIENT_ACCEPTANCE",
     AUTO_ACCEPTED: "AUTO_ACCEPTED",
     WORK_ACCEPTED: "WORK_ACCEPTED",
-    COMPLETED: "COMPLETED",
-    CANCELLED: "CANCELLED",
     CANCELLED_BY_CLIENT: "CANCELLED_BY_CLIENT",
     CANCELLED_BY_FREELANCER: "CANCELLED_BY_FREELANCER",
-    CANCELLED_SCOPE_MISMATCH: "CANCELLED_SCOPE_MISMATCH",
     DISPUTE_OPEN: "DISPUTE_OPEN",
     DISPUTE_RESOLVED: "DISPUTE_RESOLVED",
     DEADLINE_EXPIRED: "DEADLINE_EXPIRED",
     EXPIRED: "EXPIRED",
     FAILED: "FAILED",
     REFUNDED: "REFUNDED",
-    PAUSED: "PAUSED",
+    CANCELLED_SCOPE_MISMATCH: "CANCELLED_SCOPE_MISMATCH",
     CLOSED: "CLOSED"
 } as const;
 export type JobStatus = (typeof JobStatus)[keyof typeof JobStatus];
@@ -280,9 +280,6 @@ export type Freelancer = {
     profileDescription: string | null;
     portfolioImages: unknown | null;
     coverPhoto: string | null;
-    freelancerCategory: string | null;
-    skills: unknown | null;
-    languages: unknown | null;
     currentlyAvailable: Generated<boolean | null>;
     nextAvailable: string | null;
     termsAccepted: boolean | null;
@@ -296,13 +293,17 @@ export type Freelancer = {
     monthlyEarnings: Generated<string>;
     outstandingAmount: Generated<string>;
     withdrawableAmount: Generated<string>;
-    totalPenaltyReceived: Generated<string>;
-    totalPenaltyDeducted: Generated<string>;
-    cancellationStrikes: Generated<number>;
-    cooldownExpiresAt: Timestamp | null;
     createdAt: Generated<Timestamp>;
     updatedAt: Timestamp;
     availabilityUpdatedAt: Timestamp | null;
+    totalPenaltyDeducted: Generated<string>;
+    totalPenaltyReceived: Generated<string>;
+    freelancerCategory: string | null;
+    skills: unknown | null;
+    languages: unknown | null;
+    cancellationStrikes: Generated<number | null>;
+    cooldownExpiresAt: Timestamp | null;
+    workType: string | null;
 };
 export type HomePromo = {
     id: string;
@@ -362,36 +363,37 @@ export type Job = {
     isAmountReserved: Generated<boolean>;
     paymentStatus: Generated<PaymentStatus>;
     completedAt: Timestamp | null;
-    cancelledAt: Timestamp | null;
     cashbackOfferId: string | null;
     discountAmount: Generated<string | null>;
     deleted: Generated<boolean>;
     clientPenaltyAmount: Generated<string | null>;
+    cancelledAt: Timestamp | null;
     applicationDeadline: Timestamp | null;
     applicationExtended: Generated<boolean>;
-    applicationDeadlineOriginal: Timestamp | null;
-    applicationExtensionCount: Generated<number>;
     workDurationDays: number | null;
     workDeadline: Timestamp | null;
     confirmedAt: Timestamp | null;
-    negotiatedAmount: string | null;
     arrivedAt: Timestamp | null;
-    travelStartedAt: Timestamp | null;
-    jobStartTime: Timestamp | null;
-    workCompletedAt: Timestamp | null;
-    clientConfirmedWorkAt: Timestamp | null;
-    postOtpCancellationWindowExpiresAt: Timestamp | null;
     otpCode: string | null;
     otpVerifiedAt: Timestamp | null;
     submittedWorkData: unknown | null;
     revisionCount: Generated<number>;
     clientReviewPeriodExpiresAt: Timestamp | null;
-    clientReviewReminderSentAt: Timestamp | null;
-    clientReviewFinalReminderSentAt: Timestamp | null;
     freelancerGracePeriodExpiresAt: Timestamp | null;
     cancellationReason: string | null;
     priceChangeRequested: string | null;
     priceChangeReason: string | null;
+    applicationDeadlineOriginal: Timestamp | null;
+    applicationExtensionCount: Generated<number>;
+    negotiatedAmount: string | null;
+    travelStartedAt: Timestamp | null;
+    jobStartTime: Timestamp | null;
+    workCompletedAt: Timestamp | null;
+    clientConfirmedWorkAt: Timestamp | null;
+    postOtpCancellationWindowExpiresAt: Timestamp | null;
+    priceChangeAcceptedAt: Timestamp | null;
+    clientReviewReminderSentAt: Timestamp | null;
+    clientReviewFinalReminderSentAt: Timestamp | null;
 };
 export type JobBookmark = {
     id: string;
@@ -435,10 +437,10 @@ export type NegotiationHistory = {
     offerType: string;
     amount: string;
     previousAmount: string | null;
-    days: number | null;
-    previousDays: number | null;
     note: string | null;
     createdAt: Generated<Timestamp>;
+    days: number | null;
+    previousDays: number | null;
 };
 export type Notification = {
     id: string;
@@ -542,8 +544,6 @@ export type User = {
     password: string | null;
     fullName: string | null;
     isTestAccount: Generated<boolean>;
-    provider: Generated<string>;
-    providerAccountId: string | null;
     createdAt: Generated<Timestamp>;
     updatedAt: Timestamp;
     resetPasswordExpires: string | null;
@@ -552,6 +552,8 @@ export type User = {
     isEmailVerified: Generated<boolean>;
     emailVerificationToken: string | null;
     emailVerificationExpires: string | null;
+    provider: Generated<string>;
+    providerAccountId: string | null;
     profilePhoto: string | null;
     dob: Timestamp | null;
     gender: string | null;

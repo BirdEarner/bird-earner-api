@@ -31,6 +31,7 @@ const createFreelancerSchema = z.object({
     termsAccepted: z.boolean().optional().default(false),
     flags: z.any().optional(),
     freelancerCategory: z.string().optional(),
+    workType: z.enum(['remote', 'onsite']).optional().nullable(),
     skills: z.any().optional(),
     languages: z.any().optional()
 });
@@ -135,6 +136,7 @@ export async function POST(request: Request) {
                 termsAccepted: freelancerData.termsAccepted,
                 flags: freelancerData.flags ? JSON.stringify(freelancerData.flags) : JSON.stringify([]),
                 freelancerCategory: freelancerData.freelancerCategory || null,
+                workType: freelancerData.workType || null,
                 skills: freelancerData.skills ? JSON.stringify(freelancerData.skills) : JSON.stringify([]),
                 languages: freelancerData.languages ? JSON.stringify(freelancerData.languages) : JSON.stringify([]),
                 updatedAt: new Date()

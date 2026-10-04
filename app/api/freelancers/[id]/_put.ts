@@ -124,6 +124,15 @@ export async function PUT(
         if (freelancerUpdateData.termsAccepted !== undefined) updatePayload.termsAccepted = freelancerUpdateData.termsAccepted;
         if (freelancerUpdateData.flags !== undefined) updatePayload.flags = safeStringify(freelancerUpdateData.flags);
         if (freelancerUpdateData.freelancerCategory !== undefined) updatePayload.freelancerCategory = freelancerUpdateData.freelancerCategory;
+        if (freelancerUpdateData.workType !== undefined) {
+            if (freelancerUpdateData.workType !== 'remote' && freelancerUpdateData.workType !== 'onsite') {
+                return NextResponse.json({
+                    success: false,
+                    message: 'workType must be "remote" or "onsite"'
+                }, { status: 400 });
+            }
+            updatePayload.workType = freelancerUpdateData.workType;
+        }
         if (freelancerUpdateData.skills !== undefined) updatePayload.skills = safeStringify(freelancerUpdateData.skills);
         if (freelancerUpdateData.languages !== undefined) updatePayload.languages = safeStringify(freelancerUpdateData.languages);
 

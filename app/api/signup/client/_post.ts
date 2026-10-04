@@ -108,9 +108,15 @@ export async function POST(request: Request) {
             .where('mobile', '=', mobile)
             .execute();
 
-        const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+        // Derive base URL from the actual request origin (works on mobile + laptop)
+        const reqHost = request.headers.get('host');
+        const xfp = request.headers.get('x-forwarded-proto');
+        const reqProto = xfp === 'https' || (reqHost && !reqHost.includes(':') && reqHost !== 'localhost') ? 'https' : 'http';
+        const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || (reqHost ? `${reqProto}://${reqHost}` : 'http://localhost:3001');
         const verificationUrl = `${baseUrl}/verify-email?token=${emailVerificationToken}`;
-        await sendEmailVerificationLink(emailLower, verificationUrl).catch((err) => {
+        console.log('[EMAIL] client verification link:', verificationUrl);
+        // Fire-and-forget: don't block the signup response on SMTP latency/timeouts
+        sendEmailVerificationLink(emailLower, verificationUrl).catch((err) => {
             console.error('Failed to send email verification link:', err);
         });
 

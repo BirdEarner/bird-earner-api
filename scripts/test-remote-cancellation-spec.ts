@@ -119,7 +119,7 @@ async function main() {
 
     const freelancerDeduction = parseFloat(freelancerBefore2.withdrawableAmount) - parseFloat(freelancerAfter2.withdrawableAmount);
 
-    if (job2Record.jobStatus === 'CANCELLED_BY_FREELANCER' && !job2Record.isAmountReserved && penaltyTx2 && freelancerDeduction === 40 && freelancerAfter2.cancellationStrikes === freelancerBefore2.cancellationStrikes + 1) {
+    if (job2Record.jobStatus === 'CANCELLED_BY_FREELANCER' && !job2Record.isAmountReserved && penaltyTx2 && freelancerDeduction === 40 && freelancerAfter2.cancellationStrikes === (freelancerBefore2.cancellationStrikes ?? 0) + 1) {
         console.log('✅ SPEC TEST 2 PASSED: Freelancer cancelled remote job after 5 mins. Client received 100% refund, 2% (₹40) penalty deducted from freelancer, +1 strike and cooldown applied.');
     } else {
         console.error('❌ SPEC TEST 2 FAILED');

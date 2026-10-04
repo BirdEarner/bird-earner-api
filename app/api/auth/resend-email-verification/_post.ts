@@ -35,8 +35,13 @@ export async function POST(request: Request) {
             .where('id', '=', userId)
             .execute();
 
-        const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+        // Derive base URL from the actual request origin (works on mobile + laptop)
+        const reqHost = request.headers.get('host');
+        const xfp = request.headers.get('x-forwarded-proto');
+        const reqProto = xfp === 'https' || (reqHost && !reqHost.includes(':') && reqHost !== 'localhost') ? 'https' : 'http';
+        const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || (reqHost ? `${reqProto}://${reqHost}` : 'http://localhost:3001');
         const verificationUrl = `${baseUrl}/verify-email?token=${emailVerificationToken}`;
+        console.log('[EMAIL] resend verification link:', verificationUrl);
         await sendEmailVerificationLink(user.email, verificationUrl);
 
         return NextResponse.json({ success: true, message: 'Verification email sent successfully' });
