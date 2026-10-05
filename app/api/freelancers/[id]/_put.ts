@@ -70,7 +70,7 @@ export async function PUT(
             if (ongoingJobs.length > 0) {
                 return NextResponse.json({
                     success: false,
-                    message: `You cannot change your freelancer type while you have an ongoing job ("${ongoingJobs[0].jobTitle}"). Complete the job first.`
+                    message: "Complete your ongoing job first to switch type."
                 }, { status: 400 });
             }
 
