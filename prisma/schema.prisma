@@ -304,6 +304,7 @@ model Job {
   penaltyLogs                        PenaltyLog[]
   reviews                            Review[]
   walletTransactions                 WalletTransaction[]
+  earnings                           Earning[]
 
   @@index([assignedFreelancerId], map: "jobsAssignedFreelancerIdx")
   @@index([clientId], map: "jobsClientIdIdx")
@@ -378,6 +379,7 @@ model Earning {
   createdAt    DateTime      @default(now()) @map("createdAt")
   updatedAt    DateTime      @updatedAt @map("updatedAt")
   freelancer   Freelancer    @relation(fields: [freelancerId], references: [id], onDelete: Cascade)
+  job          Job?          @relation(fields: [jobId], references: [id], onDelete: SetNull)
 
   @@index([freelancerId], map: "earningsFreelancerIdIdx")
   @@index([jobId], map: "earningsJobIdIdx")

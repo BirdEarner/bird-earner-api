@@ -260,13 +260,23 @@ export async function processJobTimers() {
                     .where('id', '=', earning.freelancerId)
                     .execute();
 
+                // Job may have been hard-deleted after the earning was held;
+                // walletTransactions.jobId is nullable, keep the release audit row.
+                const jobStillExists = earning.jobId
+                    ? await trx
+                        .selectFrom('jobs')
+                        .select('id')
+                        .where('id', '=', earning.jobId)
+                        .executeTakeFirst()
+                    : undefined;
+
                 await trx
                     .insertInto('walletTransactions')
                     .values({
                         id: crypto.randomUUID(),
                         userId: freelancer.userId,
                         userType: 'FREELANCER',
-                        jobId: earning.jobId,
+                        jobId: jobStillExists ? earning.jobId : null,
                         transactionType: 'HOLD_RELEASE',
                         amount: releaseAmount.toString(),
                         balanceBefore: currentBalance.toString(),
