@@ -1,6 +1,7 @@
 import { db } from '@/lib/db';
 import { NextResponse } from 'next/server';
 import { parseSelectedServices, validatePerTypeServiceLimits } from '@/lib/service-limits';
+import type { JobStatus } from '@/types/types';
 
 export async function PUT(
     request: Request,
@@ -29,6 +30,63 @@ export async function PUT(
 
         if (!currentFreelancer) {
             return NextResponse.json({ message: 'Freelancer not found' }, { status: 404 });
+        }
+
+        // ---- Additional rule: job check before allowing an actual type switch ----
+        // Runs BEFORE any write so a blocked switch never partially modifies data.
+        const requestedWorkType = freelancerUpdateData.workType;
+        const isTypeSwitch =
+            (requestedWorkType === 'remote' || requestedWorkType === 'onsite') &&
+            requestedWorkType !== currentFreelancer.workType;
+        let removableThreadIds: string[] = [];
+
+        if (isTypeSwitch) {
+            // Ongoing/assigned jobs block the switch. Assignment follows the existing status
+            // state machine (VALID_TRANSITIONS in lib/services/jobs.ts): a job counts as
+            // ongoing while assigned to this freelancer and NOT in a terminal status.
+            // Completed/cancelled/closed/refunded/expired jobs never block (spec rule 3),
+            // and the job itself is never modified or deleted.
+            const NON_ONGOING_STATUSES: JobStatus[] = [
+                'COMPLETED',
+                'CANCELLED',
+                'CANCELLED_BY_CLIENT',
+                'CANCELLED_BY_FREELANCER',
+                'CANCELLED_SCOPE_MISMATCH',
+                'CLOSED',
+                'REFUNDED',
+                'EXPIRED',
+                'FAILED',
+                'DEADLINE_EXPIRED',
+                'DISPUTE_RESOLVED',
+            ];
+            const ongoingJobs = await db
+                .selectFrom('jobs')
+                .select(['id', 'jobTitle'])
+                .where('deleted', '=', false)
+                .where('assignedFreelancerId', '=', currentFreelancer.id)
+                .where('jobStatus', 'not in', NON_ONGOING_STATUSES)
+                .execute();
+
+            if (ongoingJobs.length > 0) {
+                return NextResponse.json({
+                    success: false,
+                    message: `You cannot change your freelancer type while you have an ongoing job ("${ongoingJobs[0].jobTitle}"). Complete the job first.`
+                }, { status: 400 });
+            }
+
+            // Applied-but-not-assigned jobs: their active application (chat thread) will be
+            // removed when the switch succeeds. Threads on jobs assigned TO this freelancer
+            // (completed history) are never touched. Jobs themselves are never modified.
+            const threads = await db
+                .selectFrom('chatThreads')
+                .innerJoin('jobs', 'jobs.id', 'chatThreads.jobId')
+                .select(['chatThreads.id as threadId', 'jobs.assignedFreelancerId'])
+                .where('chatThreads.freelancerId', '=', currentFreelancer.id)
+                .execute();
+
+            removableThreadIds = threads
+                .filter((t) => t.assignedFreelancerId !== currentFreelancer.id)
+                .map((t) => t.threadId);
         }
 
         if (finalFullName) {
@@ -184,10 +242,30 @@ export async function PUT(
         }
 
         if (Object.keys(updatePayload).length > 1) { // 1 because updatedAt is always there
-            await db.updateTable('freelancers')
-                .set(updatePayload)
-                .where('id', '=', id)
-                .execute();
+            if (isTypeSwitch) {
+                // Type switch: profile update + removal of unassigned applications in ONE
+                // transaction so a failure never leaves partial data behind.
+                await db.transaction().execute(async (trx) => {
+                    await trx.updateTable('freelancers')
+                        .set(updatePayload)
+                        .where('id', '=', id)
+                        .execute();
+                    if (removableThreadIds.length > 0) {
+                        // negotiationHistory has ON DELETE RESTRICT; messages survive via ON DELETE SET NULL
+                        await trx.deleteFrom('negotiationHistory')
+                            .where('chatThreadId', 'in', removableThreadIds)
+                            .execute();
+                        await trx.deleteFrom('chatThreads')
+                            .where('id', 'in', removableThreadIds)
+                            .execute();
+                    }
+                });
+            } else {
+                await db.updateTable('freelancers')
+                    .set(updatePayload)
+                    .where('id', '=', id)
+                    .execute();
+            }
         }
 
         // Return updated data
