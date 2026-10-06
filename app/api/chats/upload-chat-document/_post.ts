@@ -85,7 +85,20 @@ export async function POST(request: Request) {
     let originalUrl = '';
     let watermarkedUrl = '';
 
-    if (isImageOrVideo) {
+    // Normal attachment (existing attach button): upload the original file only, no watermark.
+    // Watermarked upload (existing logic below) runs only when the client explicitly asks for it.
+    const withWatermark = formData.get('watermark') === 'true';
+
+    if (!withWatermark) {
+      originalResult = await uploadToCloudinary(originalBuffer, {
+        folder: 'bird_earner/chat_media/originals',
+        resource_type: resourceType,
+        public_id: `original-${Date.now()}-${Math.round(Math.random() * 1e9)}`,
+      });
+      watermarkedResult = originalResult;
+      originalUrl = originalResult.secure_url;
+      watermarkedUrl = originalResult.secure_url;
+    } else if (isImageOrVideo) {
       const isVideo = resourceType === 'video';
       const watermarkTrans = getCloudinaryWatermarkTransformation('©BIRDEARNER', isVideo);
 
