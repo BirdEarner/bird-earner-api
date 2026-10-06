@@ -46,7 +46,7 @@ export async function resolveRestoredThreadStatus(
 /**
  * Create or get a chat thread
  */
-export async function createOrGetThread(jobId: string, freelancerId: string, clientId: string) {
+export async function createOrGetThread(jobId: string, freelancerId: string, clientId: string, requesterUserId?: string) {
     await ensureNegotiationColumns();
 
     let thread = await db
@@ -99,7 +99,9 @@ export async function createOrGetThread(jobId: string, freelancerId: string, cli
 
     // Find Another Freelancer: the previously selected freelancer cannot re-apply after the job is reopened.
     // Only this exact combination triggers the block (isAccepted is set solely on assignment; jobStatus is
-    // only 'OPEN' again after a reopen), so every existing flow keeps its current behaviour.
+    // only 'OPEN' again after a reopen), so every existing flow keeps its current behaviour. The client who
+    // reopened the job still loads this thread normally; when no requester is passed (direct service callers)
+    // the stricter freelancer-only behaviour is kept.
     if (thread?.isAccepted && thread.status === 'REJECTED') {
         const jobRow = await db
             .selectFrom('jobs')
@@ -108,7 +110,15 @@ export async function createOrGetThread(jobId: string, freelancerId: string, cli
             .executeTakeFirst();
 
         if (jobRow?.jobStatus === 'OPEN') {
-            throw new Error('You were previously selected for this job and cannot apply again.');
+            const freelancerUser = await db
+                .selectFrom('freelancers')
+                .select('userId')
+                .where('id', '=', freelancerId)
+                .executeTakeFirst();
+
+            if (!requesterUserId || requesterUserId === freelancerUser?.userId) {
+                throw new Error('You were previously selected for this job and cannot apply again.');
+            }
         }
     }
 
@@ -288,6 +298,20 @@ export async function sendMessage(data: any) {
             .where('id', '=', chatThreadId)
             .execute();
         thread.status = restoredStatus;
+    }
+
+    // Find Another Freelancer: once the client reopened the job, the released freelancer cannot post any
+    // further messages in this thread (the client may still reply). Same exact-condition guard as above.
+    if (thread.isAccepted && thread.status === 'REJECTED' && thread.jobStatus === 'OPEN') {
+        const freelancerUser = await db
+            .selectFrom('freelancers')
+            .select('userId')
+            .where('id', '=', thread.freelancerId)
+            .executeTakeFirst();
+
+        if (senderId === thread.freelancerId || (freelancerUser && senderId === freelancerUser.userId)) {
+            throw new Error('You were previously selected for this job and cannot apply again.');
+        }
     }
 
     // Check character limit for OPEN jobs

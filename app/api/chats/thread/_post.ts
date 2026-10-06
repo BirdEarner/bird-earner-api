@@ -27,7 +27,8 @@ export async function POST(request: Request) {
         const thread = await createOrGetThread(
             validation.data.jobId,
             validation.data.freelancerId,
-            validation.data.clientId
+            validation.data.clientId,
+            user.id
         );
 
         return NextResponse.json({
