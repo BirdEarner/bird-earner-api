@@ -55,7 +55,7 @@ export async function POST(request: Request) {
                     .execute();
 
                 // Restore chat thread status
-                const restoredStatus = (await resolveRestoredThreadStatus(thread)) ?? (thread.isAccepted ? 'ACCEPTED' : 'OPEN');
+                const restoredStatus = (await resolveRestoredThreadStatus(thread)) ?? (thread.isAccepted ? 'ACCEPTED' : 'PENDING');
                 await db
                     .updateTable('chatThreads')
                     .set({ status: restoredStatus, updatedAt: new Date() })
