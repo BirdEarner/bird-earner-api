@@ -1116,6 +1116,122 @@ export async function cancelJob(jobId: string, userId: string, reason?: string) 
 }
 
 /**
+ * Find Another Freelancer (Client action, within the 5-minute grace window only)
+ * Releases the assigned freelancer and reopens the job for new applications.
+ * Does NOT cancel the job, charge any penalty, or touch wallets/payments/OTP logic.
+ */
+export async function findAnotherFreelancer(jobId: string, userId: string) {
+    return await db.transaction().execute(async (trx) => {
+        const job = await trx
+            .selectFrom('jobs')
+            .innerJoin('clients', 'clients.id', 'jobs.clientId')
+            .leftJoin('freelancers', 'freelancers.id', 'jobs.assignedFreelancerId')
+            .select([
+                'jobs.id',
+                'jobs.jobTitle',
+                'jobs.jobStatus',
+                'jobs.assignedFreelancerId',
+                'jobs.confirmedAt',
+                'jobs.assignedAt',
+                'jobs.otpVerifiedAt',
+                'jobs.submittedWorkData',
+                'clients.userId as clientUserId',
+                'freelancers.id as freelancerId',
+                'freelancers.userId as freelancerUserId'
+            ])
+            .where('jobs.id', '=', jobId)
+            .executeTakeFirst();
+
+        if (!job) throw new Error('Job not found');
+
+        if (job.clientUserId !== userId) {
+            throw new Error('Only the client who posted this job can change the assigned freelancer');
+        }
+
+        if (!job.assignedFreelancerId) {
+            throw new Error('No freelancer is assigned to this job');
+        }
+
+        if (job.jobStatus !== 'CONFIRMED') {
+            throw new Error('This job is not in a confirmed state');
+        }
+
+        // Same 5-minute grace window calculation as cancelJob()
+        const confirmedAtTime = job.confirmedAt ? new Date(job.confirmedAt).getTime() : (job.assignedAt ? new Date(job.assignedAt).getTime() : 0);
+        if (!(confirmedAtTime > 0 && Date.now() - confirmedAtTime <= 5 * 60 * 1000)) {
+            throw new Error('Find another freelancer is only available within 5 minutes of booking confirmation');
+        }
+
+        // Never bypass On-site OTP / work-started protections
+        if (job.otpVerifiedAt || job.submittedWorkData) {
+            throw new Error('Find another freelancer is not available once work has started');
+        }
+
+        const previousFreelancerId = job.assignedFreelancerId;
+        const previousFreelancerUserId = job.freelancerUserId;
+
+        // Release assignment and reopen the job (wallet/reservation/payment fields untouched)
+        const reopenedJob = await trx
+            .updateTable('jobs')
+            .set({
+                assignedFreelancerId: null,
+                jobStatus: 'OPEN',
+                confirmedAt: null,
+                assignedAt: null,
+                negotiatedAmount: null,
+                workDeadline: null,
+                workDurationDays: null,
+                updatedAt: new Date()
+            })
+            .where('id', '=', jobId)
+            .returningAll()
+            .executeTakeFirstOrThrow();
+
+        // Previously selected freelancer's thread -> REJECTED (isAccepted stays true as the re-apply marker)
+        await trx
+            .updateTable('chatThreads')
+            .set({ status: 'REJECTED', updatedAt: new Date() })
+            .where('jobId', '=', jobId)
+            .where('freelancerId', '=', previousFreelancerId)
+            .execute();
+
+        // Restore other applicants' threads (rejected when this freelancer was assigned) so they can apply normally
+        await trx
+            .updateTable('chatThreads')
+            .set({ status: 'PENDING', updatedAt: new Date() })
+            .where('jobId', '=', jobId)
+            .where('freelancerId', '!=', previousFreelancerId)
+            .where('isAccepted', '=', false)
+            .where('status', '=', 'REJECTED')
+            .execute();
+
+        await recordJobStatusHistory(
+            trx,
+            jobId,
+            'OPEN',
+            userId,
+            'CLIENT',
+            'FIND_ANOTHER_FREELANCER',
+            'Client released the assigned freelancer within the 5-minute grace window and reopened the job',
+            { previousFreelancerId }
+        );
+
+        if (previousFreelancerUserId) {
+            sendNotification(
+                previousFreelancerUserId,
+                'FREELANCER',
+                'Assignment Released',
+                `The client chose another freelancer for "${job.jobTitle}" within the 5-minute confirmation window. This job is no longer assigned to you.`,
+                'JOB_UNASSIGNED',
+                { jobId }
+            );
+        }
+
+        return reopenedJob;
+    });
+}
+
+/**
  * Report Freelancer - Work Not Submitted (Remote jobs only)
  * Client action after work deadline + 12-hour grace period passed with no submission.
  * Full refund to client + 2% penalty, 1-day cooldown and cancellation strike on freelancer.

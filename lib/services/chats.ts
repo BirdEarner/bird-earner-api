@@ -21,6 +21,29 @@ async function ensureNegotiationColumns() {
 }
 
 /**
+ * Find Another Freelancer edge case: after the client releases the assigned freelancer and
+ * reopens the job, an isAccepted thread on a job that is OPEN again must never be
+ * auto-restored to ACCEPTED via block/unblock. Returns 'REJECTED' for that case, else null
+ * (callers keep their existing restore behaviour for every other case).
+ */
+export async function resolveRestoredThreadStatus(
+    thread: { isAccepted?: boolean | null; jobId?: string | null },
+    jobStatus?: string | null
+): Promise<'PENDING' | 'ACCEPTED' | 'REJECTED' | 'COMPLETED' | 'BLOCKED' | null> {
+    if (!thread.isAccepted) return null;
+    let status = jobStatus ?? null;
+    if (!status && thread.jobId) {
+        const job = await db
+            .selectFrom('jobs')
+            .select('jobStatus')
+            .where('id', '=', thread.jobId)
+            .executeTakeFirst();
+        status = job?.jobStatus ?? null;
+    }
+    return status === 'OPEN' ? 'REJECTED' : null;
+}
+
+/**
  * Create or get a chat thread
  */
 export async function createOrGetThread(jobId: string, freelancerId: string, clientId: string) {
@@ -63,13 +86,29 @@ export async function createOrGetThread(jobId: string, freelancerId: string, cli
             }
         } else if (thread.status === 'BLOCKED') {
             // Block record was removed -> unblock chat thread automatically
-            const restoredStatus = thread.isAccepted ? 'ACCEPTED' : 'PENDING';
+            const reopenedOverride = await resolveRestoredThreadStatus(thread);
+            const restoredStatus = reopenedOverride ?? (thread.isAccepted ? 'ACCEPTED' : 'PENDING');
             await db
                 .updateTable('chatThreads')
                 .set({ status: restoredStatus, updatedAt: new Date() })
                 .where('id', '=', thread.id)
                 .execute();
             thread.status = restoredStatus;
+        }
+    }
+
+    // Find Another Freelancer: the previously selected freelancer cannot re-apply after the job is reopened.
+    // Only this exact combination triggers the block (isAccepted is set solely on assignment; jobStatus is
+    // only 'OPEN' again after a reopen), so every existing flow keeps its current behaviour.
+    if (thread?.isAccepted && thread.status === 'REJECTED') {
+        const jobRow = await db
+            .selectFrom('jobs')
+            .select('jobStatus')
+            .where('id', '=', jobId)
+            .executeTakeFirst();
+
+        if (jobRow?.jobStatus === 'OPEN') {
+            throw new Error('You were previously selected for this job and cannot apply again.');
         }
     }
 
@@ -241,7 +280,8 @@ export async function sendMessage(data: any) {
         }
         throw new Error('This conversation has been blocked. You cannot send messages.');
     } else if (thread.status === 'BLOCKED') {
-        const restoredStatus = thread.isAccepted ? 'ACCEPTED' : 'PENDING';
+        const reopenedOverride = await resolveRestoredThreadStatus(thread, thread.jobStatus);
+        const restoredStatus = reopenedOverride ?? (thread.isAccepted ? 'ACCEPTED' : 'PENDING');
         await db
             .updateTable('chatThreads')
             .set({ status: restoredStatus, updatedAt: new Date() })
@@ -612,7 +652,8 @@ export async function getConversations(userId: string, role: 'CLIENT' | 'FREELAN
                     .execute();
             }
         } else if (thread.status === 'BLOCKED') {
-            currentStatus = thread.isAccepted ? 'ACCEPTED' : 'PENDING';
+            const reopenedOverride = await resolveRestoredThreadStatus(thread, thread.jobStatus);
+            currentStatus = reopenedOverride ?? (thread.isAccepted ? 'ACCEPTED' : 'PENDING');
             await db.updateTable('chatThreads')
                 .set({ status: currentStatus, updatedAt: new Date() })
                 .where('id', '=', thread.id)

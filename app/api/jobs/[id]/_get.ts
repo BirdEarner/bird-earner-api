@@ -47,6 +47,7 @@ export async function GET(
                 'jobs.longitude',
                 'jobs.createdAt',
                 'jobs.assignedFreelancerId',
+                'jobs.confirmedAt',
                 'jobs.clientPenaltyAmount',
                 'jobs.workDurationDays',
                 'jobs.applicationDeadline',

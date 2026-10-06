@@ -1,5 +1,6 @@
 import { getAuthUser } from '@/lib/auth';
 import { db } from '@/lib/db';
+import { resolveRestoredThreadStatus } from '@/lib/services/chats';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
@@ -31,7 +32,7 @@ export async function POST(request: Request) {
         if (threadId) {
             const thread = await db
                 .selectFrom('chatThreads')
-                .select(['id', 'clientId', 'freelancerId', 'isAccepted'])
+                .select(['id', 'clientId', 'freelancerId', 'isAccepted', 'jobId'])
                 .where('id', '=', threadId)
                 .executeTakeFirst();
 
@@ -54,7 +55,7 @@ export async function POST(request: Request) {
                     .execute();
 
                 // Restore chat thread status
-                const restoredStatus = thread.isAccepted ? 'ACCEPTED' : 'OPEN';
+                const restoredStatus = (await resolveRestoredThreadStatus(thread)) ?? (thread.isAccepted ? 'ACCEPTED' : 'OPEN');
                 await db
                     .updateTable('chatThreads')
                     .set({ status: restoredStatus, updatedAt: new Date() })
