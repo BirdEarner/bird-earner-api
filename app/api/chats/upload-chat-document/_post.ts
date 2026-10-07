@@ -90,6 +90,11 @@ export async function POST(request: Request) {
     let watermarkedResult: any;
     let originalUrl = '';
     let watermarkedUrl = '';
+    // Raw assets are delivered exactly as named (no format appended), so keep the
+    // original file extension in the public_id — browsers and online viewers rely
+    // on it to pick a renderer (.docx, .xlsx, ...).
+    const extMatch = (file.name || '').match(/\.([a-z0-9]{1,10})$/i);
+    const ext = extMatch ? `.${extMatch[1].toLowerCase()}` : '';
 
     // Normal attachment (existing attach button): upload the original file only, no watermark.
     // Watermarked upload (existing logic below) runs only when the client explicitly asks for it.
@@ -99,7 +104,10 @@ export async function POST(request: Request) {
       originalResult = await uploadToCloudinary(originalBuffer, {
         folder: 'bird_earner/chat_media/originals',
         resource_type: resourceType,
-        public_id: `original-${Date.now()}-${Math.round(Math.random() * 1e9)}`,
+        // Only raw-ish (auto) assets need the extension kept: image/video types
+        // (and PDFs, which auto-detect to image) get the format appended by
+        // Cloudinary on delivery already — appending would double it (.pdf.pdf).
+        public_id: `original-${Date.now()}-${Math.round(Math.random() * 1e9)}${resourceType === 'auto' && !isPdf ? ext : ''}`,
       });
       watermarkedResult = originalResult;
       originalUrl = originalResult.secure_url;
@@ -138,13 +146,12 @@ export async function POST(request: Request) {
       originalUrl = watermarkedResult.secure_url;
       watermarkedUrl = watermarkedResult.secure_url;
     } else {
-      // Generic Raw File
+      // Generic Raw File (extension kept via shared `ext` above)
       const singleOptions: any = {
         folder: 'bird_earner/chat_media/originals',
         resource_type: resourceType,
-        public_id: `original-${Date.now()}-${Math.round(Math.random() * 1e9)}`,
+        public_id: `original-${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`,
       };
-
       originalResult = await uploadToCloudinary(originalBuffer, singleOptions);
       watermarkedResult = originalResult;
       originalUrl = originalResult.secure_url;
