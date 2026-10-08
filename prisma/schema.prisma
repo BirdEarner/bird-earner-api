@@ -195,33 +195,34 @@ model Freelancer {
 }
 
 model Client {
-  id                    String           @id @default(uuid())
-  userId                String           @unique @map("userId")
-  phase1Completed       Boolean          @default(false) @map("phase1Completed")
-  phase2Completed       Boolean          @default(false) @map("phase2Completed")
-  organizationType      String?          @map("organizationType")
-  companyName           String?          @map("companyName")
+  id                    String             @id @default(uuid())
+  userId                String             @unique @map("userId")
+  phase1Completed       Boolean            @default(false) @map("phase1Completed")
+  phase2Completed       Boolean            @default(false) @map("phase2Completed")
+  organizationType      String?            @map("organizationType")
+  companyName           String?            @map("companyName")
   city                  String?
   state                 String?
   zipcode               Int?
   country               String?
-  profileDescription    String?          @map("profileDescription")
-  termsAccepted         Boolean?         @map("termsAccepted")
-  wallet                Decimal          @default(0.00) @db.Decimal(10, 2)
-  createdAt             DateTime         @default(now()) @map("createdAt")
-  updatedAt             DateTime         @updatedAt @map("updatedAt")
-  availableBalance      Decimal          @default(0.00) @map("availableBalance") @db.Decimal(10, 2)
-  reservedAmount        Decimal          @default(0.00) @map("reservedAmount") @db.Decimal(10, 2)
-  availabilityUpdatedAt DateTime?        @map("availabilityUpdatedAt")
-  currentlyAvailable    Boolean?         @default(true) @map("currentlyAvailable")
-  nextAvailable         String?          @map("nextAvailable")
-  coverPhoto            String?          @map("coverPhoto")
-  pendingPenaltyAmount  Decimal?         @default(0) @map("pendingPenaltyAmount") @db.Decimal(10, 2)
-  totalPenaltyPaid      Decimal          @default(0.00) @map("totalPenaltyPaid") @db.Decimal(10, 2)
+  profileDescription    String?            @map("profileDescription")
+  termsAccepted         Boolean?           @map("termsAccepted")
+  wallet                Decimal            @default(0.00) @db.Decimal(10, 2)
+  createdAt             DateTime           @default(now()) @map("createdAt")
+  updatedAt             DateTime           @updatedAt @map("updatedAt")
+  availableBalance      Decimal            @default(0.00) @map("availableBalance") @db.Decimal(10, 2)
+  reservedAmount        Decimal            @default(0.00) @map("reservedAmount") @db.Decimal(10, 2)
+  availabilityUpdatedAt DateTime?          @map("availabilityUpdatedAt")
+  currentlyAvailable    Boolean?           @default(true) @map("currentlyAvailable")
+  nextAvailable         String?            @map("nextAvailable")
+  coverPhoto            String?            @map("coverPhoto")
+  pendingPenaltyAmount  Decimal?           @default(0) @map("pendingPenaltyAmount") @db.Decimal(10, 2)
+  totalPenaltyPaid      Decimal            @default(0.00) @map("totalPenaltyPaid") @db.Decimal(10, 2)
+  adminOfferClaims      adminOfferClaims[]
   cashbackOffer         CashbackOffer[]
-  chatThreads           ChatThread[]     @relation("ClientChatThreads")
-  user                  User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  jobsCreated           Job[]            @relation("ClientJobs")
+  chatThreads           ChatThread[]       @relation("ClientChatThreads")
+  user                  User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  jobsCreated           Job[]              @relation("ClientJobs")
   paymentHistory        PaymentHistory[]
   penaltyLogs           PenaltyLog[]
   reviews               Review[]
@@ -293,6 +294,7 @@ model Job {
   clientReviewReminderSentAt         DateTime?
   clientReviewFinalReminderSentAt    DateTime?
   chatThreads                        ChatThread[]        @relation("JobChatThreads")
+  earnings                           Earning[]
   bookmarks                          JobBookmark[]
   statusHistory                      JobStatusHistory[]
   assignedFreelancer                 Freelancer?         @relation("AssignedFreelancer", fields: [assignedFreelancerId], references: [id], map: "jobsAssignedFreelancerFkey")
@@ -304,7 +306,6 @@ model Job {
   penaltyLogs                        PenaltyLog[]
   reviews                            Review[]
   walletTransactions                 WalletTransaction[]
-  earnings                           Earning[]
 
   @@index([assignedFreelancerId], map: "jobsAssignedFreelancerIdx")
   @@index([clientId], map: "jobsClientIdIdx")
@@ -379,7 +380,7 @@ model Earning {
   createdAt    DateTime      @default(now()) @map("createdAt")
   updatedAt    DateTime      @updatedAt @map("updatedAt")
   freelancer   Freelancer    @relation(fields: [freelancerId], references: [id], onDelete: Cascade)
-  job          Job?          @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  job          Job?          @relation(fields: [jobId], references: [id])
 
   @@index([freelancerId], map: "earningsFreelancerIdIdx")
   @@index([jobId], map: "earningsJobIdIdx")
@@ -605,6 +606,8 @@ model Service {
   birdFee           Json?              @map("birdFee")
   createdAt         DateTime           @default(now()) @map("createdAt")
   updatedAt         DateTime           @updatedAt @map("updatedAt")
+  adminOffers       adminOffers[]
+  cashbackOffers    CashbackOffer[]
   homePromos        HomePromo[]
   jobs              Job[]              @relation("JobService")
   suggestedServices SuggestedService[]
@@ -741,20 +744,25 @@ model UserMedia {
 }
 
 model CashbackOffer {
-  id            String                  @id
-  amount        Float
-  amountType    CashbackOfferAmountType
-  discovered    Boolean                 @default(false)
-  used          Boolean                 @default(false)
-  createdAt     DateTime                @default(now()) @map("createdAt")
-  updatedAt     DateTime                @map("updatedAt")
-  clientId      String                  @map("clientId")
-  minBooking    Float                   @default(0)
-  maxDiscount   Float?
-  reservedJobId String?                 @map("reservedJobId")
-  clients       Client                  @relation(fields: [clientId], references: [id], onDelete: Cascade, map: "CashbackOfferClientIdFkey")
+  id               String                  @id
+  amount           Float
+  amountType       CashbackOfferAmountType
+  discovered       Boolean                 @default(false)
+  used             Boolean                 @default(false)
+  createdAt        DateTime                @default(now()) @map("createdAt")
+  updatedAt        DateTime                @map("updatedAt")
+  clientId         String                  @map("clientId")
+  minBooking       Float                   @default(0)
+  maxDiscount      Float?
+  reservedJobId    String?                 @map("reservedJobId")
+  code             String?                 @db.VarChar(50)
+  serviceId        String?
+  adminOfferClaims adminOfferClaims[]
+  clients          Client                  @relation(fields: [clientId], references: [id], onDelete: Cascade, map: "CashbackOfferClientIdFkey")
+  services         Service?                @relation(fields: [serviceId], references: [id], map: "CashbackOfferServiceIdFkey")
 
   @@index([clientId], map: "CashbackOfferClientIdIdx")
+  @@index([serviceId], map: "CashbackOfferServiceIdIdx")
   @@map("cashbackOffers")
 }
 
@@ -787,6 +795,40 @@ model JobStatusHistory {
   @@index([jobId], map: "jobStatusHistoryJobIdIdx")
   @@index([createdAt], map: "jobStatusHistoryCreatedAtIdx")
   @@map("jobStatusHistory")
+}
+
+model adminOfferClaims {
+  id              String         @id
+  adminOfferId    String
+  clientId        String
+  revealedAt      DateTime?
+  cashbackOfferId String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime
+  adminOffers     adminOffers    @relation(fields: [adminOfferId], references: [id], onDelete: Cascade, map: "AdminOfferClaimAdminOfferIdFkey")
+  cashbackOffers  CashbackOffer? @relation(fields: [cashbackOfferId], references: [id], map: "AdminOfferClaimCashbackOfferIdFkey")
+  clients         Client         @relation(fields: [clientId], references: [id], onDelete: Cascade, map: "AdminOfferClaimClientIdFkey")
+
+  @@unique([adminOfferId, clientId])
+  @@index([clientId], map: "AdminOfferClaimClientIdIdx")
+}
+
+model adminOffers {
+  id               String                  @id
+  code             String                  @db.VarChar(50)
+  serviceId        String
+  amount           Float
+  amountType       CashbackOfferAmountType
+  minBooking       Float                   @default(0)
+  maxDiscount      Float?
+  isActive         Boolean                 @default(true)
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime
+  adminOfferClaims adminOfferClaims[]
+  services         Service                 @relation(fields: [serviceId], references: [id], onDelete: Cascade, map: "AdminOfferServiceIdFkey")
+
+  @@index([isActive], map: "AdminOfferIsActiveIdx")
+  @@index([serviceId], map: "AdminOfferServiceIdIdx")
 }
 
 enum AdminRole {

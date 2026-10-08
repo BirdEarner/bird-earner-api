@@ -124,6 +124,27 @@ export type Admin = {
     createdAt: Generated<Timestamp>;
     updatedAt: Timestamp;
 };
+export type adminOfferClaims = {
+    id: string;
+    adminOfferId: string;
+    clientId: string;
+    revealedAt: Timestamp | null;
+    cashbackOfferId: string | null;
+    createdAt: Generated<Timestamp>;
+    updatedAt: Timestamp;
+};
+export type adminOffers = {
+    id: string;
+    code: string;
+    serviceId: string;
+    amount: number;
+    amountType: CashbackOfferAmountType;
+    minBooking: Generated<number>;
+    maxDiscount: number | null;
+    isActive: Generated<boolean>;
+    createdAt: Generated<Timestamp>;
+    updatedAt: Timestamp;
+};
 export type BankAccount = {
     id: string;
     userId: string;
@@ -155,6 +176,8 @@ export type CashbackOffer = {
     minBooking: Generated<number>;
     maxDiscount: number | null;
     reservedJobId: string | null;
+    code: string | null;
+    serviceId: string | null;
 };
 export type ChatThread = {
     id: string;
@@ -626,6 +649,8 @@ export type WithdrawalRequest = {
     updatedAt: Timestamp;
 };
 export type DB = {
+    adminOfferClaims: adminOfferClaims;
+    adminOffers: adminOffers;
     admins: Admin;
     bankAccounts: BankAccount;
     blockedUsers: BlockedUser;

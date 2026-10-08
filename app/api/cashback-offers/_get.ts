@@ -59,12 +59,15 @@ export async function GET(request: Request) {
         const totalJobs = jobs.length;
         const totalEggs = calculateEggs(jobs);
 
+        // Egg-cracking coupons only (serviceId IS NULL): admin scratch-card coupons
+        // carry a serviceId and must never participate in egg counts/creation/deletion.
         const discoveredOffers = await db
             .selectFrom('cashbackOffers')
             .selectAll()
             .where('clientId', '=', client.id)
             .where('discovered', '=', true)
             .where('used', '=', false)
+            .where('serviceId', 'is', null)
             .where('createdAt', '>=', startOfMonth)
             .where('createdAt', '<=', endOfToday)
             .where((eb) => eb.or([
@@ -78,6 +81,7 @@ export async function GET(request: Request) {
             .selectAll()
             .where('clientId', '=', client.id)
             .where('discovered', '=', false)
+            .where('serviceId', 'is', null)
             .where('createdAt', '>=', startOfMonth)
             .where('createdAt', '<=', endOfToday)
             .execute();
@@ -114,6 +118,7 @@ export async function GET(request: Request) {
                     .selectAll()
                     .where('clientId', '=', client.id)
                     .where('discovered', '=', false)
+                    .where('serviceId', 'is', null)
                     .where('createdAt', '>=', startOfMonth)
                     .where('createdAt', '<=', endOfToday)
                     .execute();
@@ -134,8 +139,40 @@ export async function GET(request: Request) {
             }
         }
 
+        // Revealed admin scratch-card coupons: same lifecycle filters as egg coupons,
+        // but they carry a serviceId and are scoped to the job's service when a jobId
+        // is supplied (server-side service restriction for the negotiation panel).
+        let adminCoupons = await db
+            .selectFrom('cashbackOffers')
+            .selectAll()
+            .where('clientId', '=', client.id)
+            .where('discovered', '=', true)
+            .where('used', '=', false)
+            .where('serviceId', 'is not', null)
+            .where('createdAt', '>=', startOfMonth)
+            .where('createdAt', '<=', endOfToday)
+            .where((eb) => eb.or([
+                eb('reservedJobId', 'is', null),
+                jobId ? eb('reservedJobId', '=', jobId) : eb('reservedJobId', 'is', null),
+            ]))
+            .execute();
+
+        if (jobId && adminCoupons.length > 0) {
+            const job = await db
+                .selectFrom('jobs')
+                .select(['serviceId'])
+                .where('id', '=', jobId)
+                .where('clientId', '=', client.id)
+                .executeTakeFirst();
+            if (job) {
+                adminCoupons = adminCoupons.filter((o) => o.serviceId === job.serviceId);
+            } else {
+                adminCoupons = [];
+            }
+        }
+
         return NextResponse.json({
-            discoveredOffers,
+            discoveredOffers: [...discoveredOffers, ...adminCoupons],
             availableOffers,
             totalEggs,
             totalJobs,

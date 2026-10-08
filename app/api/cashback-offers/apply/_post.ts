@@ -36,7 +36,7 @@ export async function POST(request: Request) {
 
         const job = await db
             .selectFrom('jobs')
-            .select(['id', 'clientId', 'budgetAmount', 'cashbackOfferId'])
+            .select(['id', 'clientId', 'budgetAmount', 'cashbackOfferId', 'serviceId'])
             .where('id', '=', jobId)
             .where('deleted', '=', false)
             .executeTakeFirst();
@@ -68,6 +68,15 @@ export async function POST(request: Request) {
 
         if (!offer) {
             return NextResponse.json({ message: 'Offer not found or already used.' }, { status: 400 });
+        }
+
+        // Service-bound admin scratch coupons: reject cross-service use on the backend.
+        // Egg coupons have serviceId null and keep applying to any service (unchanged).
+        if (offer.serviceId && offer.serviceId !== job.serviceId) {
+            return NextResponse.json(
+                { message: 'This coupon is only valid for its service.' },
+                { status: 400 }
+            );
         }
 
         const budgetAmount = parseFloat(job.budgetAmount);
