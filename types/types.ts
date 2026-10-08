@@ -144,6 +144,7 @@ export type adminOffers = {
     isActive: Generated<boolean>;
     createdAt: Generated<Timestamp>;
     updatedAt: Timestamp;
+    placement: Generated<HomePromoPlacement>;
 };
 export type BankAccount = {
     id: string;

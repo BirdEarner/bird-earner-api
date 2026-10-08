@@ -43,6 +43,7 @@ export async function GET() {
             const base: Record<string, unknown> = {
                 id: r.id,
                 serviceName: r.serviceName,
+                placement: r.placement,
                 masked: !revealed,
                 revealed,
             };

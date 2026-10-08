@@ -75,6 +75,7 @@ export async function POST(request: NextRequest) {
             amountType: data.amountType,
             minBooking: data.minBooking ?? 0,
             maxDiscount: data.maxDiscount ?? null,
+            placement: data.placement ?? 'OFFER_CARD' as const,
             isActive: data.isActive ?? true,
             updatedAt: now,
         };

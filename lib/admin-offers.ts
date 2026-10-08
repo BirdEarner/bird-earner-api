@@ -8,6 +8,7 @@ export const adminOfferBodySchema = z.object({
     amountType: z.enum(['LUMPSUM', 'PERCENT']),
     minBooking: z.number().min(0).optional(),
     maxDiscount: z.number().positive().nullable().optional(),
+    placement: z.enum(['BANNER', 'OFFER_CARD']).optional(),
     isActive: z.boolean().optional(),
 });
 

@@ -37,6 +37,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
         if (data.amountType !== undefined) updates.amountType = data.amountType;
         if (data.minBooking !== undefined) updates.minBooking = data.minBooking;
         if (data.maxDiscount !== undefined) updates.maxDiscount = data.maxDiscount;
+        if (data.placement !== undefined) updates.placement = data.placement;
         if (data.isActive !== undefined) updates.isActive = data.isActive;
 
         await db.updateTable('adminOffers').set(updates).where('id', '=', id).execute();
