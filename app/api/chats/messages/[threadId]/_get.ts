@@ -19,6 +19,7 @@ export async function GET(
             .selectAll()
             .where('chatThreadId', '=', threadId)
             .orderBy('createdAt', 'asc')
+            .orderBy('id', 'asc') // stable tie-breaker: id is immutable so refreshes keep identical order
             .execute();
 
         // Filter out SYSTEM messages not intended for this user

@@ -546,6 +546,7 @@ export async function assignFreelancer(jobId: string, freelancerId: string, clie
                 messageContent: `Client accepted your request with ₹${finalAmountStr}${daysText}`,
                 messageType: 'text',
                 isRead: false,
+                createdAt: new Date(),
                 updatedAt: new Date(),
             }).execute();
 
@@ -560,6 +561,7 @@ export async function assignFreelancer(jobId: string, freelancerId: string, clie
                 messageContent: `You accepted the request with ₹${finalAmountStr}${daysText}`,
                 messageType: 'text',
                 isRead: false,
+                createdAt: new Date(),
                 updatedAt: new Date(),
             }).execute();
         }
@@ -596,6 +598,7 @@ export async function assignFreelancer(jobId: string, freelancerId: string, clie
                     messageData: JSON.stringify({ penaltyAmount }),
                     senderType: 'CLIENT',
                     isRead: false,
+                    createdAt: new Date(),
                     updatedAt: new Date()
                 }).execute();
             }
@@ -979,6 +982,7 @@ export async function cancelJob(jobId: string, userId: string, reason?: string) 
                     messageData: JSON.stringify({ type: 'SYSTEM_CANCEL', cancelledBy: 'client', isWithin5MinGrace, isWithinPostOtpWindow }),
                     senderType: 'SYSTEM',
                     isRead: false,
+                    createdAt: new Date(),
                     updatedAt: new Date()
                 }).execute();
 
@@ -1105,6 +1109,7 @@ export async function cancelJob(jobId: string, userId: string, reason?: string) 
                     messageData: JSON.stringify({ type: 'SYSTEM_CANCEL', cancelledBy: 'freelancer', isWithin5MinGrace, isWithinPostOtpWindow }),
                     senderType: 'SYSTEM',
                     isRead: false,
+                    createdAt: new Date(),
                     updatedAt: new Date()
                 }).execute();
 
@@ -1494,6 +1499,7 @@ export async function reportFreelancerNonSubmission(jobId: string, userId: strin
                 messageData: JSON.stringify({ type: 'SYSTEM_CANCEL', cancelledBy: 'client', reason: 'NO_SUBMISSION' }),
                 senderType: 'SYSTEM',
                 isRead: false,
+                createdAt: now,
                 updatedAt: now,
             }).execute();
 
@@ -1606,6 +1612,7 @@ export async function updatePhysicalJobProgress(
                     messageType: 'notification',
                     senderType: 'SYSTEM',
                     isRead: false,
+                    createdAt: new Date(),
                     updatedAt: new Date()
                 }).execute();
             }
@@ -1656,6 +1663,7 @@ export async function updatePhysicalJobProgress(
                     messageType: 'notification',
                     senderType: 'SYSTEM',
                     isRead: false,
+                    createdAt: new Date(),
                     updatedAt: new Date()
                 }).execute();
             }
@@ -1718,6 +1726,7 @@ export async function updatePhysicalJobProgress(
                     messageType: 'notification',
                     senderType: 'SYSTEM',
                     isRead: false,
+                    createdAt: new Date(),
                     updatedAt: new Date()
                 }).execute();
             }
@@ -1778,6 +1787,7 @@ export async function updatePhysicalJobProgress(
                     messageType: 'notification',
                     senderType: 'SYSTEM',
                     isRead: false,
+                    createdAt: new Date(),
                     updatedAt: new Date()
                 }).execute();
             }
@@ -1934,6 +1944,7 @@ export async function updatePhysicalJobProgress(
                     messageType: 'notification',
                     senderType: 'SYSTEM',
                     isRead: false,
+                    createdAt: now,
                     updatedAt: now
                 }).execute();
 

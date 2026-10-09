@@ -51,9 +51,11 @@ export async function POST(request: Request) {
 
             messageData.clientConfirmed = true;
 
+            // Advance the card's chronological position to this state change
+            const clientConfirmTime = new Date();
             await trx
                 .updateTable('messages')
-                .set({ messageData: messageData, updatedAt: new Date() })
+                .set({ messageData: messageData, createdAt: clientConfirmTime, updatedAt: clientConfirmTime })
                 .where('id', '=', messageId)
                 .execute();
 
@@ -69,7 +71,8 @@ export async function POST(request: Request) {
                     messageContent: `Client has confirmed cash payment of ₹${displayAmount}`,
                     messageType: 'notification',
                     senderType: 'SYSTEM',
-                    updatedAt: new Date()
+                    createdAt: new Date(clientConfirmTime.getTime() + 1),
+                    updatedAt: new Date(clientConfirmTime.getTime() + 1)
                 })
                 .execute();
         });

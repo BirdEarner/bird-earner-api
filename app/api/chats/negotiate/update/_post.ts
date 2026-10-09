@@ -128,6 +128,7 @@ export async function POST(request: Request) {
             messageContent: offerMessage,
             messageType: 'text',
             isRead: false,
+            createdAt: new Date(),
             updatedAt: new Date(),
         }).execute();
 

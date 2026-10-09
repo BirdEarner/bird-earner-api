@@ -206,6 +206,7 @@ export async function POST(request: Request) {
                 .executeTakeFirst();
 
             if (thread) {
+                const offerMsgTime = new Date();
                 await trx.insertInto('messages').values({
                     id: crypto.randomUUID(),
                     chatThreadId: thread.threadId,
@@ -214,7 +215,8 @@ export async function POST(request: Request) {
                     messageContent: clientMsg,
                     messageType: 'notification',
                     senderType: 'SYSTEM',
-                    updatedAt: new Date()
+                    createdAt: offerMsgTime,
+                    updatedAt: offerMsgTime
                 }).execute();
 
                 await trx.insertInto('messages').values({
@@ -225,7 +227,8 @@ export async function POST(request: Request) {
                     messageContent: freelancerMsg,
                     messageType: 'notification',
                     senderType: 'SYSTEM',
-                    updatedAt: new Date()
+                    createdAt: new Date(offerMsgTime.getTime() + 1),
+                    updatedAt: new Date(offerMsgTime.getTime() + 1)
                 }).execute();
             }
         });

@@ -57,9 +57,12 @@ export async function POST(request: Request) {
             messageData.freelancerConfirmed = true;
             messageData.step = 'completed';
 
+            // Advance the card to "Payment Completed" chronological position;
+            // the notification/review inserts below use +1ms/+2ms offsets.
+            const completeTime = new Date();
             await trx
                 .updateTable('messages')
-                .set({ messageData: messageData, updatedAt: new Date() })
+                .set({ messageData: messageData, createdAt: completeTime, updatedAt: completeTime })
                 .where('id', '=', messageId)
                 .execute();
 
@@ -267,7 +270,8 @@ export async function POST(request: Request) {
                     messageContent: notificationText,
                     messageType: 'notification',
                     senderType: 'SYSTEM',
-                    updatedAt: new Date()
+                    createdAt: new Date(completeTime.getTime() + 1),
+                    updatedAt: new Date(completeTime.getTime() + 1)
                 })
                 .execute();
 
@@ -287,7 +291,8 @@ export async function POST(request: Request) {
                         freelancerId: thread.freelancerId,
                         clientId: message.senderId
                     },
-                    updatedAt: new Date()
+                    createdAt: new Date(completeTime.getTime() + 2),
+                    updatedAt: new Date(completeTime.getTime() + 2)
                 })
                 .execute();
         });

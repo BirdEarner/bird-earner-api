@@ -96,6 +96,7 @@ export async function POST(
                         freelancerConfirmed: false,
                         jobId: id
                     },
+                createdAt: new Date(),
                 updatedAt: new Date()
             })
             .returningAll()

@@ -76,9 +76,13 @@ export async function POST(request: Request) {
             messageData.confirmedBy = user.id;
             messageData.confirmedAt = new Date().toISOString();
 
+            // Advance the card's chronological position to confirmation time;
+            // subsequent inserts in this transaction use +1ms/+2ms offsets so
+            // notification -> cash_payment/review_request stay strictly ordered.
+            const confirmTime = new Date();
             await trx
                 .updateTable('messages')
-                .set({ messageData: messageData, updatedAt: new Date() })
+                .set({ messageData: messageData, createdAt: confirmTime, updatedAt: confirmTime })
                 .where('id', '=', messageId)
                 .execute();
 
@@ -97,7 +101,8 @@ export async function POST(request: Request) {
                     messageContent: confirmationText,
                     messageType: 'notification',
                     senderType: 'SYSTEM',
-                    updatedAt: new Date()
+                    createdAt: new Date(confirmTime.getTime() + 1),
+                    updatedAt: new Date(confirmTime.getTime() + 1)
                 })
                 .execute();
 
@@ -161,7 +166,8 @@ export async function POST(request: Request) {
                             freelancerConfirmed: false,
                             jobId: jobId
                         },
-                        updatedAt: new Date()
+                        createdAt: new Date(confirmTime.getTime() + 2),
+                        updatedAt: new Date(confirmTime.getTime() + 2)
                     })
                     .returningAll()
                     .executeTakeFirstOrThrow();
@@ -212,7 +218,8 @@ export async function POST(request: Request) {
                             messageContent: completionText,
                             messageType: 'notification',
                             senderType: 'SYSTEM',
-                            updatedAt: new Date()
+                            createdAt: new Date(confirmTime.getTime() + 1),
+                            updatedAt: new Date(confirmTime.getTime() + 1)
                         })
                         .execute();
 
@@ -232,7 +239,8 @@ export async function POST(request: Request) {
                                 freelancerId: job.freelancerUserId,
                                 clientId: job.clientId
                             },
-                            updatedAt: new Date()
+                            createdAt: new Date(confirmTime.getTime() + 2),
+                            updatedAt: new Date(confirmTime.getTime() + 2)
                         })
                         .execute();
 
@@ -261,7 +269,8 @@ export async function POST(request: Request) {
                             messageContent: '⚠️ Project completed but payment processing failed. Please contact support.',
                             messageType: 'notification',
                             senderType: 'SYSTEM',
-                            updatedAt: new Date()
+                            createdAt: new Date(confirmTime.getTime() + 1),
+                            updatedAt: new Date(confirmTime.getTime() + 1)
                         })
                         .execute();
 

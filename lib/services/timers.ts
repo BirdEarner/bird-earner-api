@@ -447,6 +447,7 @@ export async function processJobTimers() {
                                 messageContent: `⚠️ BOOKING AUTO-CANCELLED: Freelancer failed to arrive on-site and verify OTP before deadline. Reason: FREELANCER NO-SHOW / FAILED TO COMPLETE. Full 100% refund issued to client. 2% penalty (₹${penaltyAmount.toFixed(2)}) deducted from freelancer.`,
                                 messageType: 'notification',
                                 senderType: 'SYSTEM',
+                                createdAt: now,
                                 updatedAt: now
                             })
                             .execute();
