@@ -36,7 +36,7 @@ export async function POST(request: Request) {
 
         const job = await db
             .selectFrom('jobs')
-            .select(['id', 'clientId', 'budgetAmount', 'cashbackOfferId', 'serviceId'])
+            .select(['id', 'clientId', 'budgetAmount', 'negotiatedAmount', 'cashbackOfferId', 'serviceId'])
             .where('id', '=', jobId)
             .where('deleted', '=', false)
             .executeTakeFirst();
@@ -79,10 +79,18 @@ export async function POST(request: Request) {
             );
         }
 
-        const budgetAmount = parseFloat(job.budgetAmount);
-        if (budgetAmount < offer.minBooking) {
+        const acceptedThread = await db
+            .selectFrom('chatThreads')
+            .select('agreedAmount')
+            .where('jobId', '=', jobId)
+            .where('status', '=', 'ACCEPTED')
+            .orderBy('updatedAt', 'desc')
+            .executeTakeFirst();
+
+        const finalAmount = parseFloat(job.negotiatedAmount || acceptedThread?.agreedAmount || job.budgetAmount);
+        if (finalAmount < offer.minBooking) {
             return NextResponse.json({
-                message: `Minimum booking of ₹${offer.minBooking} required for this offer. Current budget: ₹${budgetAmount}`
+                message: `Minimum booking of ₹${offer.minBooking} required for this offer. Current job amount: ₹${finalAmount}`
             }, { status: 400 });
         }
 
@@ -91,12 +99,12 @@ export async function POST(request: Request) {
             discountAmount = offer.amount;
         } else {
             discountAmount = Math.min(
-                (budgetAmount * offer.amount) / 100,
+                (finalAmount * offer.amount) / 100,
                 offer.maxDiscount || Infinity
             );
         }
 
-        discountAmount = Math.min(discountAmount, budgetAmount);
+        discountAmount = Math.min(discountAmount, finalAmount);
 
         await db.transaction().execute(async (trx) => {
             await trx
@@ -115,7 +123,7 @@ export async function POST(request: Request) {
                 .where('id', '=', offerId)
                 .execute();
 
-            const clientPays = budgetAmount - discountAmount;
+            const clientPays = finalAmount - discountAmount;
 
             const clientMsg = `🎁 Coupon applied!\nYou have to pay ₹${clientPays} to freelancer`;
             const freelancerMsg = `🎁 Client applied a coupon!\nClient will pay you ₹${clientPays} in cash and BirdEarner will add ₹${discountAmount} points in your wallet when job completes`;
@@ -156,7 +164,7 @@ export async function POST(request: Request) {
             }
         });
 
-        const clientPays = budgetAmount - discountAmount;
+        const clientPays = finalAmount - discountAmount;
 
         return NextResponse.json({
             success: true,

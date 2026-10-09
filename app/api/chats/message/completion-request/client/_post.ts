@@ -35,6 +35,7 @@ export async function POST(request: Request) {
                     'jobs.id',
                     'jobs.paymentMethod',
                     'jobs.budgetAmount',
+                    'jobs.negotiatedAmount',
                     'jobs.projectType',
                     'jobs.jobStatus',
                     'jobs.location',
@@ -82,7 +83,7 @@ export async function POST(request: Request) {
                         jobId: jobId,
                         status: 'pending',
                         paymentMethod: job.paymentMethod,
-                        budgetAmount: job.budgetAmount.toString()
+                        budgetAmount: (job.paymentMethod === 'CASH' && job.negotiatedAmount ? job.negotiatedAmount : job.budgetAmount).toString()
                     },
                     createdAt: new Date(),
                     updatedAt: new Date()

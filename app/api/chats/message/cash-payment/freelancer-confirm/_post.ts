@@ -73,6 +73,7 @@ export async function POST(request: Request) {
                     'jobs.id as jobId',
                     'jobs.jobTitle',
                     'jobs.budgetAmount',
+                    'jobs.negotiatedAmount',
                     'jobs.discountAmount',
                     'jobs.cashbackOfferId',
                     'jobs.clientPenaltyAmount',
@@ -87,11 +88,15 @@ export async function POST(request: Request) {
 
             if (!thread) throw new Error('Thread/Job not found');
 
+            const finalJobAmount = thread.negotiatedAmount
+                ? parseFloat(thread.negotiatedAmount.toString())
+                : parseFloat(thread.budgetAmount);
+
             let birdFeeAmount = 0;
             if (thread.birdFee) {
-                birdFeeAmount = calculateBirdFee(parseFloat(thread.budgetAmount), thread.birdFee);
+                birdFeeAmount = calculateBirdFee(finalJobAmount, thread.birdFee);
             } else {
-                birdFeeAmount = parseFloat(thread.budgetAmount) * 0.10;
+                birdFeeAmount = finalJobAmount * 0.10;
             }
 
             // Update job status
@@ -234,7 +239,7 @@ export async function POST(request: Request) {
             }
 
             // System notification message
-            const budgetAmt = parseFloat(thread.budgetAmount);
+            const budgetAmt = finalJobAmount;
             const clientPays = budgetAmt - discountAmt + penaltyAmt;
             let notificationText = `✅ Payment completed!`;
             if (discountAmt > 0 && penaltyAmt > 0) {

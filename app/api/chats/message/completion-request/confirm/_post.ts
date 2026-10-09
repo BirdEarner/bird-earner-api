@@ -106,14 +106,16 @@ export async function POST(request: Request) {
                 // Fetch discount and penalty info from job
                 const jobData = await trx
                     .selectFrom('jobs')
-                    .select(['discountAmount', 'cashbackOfferId', 'clientPenaltyAmount'])
+                    .select(['discountAmount', 'cashbackOfferId', 'clientPenaltyAmount', 'budgetAmount', 'negotiatedAmount'])
                     .where('id', '=', jobId)
                     .where('deleted', '=', false)
                     .executeTakeFirst();
 
                 const discountAmt = parseFloat(jobData?.discountAmount || '0');
                 const penaltyAmt = parseFloat(jobData?.clientPenaltyAmount?.toString() || '0');
-                const budgetNum = parseFloat(budgetAmount);
+                const budgetNum = jobData?.negotiatedAmount
+                    ? parseFloat(jobData.negotiatedAmount.toString())
+                    : parseFloat(jobData?.budgetAmount || budgetAmount);
                 const clientPays = budgetNum - discountAmt + penaltyAmt;
 
                 let cashContent = 'Project completion confirmed. Cash payment process initiated.';
@@ -149,7 +151,7 @@ export async function POST(request: Request) {
                         senderType: 'SYSTEM',
                         messageData: {
                             amount: clientPays.toString(),
-                            budgetAmount: budgetAmount,
+                            budgetAmount: budgetNum.toString(),
                             discountAmount: discountAmt.toString(),
                             penaltyAmount: penaltyAmt.toString(),
                             clientPays: clientPays.toString(),
