@@ -290,7 +290,7 @@ export async function assignFreelancer(jobId: string, freelancerId: string, clie
     return await db.transaction().execute(async (trx) => {
         const job = await trx
             .selectFrom('jobs')
-            .select(['id', 'clientId', 'assignedFreelancerId', 'jobStatus', 'budgetAmount', 'paymentMethod', 'isAmountReserved', 'jobTitle', 'clientPenaltyAmount', 'workDurationDays'])
+            .select(['id', 'clientId', 'assignedFreelancerId', 'jobStatus', 'budgetAmount', 'paymentMethod', 'isAmountReserved', 'jobTitle', 'clientPenaltyAmount', 'workDurationDays', 'discountAmount'])
             .where('id', '=', jobId)
             .executeTakeFirst();
 
@@ -345,68 +345,105 @@ export async function assignFreelancer(jobId: string, freelancerId: string, clie
 
         const originalBudgetNum = parseFloat(job.budgetAmount.toString());
 
-        // PLATFORM payment: collect additional amount if negotiated > original
-        if (job.paymentMethod === 'PLATFORM' && finalAmountNum > originalBudgetNum) {
-            const additionalAmount = finalAmountNum - originalBudgetNum;
+        // PLATFORM payment: reservation must equal final negotiated amount - coupon discount
+        const discountNum = parseFloat(job.discountAmount?.toString() || '0');
+        const requiredReserved = Math.max(0, Number((finalAmountNum - discountNum).toFixed(2)));
 
-            const clientData = await trx
-                .selectFrom('clients')
-                .select(['id', 'userId', 'wallet', 'reservedAmount'])
-                .where('id', '=', job.clientId || '')
-                .executeTakeFirst();
+        if (job.paymentMethod === 'PLATFORM' && job.isAmountReserved) {
+            const delta = Number((requiredReserved - originalBudgetNum).toFixed(2));
 
-            // Also look up by job's clientId via join if needed
-            const clientRow = clientData || await trx
-                .selectFrom('jobs')
-                .innerJoin('clients', 'clients.id', 'jobs.clientId')
-                .select(['clients.id', 'clients.userId', 'clients.wallet', 'clients.reservedAmount'])
-                .where('jobs.id', '=', jobId)
-                .executeTakeFirst();
+            if (delta !== 0) {
+                const clientData = await trx
+                    .selectFrom('clients')
+                    .select(['id', 'userId', 'wallet', 'reservedAmount'])
+                    .where('id', '=', job.clientId || '')
+                    .executeTakeFirst();
 
-            if (!clientRow) throw new Error('Client not found');
+                // Also look up by job's clientId via join if needed
+                const clientRow = clientData || await trx
+                    .selectFrom('jobs')
+                    .innerJoin('clients', 'clients.id', 'jobs.clientId')
+                    .select(['clients.id', 'clients.userId', 'clients.wallet', 'clients.reservedAmount'])
+                    .where('jobs.id', '=', jobId)
+                    .executeTakeFirst();
 
-            const currentWallet = parseFloat(clientRow.wallet || '0');
-            const currentReserved = parseFloat(clientRow.reservedAmount || '0');
-            const availableBalance = Math.max(0, currentWallet - currentReserved);
+                if (!clientRow) throw new Error('Client not found');
 
-            if (availableBalance < additionalAmount) {
-                // Return payment required response — do NOT assign freelancer
-                return {
-                    success: false,
-                    requiresPayment: true,
-                    additionalAmount: additionalAmount,
-                    availableBalance: availableBalance,
-                    shortfall: additionalAmount - availableBalance,
-                    message: `Additional ₹${additionalAmount.toFixed(2)} required for negotiated amount. Please add funds via Pay Birdearner.`
-                } as any;
+                const currentWallet = parseFloat(clientRow.wallet || '0');
+                const currentReserved = parseFloat(clientRow.reservedAmount || '0');
+                const availableBalance = Math.max(0, currentWallet - currentReserved);
+
+                if (delta > 0) {
+                    const additionalAmount = delta;
+
+                    if (availableBalance < additionalAmount) {
+                        // Return payment required response — do NOT assign freelancer
+                        return {
+                            success: false,
+                            requiresPayment: true,
+                            additionalAmount: additionalAmount,
+                            availableBalance: availableBalance,
+                            shortfall: Number((additionalAmount - availableBalance).toFixed(2)),
+                            message: `Additional ₹${additionalAmount.toFixed(2)} required for negotiated amount${discountNum > 0 ? ` (after ₹${discountNum.toFixed(2)} coupon)` : ''}. Please add funds via Pay Birdearner.`
+                        } as any;
+                    }
+
+                    const newReserved = Number((currentReserved + additionalAmount).toFixed(2));
+                    const newAvailableBalance = Math.max(0, currentWallet - newReserved);
+
+                    await trx
+                        .updateTable('clients')
+                        .set({
+                            reservedAmount: newReserved.toString(),
+                            availableBalance: newAvailableBalance.toString(),
+                            updatedAt: new Date()
+                        })
+                        .where('id', '=', clientRow.id)
+                        .execute();
+
+                    // Record wallet transaction for additional amount
+                    await trx.insertInto('walletTransactions').values({
+                        id: crypto.randomUUID(),
+                        userId: clientRow.userId,
+                        userType: 'CLIENT',
+                        jobId: jobId,
+                        amount: additionalAmount.toString(),
+                        transactionType: 'JOB_RESERVE',
+                        balanceBefore: currentWallet.toString(),
+                        balanceAfter: currentWallet.toString(),
+                        description: `Additional amount reserved for negotiated price (₹${originalBudgetNum.toFixed(2)} → ₹${requiredReserved.toFixed(2)})`,
+                        updatedAt: new Date()
+                    }).execute();
+                } else {
+                    // Required reservation is lower (lower negotiation and/or coupon) — release the surplus
+                    const releaseAmt = Number((-delta).toFixed(2));
+                    const newReserved = Math.max(0, Number((currentReserved - releaseAmt).toFixed(2)));
+                    const newAvailableBalance = Math.max(0, currentWallet - newReserved);
+
+                    await trx
+                        .updateTable('clients')
+                        .set({
+                            reservedAmount: newReserved.toString(),
+                            availableBalance: newAvailableBalance.toString(),
+                            updatedAt: new Date()
+                        })
+                        .where('id', '=', clientRow.id)
+                        .execute();
+
+                    await trx.insertInto('walletTransactions').values({
+                        id: crypto.randomUUID(),
+                        userId: clientRow.userId,
+                        userType: 'CLIENT',
+                        jobId: jobId,
+                        amount: releaseAmt.toString(),
+                        transactionType: 'JOB_RELEASE',
+                        balanceBefore: currentWallet.toString(),
+                        balanceAfter: currentWallet.toString(),
+                        description: `Released reserved amount after negotiation (₹${originalBudgetNum.toFixed(2)} → ₹${requiredReserved.toFixed(2)})`,
+                        updatedAt: new Date()
+                    }).execute();
+                }
             }
-
-            const newReserved = currentReserved + additionalAmount;
-            const newAvailableBalance = Math.max(0, currentWallet - newReserved);
-
-            await trx
-                .updateTable('clients')
-                .set({
-                    reservedAmount: newReserved.toString(),
-                    availableBalance: newAvailableBalance.toString(),
-                    updatedAt: new Date()
-                })
-                .where('id', '=', clientRow.id)
-                .execute();
-
-            // Record wallet transaction for additional amount
-            await trx.insertInto('walletTransactions').values({
-                id: crypto.randomUUID(),
-                userId: clientRow.userId,
-                userType: 'CLIENT',
-                jobId: jobId,
-                amount: additionalAmount.toString(),
-                transactionType: 'JOB_RESERVE',
-                balanceBefore: currentWallet.toString(),
-                balanceAfter: currentWallet.toString(),
-                description: `Additional amount reserved for negotiated price (₹${originalBudgetNum.toFixed(2)} → ₹${finalAmountNum.toFixed(2)})`,
-                updatedAt: new Date()
-            }).execute();
         }
 
         // Calculate Work Deadline from confirmed timestamp + agreed work duration
@@ -414,9 +451,9 @@ export async function assignFreelancer(jobId: string, freelancerId: string, clie
         const confirmedAt = new Date();
         const workDeadline = new Date(confirmedAt.getTime() + finalDays * 24 * 60 * 60 * 1000);
 
-        // 1. If not already reserved (e.g. was CASH originally or failed), try to reserve now for PLATFORM using finalAmount
+        // 1. If not already reserved (e.g. was CASH originally or failed), try to reserve now for PLATFORM using required amount (negotiated - coupon)
         if (!job.isAmountReserved && job.paymentMethod === 'PLATFORM') {
-            await reserveAmountForJobInTransaction(trx, clientUserId, jobId, finalAmountNum);
+            await reserveAmountForJobInTransaction(trx, clientUserId, jobId, requiredReserved);
         }
 
         // 2. Update job assignment with final negotiated budgetAmount and workDeadline
@@ -659,8 +696,9 @@ export async function completeJob(jobId: string, clientUserId: string) {
         }
 
         // 1. Process Payment (only if not already settled, e.g. by Accept Work)
+        let paymentResult: Awaited<ReturnType<typeof processJobPaymentInTransaction>> | null = null;
         if (job.paymentStatus !== 'COMPLETED') {
-            await processJobPaymentInTransaction(trx, jobId);
+            paymentResult = await processJobPaymentInTransaction(trx, jobId);
         }
 
         // 2. Update Status
@@ -670,7 +708,7 @@ export async function completeJob(jobId: string, clientUserId: string) {
                 jobStatus: 'COMPLETED',
                 completedAt: new Date(),
                 paymentStatus: 'COMPLETED',
-                amountPaid: job.negotiatedAmount || job.budgetAmount,
+                amountPaid: paymentResult ? paymentResult.clientChargeAmount.toFixed(2) : (job.negotiatedAmount || job.budgetAmount),
                 isAmountReserved: false,
                 updatedAt: new Date()
             })
@@ -2048,7 +2086,7 @@ export async function respondToDigitalWork(
         const now = new Date();
 
         if (decision === 'ACCEPT') {
-            await processJobPaymentInTransaction(trx, jobId);
+            const paymentResult = await processJobPaymentInTransaction(trx, jobId);
 
             const updatedJob = await trx
                 .updateTable('jobs')
@@ -2056,7 +2094,7 @@ export async function respondToDigitalWork(
                     jobStatus: 'COMPLETED',
                     completedAt: now,
                     paymentStatus: 'COMPLETED',
-                    amountPaid: job.negotiatedAmount || job.budgetAmount,
+                    amountPaid: paymentResult.clientChargeAmount.toFixed(2),
                     isAmountReserved: false,
                     clientReviewPeriodExpiresAt: null,
                     updatedAt: now,

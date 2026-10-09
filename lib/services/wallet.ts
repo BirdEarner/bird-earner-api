@@ -2,6 +2,7 @@ import { db } from '../db';
 import { TransactionType } from '../../types/types';
 import { Kysely, Transaction } from 'kysely';
 import { DB } from '../../types/types';
+import { calculateBirdFee } from '../utils/fee';
 
 /**
  * Get client wallet information
@@ -132,7 +133,7 @@ export async function releaseReservedAmountInTransaction(
 ) {
     const job = await trx
         .selectFrom('jobs')
-        .select(['budgetAmount', 'negotiatedAmount', 'isAmountReserved'])
+        .select(['budgetAmount', 'negotiatedAmount', 'discountAmount', 'isAmountReserved'])
         .where('id', '=', jobId)
         .executeTakeFirst();
 
@@ -150,7 +151,12 @@ export async function releaseReservedAmountInTransaction(
         throw new Error('Client not found');
     }
 
-    const releaseAmount = job.negotiatedAmount ? parseFloat(job.negotiatedAmount.toString()) : parseFloat(job.budgetAmount.toString());
+    // Reserved amount per job = negotiated amount - coupon discount (set at assignment).
+    // Before assignment no negotiation/discount has been applied to the reservation, so release full budget.
+    const discountAmount = parseFloat(job.discountAmount?.toString() || '0');
+    const releaseAmount = job.negotiatedAmount
+        ? Math.max(0, parseFloat(job.negotiatedAmount.toString()) - discountAmount)
+        : parseFloat(job.budgetAmount.toString());
     const currentWallet = parseFloat(client.wallet);
     const currentReserved = parseFloat(client.reservedAmount);
     const newReserved = Math.max(0, currentReserved - releaseAmount);
@@ -205,12 +211,15 @@ export async function processJobPaymentInTransaction(
         .selectFrom('jobs')
         .innerJoin('clients', 'clients.id', 'jobs.clientId')
         .leftJoin('freelancers', 'freelancers.id', 'jobs.assignedFreelancerId')
+        .leftJoin('services', 'services.id', 'jobs.serviceId')
         .select([
             'jobs.id',
             'jobs.jobTitle',
             'jobs.budgetAmount',
             'jobs.negotiatedAmount',
             'jobs.birdFeeAmount',
+            'jobs.discountAmount',
+            'jobs.cashbackOfferId',
             'jobs.paymentStatus',
             'jobs.isAmountReserved',
             'clients.id as clientId',
@@ -221,7 +230,8 @@ export async function processJobPaymentInTransaction(
             'freelancers.userId as freelancerUserId',
             'freelancers.totalEarnings as freelancerTotalEarnings',
             'freelancers.monthlyEarnings as freelancerMonthlyEarnings',
-            'freelancers.withdrawableAmount as freelancerWithdrawable'
+            'freelancers.withdrawableAmount as freelancerWithdrawable',
+            'services.birdFee as serviceBirdFee'
         ])
         .where('jobs.id', '=', jobId)
         .executeTakeFirst();
@@ -245,8 +255,17 @@ export async function processJobPaymentInTransaction(
     const budgetAmount = parseFloat(job.budgetAmount);
     const negotiatedAmount = job.negotiatedAmount ? parseFloat(job.negotiatedAmount.toString()) : null;
     const effectiveAmount = negotiatedAmount || budgetAmount;
-    const birdFeeAmount = parseFloat(job.birdFeeAmount || '0');
-    const freelancerPaymentAmount = effectiveAmount - birdFeeAmount;
+    const discountAmount = parseFloat(job.discountAmount?.toString() || '0');
+    // Final amount actually reserved for this job = negotiated amount - coupon discount
+    const clientChargeAmount = Math.max(0, Number((effectiveAmount - discountAmount).toFixed(2)));
+
+    // Platform fee: existing service-specific BirdFee configuration applied to the final negotiated amount
+    let birdFeeAmount = parseFloat(job.birdFeeAmount || '0');
+    if (job.serviceBirdFee) {
+        birdFeeAmount = Number(calculateBirdFee(effectiveAmount, job.serviceBirdFee).toFixed(2));
+    }
+    // Total earnings credited to the freelancer (client charge + coupon credit - platform fee)
+    const freelancerNetAmount = Number((clientChargeAmount + discountAmount - birdFeeAmount).toFixed(2));
 
     const clientCurrentWallet = parseFloat(job.clientWallet);
     const clientCurrentReserved = parseFloat(job.clientReserved);
@@ -255,11 +274,12 @@ export async function processJobPaymentInTransaction(
     const freelancerCurrentMonthly = parseFloat(job.freelancerMonthlyEarnings!);
     const freelancerCurrentWithdrawable = parseFloat(job.freelancerWithdrawable!);
 
-    const newClientWallet = clientCurrentWallet - effectiveAmount;
-    const newClientReserved = Math.max(0, clientCurrentReserved - effectiveAmount);
+    const newClientWallet = clientCurrentWallet - clientChargeAmount;
+    const newClientReserved = Math.max(0, clientCurrentReserved - clientChargeAmount);
     const newClientAvailable = Math.max(0, newClientWallet - newClientReserved);
 
-    // 1. Deduct effective amount from client wallet and release reserved amount
+    // 1. Deduct final reserved amount (negotiated - coupon discount) from client wallet
+    //    and release exactly that much from the reserved funds
     // Note: Penalty was already collected from client's wallet at job creation time
     await trx
         .updateTable('clients')
@@ -272,15 +292,15 @@ export async function processJobPaymentInTransaction(
         .where('id', '=', job.clientId)
         .execute();
 
-    // 2. Add freelancer payment amount to freelancer earnings
+    // 2. Pay the final reserved amount to the freelancer
     // Note: withdrawableAmount is NOT credited here — the amount is held for the
     // withdrawal-hold period (WITHDRAWAL_HOLD_BUSINESS_DAYS, default 3 business days)
     // and credited to withdrawableAmount by the job timers once the hold matures.
     await trx
         .updateTable('freelancers')
         .set({
-            totalEarnings: (freelancerCurrentEarnings + freelancerPaymentAmount).toString(),
-            monthlyEarnings: (freelancerCurrentMonthly + freelancerPaymentAmount).toString(),
+            totalEarnings: (freelancerCurrentEarnings + freelancerNetAmount).toString(),
+            monthlyEarnings: (freelancerCurrentMonthly + freelancerNetAmount).toString(),
             updatedAt: new Date()
         })
         .where('id', '=', job.freelancerId)
@@ -293,7 +313,7 @@ export async function processJobPaymentInTransaction(
             id: crypto.randomUUID(),
             freelancerId: job.freelancerId,
             jobId,
-            amount: freelancerPaymentAmount.toFixed(2),
+            amount: clientChargeAmount.toFixed(2),
             earningType: 'JOB_PAYMENT',
             description: `Earnings from job: ${job.jobTitle}`,
             status: 'PENDING',
@@ -302,7 +322,7 @@ export async function processJobPaymentInTransaction(
         })
         .execute();
 
-    // 3. Create wallet transaction for client (debit effective amount)
+    // 3. Create wallet transaction for client (debit final reserved amount)
     const clientTransaction = await trx
         .insertInto('walletTransactions')
         .values({
@@ -311,17 +331,17 @@ export async function processJobPaymentInTransaction(
             userType: 'CLIENT',
             jobId,
             transactionType: 'JOB_PAYMENT',
-            amount: (-effectiveAmount).toString(),
+            amount: (-clientChargeAmount).toString(),
             balanceBefore: clientCurrentWallet.toString(),
-            balanceAfter: (clientCurrentWallet - effectiveAmount).toString(),
-            description: `Payment for job: ${job.jobTitle}${negotiatedAmount ? ` (negotiated ₹${negotiatedAmount.toFixed(2)})` : ''}`,
+            balanceAfter: (clientCurrentWallet - clientChargeAmount).toString(),
+            description: `Payment for job: ${job.jobTitle}${negotiatedAmount ? ` (negotiated ₹${negotiatedAmount.toFixed(2)})` : ''}${discountAmount > 0 ? ` (coupon ₹${discountAmount.toFixed(2)} applied)` : ''}`,
             createdAt: new Date(),
             updatedAt: new Date()
         })
         .returningAll()
         .executeTakeFirstOrThrow();
 
-    // 4. Create wallet transaction for freelancer (credit payment)
+    // 4. Create wallet transaction for freelancer (credit final reserved amount)
     const freelancerTransaction = await trx
         .insertInto('walletTransactions')
         .values({
@@ -330,7 +350,7 @@ export async function processJobPaymentInTransaction(
             userType: 'FREELANCER',
             jobId,
             transactionType: 'JOB_PAYMENT',
-            amount: freelancerPaymentAmount.toString(),
+            amount: clientChargeAmount.toString(),
             balanceBefore: freelancerCurrentWithdrawable.toString(),
             balanceAfter: freelancerCurrentWithdrawable.toString(),
             description: `Earnings from job: ${job.jobTitle} (after platform fee)`,
@@ -340,8 +360,20 @@ export async function processJobPaymentInTransaction(
         .returningAll()
         .executeTakeFirstOrThrow();
 
-    // 5. Create platform fee transaction if any
+    // 5. Deduct platform fee from the freelancer's wallet (service-specific BirdFee config)
+    let freelancerWalletBalance = freelancerCurrentWithdrawable;
     if (birdFeeAmount > 0) {
+        const feeBalanceAfter = freelancerWalletBalance - birdFeeAmount;
+
+        await trx
+            .updateTable('freelancers')
+            .set({
+                withdrawableAmount: feeBalanceAfter.toString(),
+                updatedAt: new Date()
+            })
+            .where('id', '=', job.freelancerId)
+            .execute();
+
         await trx
             .insertInto('walletTransactions')
             .values({
@@ -349,16 +381,66 @@ export async function processJobPaymentInTransaction(
                 userId: job.freelancerUserId!,
                 userType: 'FREELANCER',
                 jobId,
-            transactionType: 'PLATFORM_FEE',
-            amount: (-birdFeeAmount).toString(),
-            balanceBefore: freelancerCurrentWithdrawable.toString(),
-            balanceAfter: freelancerCurrentWithdrawable.toString(),
+                transactionType: 'PLATFORM_FEE',
+                amount: (-birdFeeAmount).toString(),
+                balanceBefore: freelancerWalletBalance.toString(),
+                balanceAfter: feeBalanceAfter.toString(),
                 description: `Platform fee for job: ${job.jobTitle}`,
                 createdAt: new Date(),
                 updatedAt: new Date()
             })
             .execute();
+
+        freelancerWalletBalance = feeBalanceAfter;
     }
+
+    // 6. Credit applied coupon amount to the freelancer's wallet through BirdEarner
+    if (discountAmount > 0) {
+        const depositBalanceAfter = freelancerWalletBalance + discountAmount;
+
+        await trx
+            .updateTable('freelancers')
+            .set({
+                withdrawableAmount: depositBalanceAfter.toString(),
+                updatedAt: new Date()
+            })
+            .where('id', '=', job.freelancerId)
+            .execute();
+
+        await trx
+            .insertInto('walletTransactions')
+            .values({
+                id: crypto.randomUUID(),
+                userId: job.freelancerUserId!,
+                userType: 'FREELANCER',
+                jobId,
+                transactionType: 'DEPOSIT',
+                amount: discountAmount.toString(),
+                balanceBefore: freelancerWalletBalance.toString(),
+                balanceAfter: depositBalanceAfter.toString(),
+                description: `Cashback coupon applied by client - ${job.jobTitle}`,
+                createdAt: new Date(),
+                updatedAt: new Date()
+            })
+            .execute();
+
+        freelancerWalletBalance = depositBalanceAfter;
+    }
+
+    // 7. Mark coupon as fully used (single-use) and keep job fee record in sync
+    if (job.cashbackOfferId) {
+        await trx
+            .updateTable('cashbackOffers')
+            .set({ used: true, reservedJobId: null, updatedAt: new Date() })
+            .where('id', '=', job.cashbackOfferId)
+            .execute();
+    }
+
+    await trx
+        .updateTable('jobs')
+        .set({ birdFeeAmount: birdFeeAmount.toString(), updatedAt: new Date() })
+        .where('id', '=', jobId)
+        .execute();
 
     // Note: Client cancellation penalties are now collected directly from the client's wallet
     // (auto-deducted when penalty occurs if wallet has sufficient balance, or added to next job amount).
@@ -367,7 +449,10 @@ export async function processJobPaymentInTransaction(
     return {
         success: true,
         budgetAmount,
-        freelancerPaymentAmount,
+        effectiveAmount,
+        clientChargeAmount,
+        discountAmount,
+        freelancerPaymentAmount: clientChargeAmount,
         birdFeeAmount,
         clientTransactionId: clientTransaction.id,
         freelancerTransactionId: freelancerTransaction.id

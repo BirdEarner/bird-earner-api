@@ -26,7 +26,7 @@ export async function POST(request: Request) {
 
         const client = await db
             .selectFrom('clients')
-            .select('id')
+            .select(['id', 'userId'])
             .where('userId', '=', user.id)
             .executeTakeFirst();
 
@@ -36,7 +36,7 @@ export async function POST(request: Request) {
 
         const job = await db
             .selectFrom('jobs')
-            .select(['id', 'clientId', 'budgetAmount', 'negotiatedAmount', 'cashbackOfferId', 'serviceId'])
+            .select(['id', 'clientId', 'budgetAmount', 'negotiatedAmount', 'cashbackOfferId', 'serviceId', 'paymentMethod', 'assignedFreelancerId', 'isAmountReserved', 'discountAmount'])
             .where('id', '=', jobId)
             .where('deleted', '=', false)
             .executeTakeFirst();
@@ -106,6 +106,32 @@ export async function POST(request: Request) {
 
         discountAmount = Math.min(discountAmount, finalAmount);
 
+        // PLATFORM job already assigned (reservation = final - current discount):
+        // keep reserved amount in sync with the new discount. Pre-assignment jobs are
+        // reconciled at assignment time, so no wallet movement there.
+        const oldDiscount = parseFloat(job.discountAmount?.toString() || '0');
+        const reserveDiff = job.paymentMethod === 'PLATFORM' && job.isAmountReserved && job.assignedFreelancerId
+            ? Number((discountAmount - oldDiscount).toFixed(2))
+            : 0;
+
+        if (reserveDiff < 0) {
+            // Discount reduced/replaced by a smaller one — more funds must be reserved
+            const walletRow = await db
+                .selectFrom('clients')
+                .select(['wallet', 'reservedAmount'])
+                .where('id', '=', client.id)
+                .executeTakeFirst();
+            const curWallet = parseFloat(walletRow?.wallet || '0');
+            const curReserved = parseFloat(walletRow?.reservedAmount || '0');
+            const available = Math.max(0, curWallet - curReserved);
+            const needed = Number((-reserveDiff).toFixed(2));
+            if (available < needed) {
+                return NextResponse.json({
+                    message: `Insufficient wallet balance. Available: ₹${available.toFixed(2)}, Required: ₹${needed.toFixed(2)} to apply this coupon. Please add funds via Pay Birdearner.`
+                }, { status: 400 });
+            }
+        }
+
         await db.transaction().execute(async (trx) => {
             await trx
                 .updateTable('jobs')
@@ -122,6 +148,46 @@ export async function POST(request: Request) {
                 .set({ reservedJobId: jobId, updatedAt: new Date() })
                 .where('id', '=', offerId)
                 .execute();
+
+            if (reserveDiff !== 0) {
+                const walletRow = await trx
+                    .selectFrom('clients')
+                    .select(['id', 'userId', 'wallet', 'reservedAmount'])
+                    .where('id', '=', client.id)
+                    .executeTakeFirst();
+
+                if (walletRow) {
+                    const curWallet = parseFloat(walletRow.wallet || '0');
+                    const curReserved = parseFloat(walletRow.reservedAmount || '0');
+                    const newReserved = Math.max(0, Number((curReserved - reserveDiff).toFixed(2)));
+                    const newAvailable = Math.max(0, curWallet - newReserved);
+
+                    await trx
+                        .updateTable('clients')
+                        .set({
+                            reservedAmount: newReserved.toString(),
+                            availableBalance: newAvailable.toString(),
+                            updatedAt: new Date(),
+                        })
+                        .where('id', '=', client.id)
+                        .execute();
+
+                    await trx.insertInto('walletTransactions').values({
+                        id: crypto.randomUUID(),
+                        userId: walletRow.userId,
+                        userType: 'CLIENT',
+                        jobId,
+                        transactionType: reserveDiff > 0 ? 'JOB_RELEASE' : 'JOB_RESERVE',
+                        amount: Math.abs(reserveDiff).toString(),
+                        balanceBefore: curWallet.toString(),
+                        balanceAfter: curWallet.toString(),
+                        description: reserveDiff > 0
+                            ? `Released reserved amount for coupon applied to job`
+                            : `Additional amount reserved for coupon change on job`,
+                        updatedAt: new Date()
+                    }).execute();
+                }
+            }
 
             const clientPays = finalAmount - discountAmount;
 

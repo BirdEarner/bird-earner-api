@@ -66,6 +66,7 @@ export async function POST(
         const updatedJob = await db.transaction().execute(async (trx) => {
             let targetJobStatus = 'DISPUTE_RESOLVED';
             let targetPaymentStatus = job.jobStatus;
+            let payFreelancerAmount: string | null = null;
 
             if (action === 'REFUND_CLIENT') {
                 targetJobStatus = 'DISPUTE_RESOLVED';
@@ -133,7 +134,8 @@ export async function POST(
                 } else {
                     // ONLINE PLATFORM PAYMENT JOB: Release client reserved funds and pay freelancer
                     if (job.isAmountReserved) {
-                        await processJobPaymentInTransaction(trx, id);
+                        const paymentResult = await processJobPaymentInTransaction(trx, id);
+                        payFreelancerAmount = paymentResult.clientChargeAmount.toFixed(2);
                     } else if (job.assignedFreelancerId && budget > 0) {
                         const freelancer = await trx
                             .selectFrom('freelancers')
@@ -178,7 +180,7 @@ export async function POST(
                     .set({
                         jobStatus: 'DISPUTE_RESOLVED',
                         paymentStatus: 'COMPLETED',
-                        amountPaid: job.budgetAmount,
+                        amountPaid: payFreelancerAmount ?? job.budgetAmount,
                         isAmountReserved: false,
                         updatedAt: now,
                     })

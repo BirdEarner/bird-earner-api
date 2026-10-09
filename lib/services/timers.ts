@@ -71,7 +71,7 @@ export async function processJobTimers() {
                     return;
                 }
 
-                await processJobPaymentInTransaction(trx, job.id);
+                const paymentResult = await processJobPaymentInTransaction(trx, job.id);
 
                 await trx
                     .updateTable('jobs')
@@ -79,7 +79,7 @@ export async function processJobTimers() {
                         jobStatus: 'AUTO_ACCEPTED',
                         completedAt: now,
                         paymentStatus: 'COMPLETED',
-                        amountPaid: job.negotiatedAmount || job.budgetAmount,
+                        amountPaid: paymentResult.clientChargeAmount.toFixed(2),
                         isAmountReserved: false,
                         updatedAt: now,
                     })
