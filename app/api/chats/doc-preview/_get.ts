@@ -8,6 +8,30 @@ import * as mammoth from 'mammoth';
 // API -> browser shows the document.
 const DOC_EXT = /\.(docx?)$/i;
 
+// Watermark drawn over the preview page, same as the PDF pages: "©BIRDEARNER" in grey,
+// tilted -35 degrees, on the PDF grid (pitch = page width x 325/864 by x 245/864, text = x 50/864).
+// Each copy is a separate text item rather than a repeating background tile, so the
+// whole word is never cut off at a tile edge.
+const PREVIEW_PAGE_WIDTH = 820;
+const PITCH_X = Math.round((PREVIEW_PAGE_WIDTH * 325) / 864);
+const PITCH_Y = Math.round((PREVIEW_PAGE_WIDTH * 245) / 864);
+const TEXT_PX = Math.round((PREVIEW_PAGE_WIDTH * 50) / 864);
+const ROWS = 60; // covers long documents; extra copies beyond the page are simply not visible
+const COLUMNS = [-1, 0, 1, 2, 3];
+
+function buildWatermarkItems(): string {
+  let items = '';
+  for (let row = 0; row < ROWS; row++) {
+    for (const col of COLUMNS) {
+      const left = col * PITCH_X + (row % 2 === 1 ? PITCH_X / 2 : 0);
+      const top = row * PITCH_Y;
+      items += `<span style="left:${left}px;top:${top}px">©BIRDEARNER</span>`;
+    }
+  }
+  return `<div class="wm" aria-hidden="true">${items}</div>`;
+}
+const WATERMARK_HTML = buildWatermarkItems();
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -43,6 +67,9 @@ export async function GET(request: Request) {
     const buffer = Buffer.from(await res.arrayBuffer());
     const fileName = decodeURIComponent(match[3]).split('/').pop() || 'document';
 
+    // Only watermarked copies (uploaded with "Attach files with watermark", named wm-...) get the overlay
+    const isWatermarkedCopy = /^wm-/.test(fileName);
+
     let bodyHtml = '';
     let fallback = false;
     try {
@@ -60,8 +87,12 @@ export async function GET(request: Request) {
 <style>
  body{font-family:Arial,Helvetica,sans-serif;margin:0;background:#f5f6f8;color:#1a1a2e}
  header{background:#3B82F6;color:#fff;padding:14px 16px;font-weight:600;word-break:break-all}
- main{max-width:820px;margin:0 auto;padding:20px 16px;background:#fff;min-height:80vh;
+ main{position:relative;max-width:820px;margin:0 auto;padding:20px 16px;background:#fff;min-height:80vh;
       box-shadow:0 1px 4px rgba(0,0,0,.08)}
+ .content{position:relative;z-index:1}
+ .wm{position:absolute;left:0;top:0;right:0;bottom:0;z-index:0;pointer-events:none;overflow:hidden}
+ .wm span{position:absolute;white-space:nowrap;font:bold ${TEXT_PX}px Arial,Helvetica,sans-serif;
+      color:rgba(217,217,217,.65);transform:rotate(-35deg);transform-origin:0 0}
  main img{max-width:100%}
  p{line-height:1.55}
  .actions{padding:16px;text-align:center}
@@ -71,8 +102,10 @@ export async function GET(request: Request) {
 </style></head>
 <body>
 <header>${fileName.replace(/[<>&"]/g, '')}</header>
-${fallback ? `<div class="actions"><a class="btn" href="${rawUrl}">Download to open</a></div>
-<div class="note">In-browser preview isn't available for legacy .doc files. Download opens it in your Word app.</div>` : `<main>${bodyHtml || '<p>(This document has no readable text content.)</p>'}</main>`}
+${fallback
+  ? `<div class="actions"><a class="btn" href="${rawUrl}">Download to open</a></div>
+<div class="note">In-browser preview isn't available for legacy .doc files. Download opens it in your Word app.</div>`
+  : `<main>${isWatermarkedCopy ? WATERMARK_HTML : ''}<div class="content">${bodyHtml || '<p>(This document has no readable text content.)</p>'}</div></main>`}
 </body></html>`;
 
     return new NextResponse(html, {

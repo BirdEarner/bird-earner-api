@@ -6,6 +6,7 @@ import {
   getCloudinaryVideoWatermarkTransformation,
   buildVideoWatermarkSvg,
 } from '@/lib/utils/watermark';
+import { watermarkDocxBuffer } from '@/lib/utils/docx-watermark';
 
 // Videos are delivered at this width; the watermark artwork is built for the same frame size
 const VIDEO_WORKING_WIDTH = 960;
@@ -104,10 +105,11 @@ export async function POST(request: Request) {
     // Convert file to buffer
     const bytes = await file.arrayBuffer();
     const originalBuffer = Buffer.from(bytes);
-    let watermarkedBuffer = Buffer.from(bytes);
+    let watermarkedBuffer: Buffer = Buffer.from(bytes);
 
     const resourceType = getResourceType(file);
     const isPdf = file.type === 'application/pdf' || file.name?.toLowerCase().endsWith('.pdf');
+    const isDocx = file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || file.name?.toLowerCase().endsWith('.docx');
     const isImageOrVideo = resourceType === 'image' || resourceType === 'video';
     console.log(`[chat-upload] buffered in ${Date.now() - tStart}ms resource=${resourceType}`);
 
@@ -210,6 +212,26 @@ export async function POST(request: Request) {
           folder: 'bird_earner/chat_media',
           resource_type: resourceType,
           public_id: `wm-${stamp}`,
+        }),
+      ]);
+      originalUrl = originalResult.secure_url;
+      watermarkedUrl = watermarkedResult.secure_url;
+    } else if (isDocx) {
+      // Word (.docx): watermark added to every page header; original and watermarked copies stored
+      watermarkedBuffer = await watermarkDocxBuffer(originalBuffer, '©BIRDEARNER');
+      const stamp = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+      const docxExt = ext || '.docx';
+
+      [originalResult, watermarkedResult] = await Promise.all([
+        uploadToCloudinary(originalBuffer, {
+          folder: 'bird_earner/chat_media/originals',
+          resource_type: 'raw',
+          public_id: `original-${stamp}${docxExt}`,
+        }),
+        uploadToCloudinary(watermarkedBuffer, {
+          folder: 'bird_earner/chat_media',
+          resource_type: 'raw',
+          public_id: `wm-${stamp}${docxExt}`,
         }),
       ]);
       originalUrl = originalResult.secure_url;
