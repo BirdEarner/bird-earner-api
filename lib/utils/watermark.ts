@@ -26,7 +26,7 @@ export async function watermarkPdfBuffer(inputBuffer: Buffer, watermarkText: str
             font: font,
             color: rgb(0.85, 0.85, 0.85),
             opacity: 0.65,
-            rotate: degrees(-35),
+            rotate: degrees(35), // pdf-lib rotates counter-clockwise: +35 gives the same rising direction as the image (Cloudinary -35)
           });
         }
       }
