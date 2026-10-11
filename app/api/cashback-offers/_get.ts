@@ -15,8 +15,11 @@ const offerOptions = [
     { amount: 3,  amountType: 'PERCENT' as const, minBooking: 299, maxDiscount: 20 },
 ];
 
+// One egg per completed job this month, capped at MAX_EGGS_PER_MONTH
+const MAX_EGGS_PER_MONTH = 5;
+
 function calculateEggs(jobs: any[]) {
-    return jobs.length;
+    return Math.min(jobs.length, MAX_EGGS_PER_MONTH);
 }
 
 export async function GET(request: Request) {

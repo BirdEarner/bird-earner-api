@@ -107,6 +107,7 @@ export async function POST(request: Request) {
                 .updateTable('jobs')
                 .set({
                     jobStatus: 'COMPLETED',
+                    completedAt: new Date(),
                     paymentStatus: 'COMPLETED',
                     birdFeeAmount: birdFeeAmount.toString(),
                     updatedAt: new Date()
