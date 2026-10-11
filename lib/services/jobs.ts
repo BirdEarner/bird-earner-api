@@ -1989,7 +1989,7 @@ export async function updatePhysicalJobProgress(
 export async function submitDigitalWork(
     jobId: string,
     freelancerUserId: string,
-    workData: { fileUrl: string; notes?: string; watermarkText?: string; version?: number }
+    workData: { fileUrl: string; originalFileUrl?: string; notes?: string; watermarkText?: string; version?: number }
 ) {
     return await db.transaction().execute(async (trx) => {
         const job = await trx
@@ -2016,6 +2016,7 @@ export async function submitDigitalWork(
         const submissionPayload = {
             version: versionNumber,
             fileUrl: workData.fileUrl,
+            originalFileUrl: workData.originalFileUrl || null,
             notes: workData.notes || '',
             watermarkText: workData.watermarkText || 'BirdEarner Watermarked Preview',
             submittedAt: now.toISOString(),

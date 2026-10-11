@@ -43,6 +43,42 @@ export async function watermarkPdfBuffer(inputBuffer: Buffer, watermarkText: str
 }
 
 /**
+ * Video watermark artwork: a transparent SVG with ©BIRDEARNER tiled diagonally across the
+ * whole frame, the same look as the image watermark. Cloudinary's own tiled overlay repeats
+ * only once on video, so the tiles are drawn here and uploaded as an overlay image.
+ */
+export function buildVideoWatermarkSvg(width: number, height: number, watermarkText: string = '©BIRDEARNER'): string {
+  const text = (watermarkText || '©BIRDEARNER')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  const colStep = 400;
+  const rowStep = 210;
+  const fontSize = 50;
+
+  let tiles = '';
+  let row = 0;
+  for (let y = 90; y < height + rowStep; y += rowStep, row++) {
+    const stagger = row % 2 === 0 ? 0 : colStep / 2;
+    for (let x = -120 + stagger; x < width + colStep; x += colStep) {
+      tiles += `<text x="${x}" y="${y}" transform="rotate(-35 ${x} ${y})" font-family="Arial" font-weight="bold" font-size="${fontSize}" fill="#FFFFFF" fill-opacity="0.6">${text}</text>`;
+    }
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">${tiles}</svg>`;
+}
+
+/**
+ * Cloudinary transformation for a video: scale to the working width, then place the uploaded
+ * watermark artwork over the whole frame. Two steps only, so it stays well under the URL limit.
+ */
+export function getCloudinaryVideoWatermarkTransformation(overlayId: string, width: number, height: number) {
+  return [
+    { width, crop: 'scale' },
+    { overlay: overlayId, width, height, crop: 'scale', gravity: 'north_west', x: 0, y: 0 },
+  ];
+}
+
+/**
  * Get Cloudinary transformation configuration for dense staggered tiled (repeated grid) image and video watermarking.
  */
 export function getCloudinaryWatermarkTransformation(watermarkText: string = '©BIRDEARNER', isVideo: boolean = false) {

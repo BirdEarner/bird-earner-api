@@ -1,7 +1,7 @@
 import { db } from '../db';
-import { sql } from 'kysely';
+import { sql, Insertable, Transaction } from 'kysely';
 import { sendNotification } from './notifications';
-import { DB } from '../../types/types';
+import { DB, FileManagement } from '../../types/types';
 
 let isMigrated = false;
 
@@ -239,6 +239,83 @@ export async function createOrGetThread(jobId: string, freelancerId: string, cli
 /**
  * Send a message
  */
+type ChatAttachment = {
+    attachmentUrl?: string;
+    attachmentName?: string;
+    attachmentSize?: number;
+    attachmentMime?: string;
+    attachmentPublicId?: string | null;
+    attachmentOriginalUrl?: string | null;
+    attachmentOriginalPublicId?: string | null;
+};
+
+/**
+ * Writes one fileManagement row per stored copy of each chat attachment.
+ * A watermarked upload has two copies: the delivered watermarked file (CHAT_WATERMARKED)
+ * and the untouched original (CHAT_ORIGINAL). Plain uploads store only the original.
+ */
+async function recordChatFiles(
+    trx: Transaction<DB>,
+    params: {
+        attachments: unknown;
+        jobId: string;
+        senderId: string;
+        senderType: string;
+        receiverId: string;
+    }
+) {
+    let list: ChatAttachment[] = [];
+    try {
+        if (Array.isArray(params.attachments)) list = params.attachments as ChatAttachment[];
+        else if (typeof params.attachments === 'string' && params.attachments) list = JSON.parse(params.attachments);
+    } catch (e) {
+        list = [];
+    }
+
+    const now = new Date();
+    const rows: Insertable<FileManagement>[] = [];
+
+    for (const file of list) {
+        if (!file?.attachmentUrl) continue;
+
+        const hasOriginal = Boolean(file.attachmentOriginalUrl && file.attachmentOriginalUrl !== file.attachmentUrl);
+        const base = {
+            fileName: file.attachmentPublicId || file.attachmentName || 'attachment',
+            originalName: file.attachmentName || 'attachment',
+            fileSize: Number(file.attachmentSize) || 0,
+            mimeType: file.attachmentMime || 'application/octet-stream',
+            uploadedBy: params.senderId,
+            uploaderType: params.senderType,
+            isActive: true,
+            jobId: params.jobId,
+            receiverId: params.receiverId,
+            createdAt: now,
+            updatedAt: now,
+        };
+
+        rows.push({
+            ...base,
+            id: crypto.randomUUID(),
+            fileUrl: file.attachmentUrl,
+            category: hasOriginal ? 'CHAT_WATERMARKED' : 'CHAT_ORIGINAL',
+        });
+
+        if (hasOriginal) {
+            rows.push({
+                ...base,
+                id: crypto.randomUUID(),
+                fileName: file.attachmentOriginalPublicId || base.fileName,
+                fileUrl: file.attachmentOriginalUrl as string,
+                category: 'CHAT_ORIGINAL',
+            });
+        }
+    }
+
+    if (rows.length > 0) {
+        await trx.insertInto('fileManagement').values(rows).execute();
+    }
+}
+
 export async function sendMessage(data: any) {
     const { chatThreadId, senderId, receiverId, messageContent, messageType, attachments, messageData, senderType } = data;
 
@@ -370,6 +447,7 @@ export async function sendMessage(data: any) {
         const { submitDigitalWork } = await import('./jobs');
         const updatedJob = await submitDigitalWork(thread.jobId, senderId, {
             fileUrl: primaryFile.attachmentUrl,
+            originalFileUrl: primaryFile.attachmentOriginalUrl || undefined,
             notes: messageContent || '',
         });
 
@@ -468,23 +546,35 @@ export async function sendMessage(data: any) {
         };
     }
 
-    const message = await db
-        .insertInto('messages')
-        .values({
-            id: crypto.randomUUID(),
-            chatThreadId,
+    const message = await db.transaction().execute(async (trx) => {
+        const inserted = await trx
+            .insertInto('messages')
+            .values({
+                id: crypto.randomUUID(),
+                chatThreadId,
+                senderId,
+                receiverId,
+                messageContent,
+                messageType,
+                attachments: attachments ? (typeof attachments === 'string' ? attachments : JSON.stringify(attachments)) : null,
+                messageData: JSON.stringify(finalMessageData),
+                senderType,
+                createdAt: new Date(),
+                updatedAt: new Date()
+            })
+            .returningAll()
+            .executeTakeFirstOrThrow();
+
+        await recordChatFiles(trx, {
+            attachments,
+            jobId: thread.jobId,
             senderId,
-            receiverId,
-            messageContent,
-            messageType,
-            attachments: attachments ? (typeof attachments === 'string' ? attachments : JSON.stringify(attachments)) : null,
-            messageData: JSON.stringify(finalMessageData),
             senderType,
-            createdAt: new Date(),
-            updatedAt: new Date()
-        })
-        .returningAll()
-        .executeTakeFirstOrThrow();
+            receiverId,
+        });
+
+        return inserted;
+    });
 
     // Notify receiver
     const sender = await db

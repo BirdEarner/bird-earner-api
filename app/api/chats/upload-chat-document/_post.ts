@@ -1,6 +1,14 @@
 import { NextResponse } from 'next/server';
 import { v2 as cloudinary } from 'cloudinary';
-import { watermarkPdfBuffer, getCloudinaryWatermarkTransformation } from '@/lib/utils/watermark';
+import {
+  watermarkPdfBuffer,
+  getCloudinaryWatermarkTransformation,
+  getCloudinaryVideoWatermarkTransformation,
+  buildVideoWatermarkSvg,
+} from '@/lib/utils/watermark';
+
+// Videos are delivered at this width; the watermark artwork is built for the same frame size
+const VIDEO_WORKING_WIDTH = 960;
 
 export const maxDuration = 300; // Allow up to 5min for large video buffering + watermark processing
 
@@ -44,6 +52,23 @@ function getResourceType(file: File): 'image' | 'video' | 'raw' | 'auto' {
   }
 
   return 'auto';
+}
+
+/**
+ * Uploads the video watermark artwork for a frame size (once per size; re-uploading the same
+ * size simply overwrites it) and returns its Cloudinary overlay reference.
+ */
+async function uploadVideoWatermarkOverlay(width: number, height: number): Promise<string> {
+  const publicId = `grid-${width}x${height}`;
+  const svg = buildVideoWatermarkSvg(width, height, '©BIRDEARNER');
+  const dataUri = `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
+  await cloudinary.uploader.upload(dataUri, {
+    folder: 'bird_earner/watermarks',
+    public_id: publicId,
+    resource_type: 'image',
+    overwrite: true,
+  });
+  return `bird_earner:watermarks:${publicId}`;
 }
 
 function uploadToCloudinary(buffer: Buffer, options: any): Promise<any> {
@@ -113,37 +138,81 @@ export async function POST(request: Request) {
       originalUrl = originalResult.secure_url;
       watermarkedUrl = originalResult.secure_url;
     } else if (isImageOrVideo) {
-      // Single upload only: the response's original* fields are never read by any
-      // client, and a second Cloudinary copy doubled the server's uplink time —
-      // big videos then exceeded the tunnel's ~100s response window and the
-      // client connection was dropped.
+      // Store both copies: the original (for the sender/admin records) and the watermarked
+      // version that the chat delivers. Uploaded in parallel to keep the total time down.
       const isVideo = resourceType === 'video';
-      const watermarkTrans = getCloudinaryWatermarkTransformation('©BIRDEARNER', isVideo);
+      const stamp = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
 
-      const watermarkedUploadOptions: any = {
-        folder: 'bird_earner/chat_media',
-        resource_type: resourceType,
-        public_id: `wm-${Date.now()}-${Math.round(Math.random() * 1e9)}`,
-        transformation: watermarkTrans,
-      };
-
-      watermarkedResult = await uploadToCloudinary(originalBuffer, watermarkedUploadOptions);
-      originalResult = watermarkedResult;
-      originalUrl = watermarkedResult.secure_url;
-      watermarkedUrl = watermarkedResult.secure_url;
+      if (isVideo) {
+        // Videos: upload the original once and derive the watermarked copy from it.
+        // A second full video upload doubled the time and tripped the tunnel timeout.
+        originalResult = await uploadToCloudinary(originalBuffer, {
+          folder: 'bird_earner/chat_media/originals',
+          resource_type: 'video',
+          public_id: `original-${stamp}`,
+        });
+        // The watermark artwork matches this video's frame size (portrait or landscape)
+        const videoWidth = VIDEO_WORKING_WIDTH;
+        const aspect = originalResult.width && originalResult.height
+          ? originalResult.width / originalResult.height
+          : 16 / 9;
+        const videoHeight = Math.round(videoWidth / aspect);
+        const overlayId = await uploadVideoWatermarkOverlay(videoWidth, videoHeight);
+        const videoWatermark = getCloudinaryVideoWatermarkTransformation(overlayId, videoWidth, videoHeight);
+        // Pre-generate the watermarked copy in the background; the URL below works either way
+        cloudinary.uploader
+          .explicit(originalResult.public_id, {
+            type: 'upload',
+            resource_type: 'video',
+            eager: videoWatermark,
+            eager_async: true,
+          })
+          .catch((err: any) => console.warn('[chat-upload] video watermark pre-generation failed:', err?.message || err));
+        watermarkedUrl = cloudinary.url(originalResult.public_id, {
+          resource_type: 'video',
+          type: 'upload',
+          secure: true,
+          transformation: videoWatermark,
+        });
+        watermarkedResult = { ...originalResult, secure_url: watermarkedUrl };
+        originalUrl = originalResult.secure_url;
+      } else {
+        // Images: store both copies (original + watermarked) in parallel
+        const watermarkTrans = getCloudinaryWatermarkTransformation('©BIRDEARNER', false);
+        [originalResult, watermarkedResult] = await Promise.all([
+          uploadToCloudinary(originalBuffer, {
+            folder: 'bird_earner/chat_media/originals',
+            resource_type: resourceType,
+            public_id: `original-${stamp}`,
+          }),
+          uploadToCloudinary(originalBuffer, {
+            folder: 'bird_earner/chat_media',
+            resource_type: resourceType,
+            public_id: `wm-${stamp}`,
+            transformation: watermarkTrans,
+          }),
+        ]);
+        originalUrl = originalResult.secure_url;
+        watermarkedUrl = watermarkedResult.secure_url;
+      }
     } else if (isPdf) {
-      // PDF watermarked locally via pdf-lib — single upload (see note above)
+      // PDF watermarked locally via pdf-lib; original and watermarked copies stored
       watermarkedBuffer = await watermarkPdfBuffer(originalBuffer, '©BIRDEARNER');
+      const stamp = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
 
-      const watermarkedUploadOptions: any = {
-        folder: 'bird_earner/chat_media',
-        resource_type: resourceType,
-        public_id: `wm-${Date.now()}-${Math.round(Math.random() * 1e9)}`,
-      };
-
-      watermarkedResult = await uploadToCloudinary(watermarkedBuffer, watermarkedUploadOptions);
-      originalResult = watermarkedResult;
-      originalUrl = watermarkedResult.secure_url;
+      [originalResult, watermarkedResult] = await Promise.all([
+        uploadToCloudinary(originalBuffer, {
+          folder: 'bird_earner/chat_media/originals',
+          resource_type: resourceType,
+          public_id: `original-${stamp}`,
+        }),
+        uploadToCloudinary(watermarkedBuffer, {
+          folder: 'bird_earner/chat_media',
+          resource_type: resourceType,
+          public_id: `wm-${stamp}`,
+        }),
+      ]);
+      originalUrl = originalResult.secure_url;
       watermarkedUrl = watermarkedResult.secure_url;
     } else {
       // Generic Raw File (extension kept via shared `ext` above)

@@ -101,7 +101,8 @@ export async function POST(request: Request) {
         const resourceType = getResourceType(file);
         const isPdf = file.type === 'application/pdf' || file.name?.toLowerCase().endsWith('.pdf');
         const isImageOrVideo = resourceType === 'image' || resourceType === 'video';
-        const requiresWatermark = ['chat_media', 'file_manager', 'job_portfolios', 'freelancer_portfolios'].includes(category);
+        // Portfolio images and PDFs are stored as-is (no watermark)
+        const requiresWatermark = ['chat_media', 'file_manager'].includes(category);
 
         let originalResult: any = null;
         let watermarkedResult: any = null;
