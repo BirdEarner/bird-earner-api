@@ -1,7 +1,8 @@
 import { PDFDocument, rgb, degrees, StandardFonts } from 'pdf-lib';
 
 /**
- * Apply a dense staggered grid semi-transparent "©BIRDEARNER" text watermark diagonally across every page of a PDF document.
+ * Tile the semi-transparent "©BIRDEARNER" text diagonally (-35°) across every page of a PDF,
+ * using the same proportions as the image watermark.
  */
 export async function watermarkPdfBuffer(inputBuffer: Buffer, watermarkText: string = '©BIRDEARNER'): Promise<Buffer> {
   try {
@@ -11,15 +12,13 @@ export async function watermarkPdfBuffer(inputBuffer: Buffer, watermarkText: str
 
     for (const page of pages) {
       const { width, height } = page.getSize();
-      const fontSize = Math.max(28, Math.min(width, height) / 12);
+      // Image watermark proportions relative to width (50px text, 325 x 245px pitch on an 864px image)
+      const fontSize = width * (50 / 864);
+      const stepX = width * (325 / 864);
+      const stepY = width * (245 / 864);
 
-      const stepX = 160;
-      const stepY = 100;
-
-      let rowIndex = 0;
-      for (let y = -60; y < height + 120; y += stepY) {
-        const rowOffsetX = (rowIndex % 2 === 0) ? 0 : stepX / 2;
-        for (let x = -80 + rowOffsetX; x < width + 120; x += stepX) {
+      for (let y = -stepY; y < height + stepY; y += stepY) {
+        for (let x = -stepX; x < width + stepX; x += stepX) {
           page.drawText(watermarkText, {
             x: x,
             y: y,
@@ -27,10 +26,9 @@ export async function watermarkPdfBuffer(inputBuffer: Buffer, watermarkText: str
             font: font,
             color: rgb(0.85, 0.85, 0.85),
             opacity: 0.65,
-            rotate: degrees(35),
+            rotate: degrees(-35),
           });
         }
-        rowIndex++;
       }
     }
 
@@ -52,15 +50,15 @@ export function buildVideoWatermarkSvg(width: number, height: number, watermarkT
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
-  const colStep = 400;
-  const rowStep = 210;
+  // Same tile lattice as the image watermark: 50px bold text, 325 x 245px pitch, rotated -35deg
+  const colStep = 325;
+  const rowStep = 245;
   const fontSize = 50;
 
   let tiles = '';
   let row = 0;
   for (let y = 90; y < height + rowStep; y += rowStep, row++) {
-    const stagger = row % 2 === 0 ? 0 : colStep / 2;
-    for (let x = -120 + stagger; x < width + colStep; x += colStep) {
+    for (let x = -120; x < width + colStep; x += colStep) {
       tiles += `<text x="${x}" y="${y}" transform="rotate(-35 ${x} ${y})" font-family="Arial" font-weight="bold" font-size="${fontSize}" fill="#FFFFFF" fill-opacity="0.6">${text}</text>`;
     }
   }
