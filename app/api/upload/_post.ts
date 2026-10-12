@@ -96,7 +96,7 @@ export async function POST(request: Request) {
         // Convert file to buffer
         const bytes = await file.arrayBuffer();
         const originalBuffer = Buffer.from(bytes);
-        let watermarkedBuffer = Buffer.from(bytes);
+        let watermarkedBuffer: Buffer = Buffer.from(bytes);
 
         const resourceType = getResourceType(file);
         const isPdf = file.type === 'application/pdf' || file.name?.toLowerCase().endsWith('.pdf');
@@ -158,12 +158,13 @@ export async function POST(request: Request) {
             originalUrl = originalResult.secure_url;
             watermarkedUrl = watermarkedResult.secure_url;
         } else {
-            // Standard single file upload without watermarking
-            const singleOptions: any = {
-                folder: uploadCategories[category],
-                resource_type: resourceType,
-                public_id: `${Date.now()}-${Math.round(Math.random() * 1e9)}`,
-            };
+            // Standard single file upload without watermarking.
+            // PDFs are stored as raw files with the .pdf kept in the URL, so the app can tell them
+            // apart from images and open them through the signed attachment-url route.
+            const stamp = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+            const singleOptions: any = isPdf
+                ? { folder: uploadCategories[category], resource_type: 'raw', public_id: `${stamp}.pdf` }
+                : { folder: uploadCategories[category], resource_type: resourceType, public_id: stamp };
 
             watermarkedResult = await uploadToCloudinary(originalBuffer, singleOptions);
             originalResult = watermarkedResult;
