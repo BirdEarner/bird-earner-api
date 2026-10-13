@@ -2,6 +2,7 @@ import { db } from '../db';
 import { sql } from 'kysely';
 import { processJobPaymentInTransaction, releaseReservedAmountInTransaction } from './wallet';
 import { sendNotification } from './notifications';
+import { isOnSiteJob } from '../job-type';
 
 /**
  * Audit status change helper
@@ -292,6 +293,10 @@ export async function processJobTimers() {
         }
     }
 
+    // On-site freelancer must arrive and verify OTP within this window of booking confirmation
+    const ARRIVAL_WINDOW_HOURS = Math.max(1, parseInt(process.env.ONSITE_ARRIVAL_WINDOW_HOURS || '24', 10) || 24);
+    const arrivalCutoff = new Date(now.getTime() - ARRIVAL_WINDOW_HOURS * 60 * 60 * 1000);
+
     // 3. Work Deadline Missed handling (12-hour grace period for remote / Auto-cancel for On-site NO-SHOW)
     const missedDeadlineJobs = await db
         .selectFrom('jobs')
@@ -310,10 +315,15 @@ export async function processJobTimers() {
             'jobs.projectType as projectType',
             'jobs.location as location',
             'jobs.otpVerifiedAt as otpVerifiedAt',
+            'jobs.confirmedAt as confirmedAt',
             'clients.userId as clientUserId',
         ])
-        .where('jobStatus', 'in', ['CONFIRMED', 'IN_PROGRESS', 'JOB_STARTED'])
-        .where('workDeadline', '<=', now)
+        .where('jobStatus', 'in', ['CONFIRMED', 'FREELANCER_TRAVELLING', 'ARRIVED', 'REVISION_REQUESTED', 'IN_PROGRESS', 'JOB_STARTED'])
+        .where((eb) => eb.or([
+            eb('workDeadline', '<=', now),
+            // On-site bookings still waiting for the freelancer to arrive: due after the arrival window
+            eb.and([eb('confirmedAt', '<=', arrivalCutoff), eb('otpVerifiedAt', 'is', null)]),
+        ]))
         .execute();
 
     for (const job of missedDeadlineJobs) {
@@ -326,11 +336,77 @@ export async function processJobTimers() {
                     .forUpdate()
                     .executeTakeFirst();
 
-                if (!currentJob || !['CONFIRMED', 'IN_PROGRESS', 'JOB_STARTED'].includes(currentJob.jobStatus)) {
+                if (!currentJob || !['CONFIRMED', 'FREELANCER_TRAVELLING', 'ARRIVED', 'REVISION_REQUESTED', 'IN_PROGRESS', 'JOB_STARTED'].includes(currentJob.jobStatus)) {
                     return; // Already processed by a concurrent request
                 }
 
-                const isOnSite = job.projectType === 'On-site' && job.location?.toLowerCase() !== 'remote';
+                const isOnSite = isOnSiteJob(job);
+
+                // Before arrival, an on-site booking is due when the arrival window has passed (not the work deadline)
+                const confirmedAtMs = job.confirmedAt ? new Date(job.confirmedAt).getTime() : 0;
+                const awaitingArrival = isOnSite && !job.otpVerifiedAt && ['CONFIRMED', 'FREELANCER_TRAVELLING'].includes(currentJob.jobStatus);
+                const isDue = awaitingArrival
+                    ? confirmedAtMs > 0 && confirmedAtMs <= arrivalCutoff.getTime()
+                    : job.workDeadline ? new Date(job.workDeadline).getTime() <= now.getTime() : false;
+                if (!isDue) return;
+
+                // On-site work past its deadline that is either awaiting OTP (ARRIVED) or already under way (JOB_STARTED)
+                // is not a plain no-show: the freelancer was there and the job has started. Route it to a dispute
+                // instead of auto-penalising or auto-refunding (after OTP, only a dispute can end the booking).
+                // A revision that was not resubmitted in time is also routed to dispute (the work already exists).
+                if (currentJob.jobStatus === 'ARRIVED' || currentJob.jobStatus === 'REVISION_REQUESTED' || (isOnSite && currentJob.jobStatus === 'JOB_STARTED')) {
+                    await trx
+                        .updateTable('jobs')
+                        .set({
+                            jobStatus: 'DISPUTE_OPEN',
+                            cancellationReason: 'DISPUTE: Work deadline reached before the work was accepted',
+                            updatedAt: now,
+                        })
+                        .where('id', '=', job.id)
+                        .execute();
+
+                    await recordJobStatusHistory(
+                        trx,
+                        job.id,
+                        'DISPUTE_OPEN',
+                        undefined,
+                        'SYSTEM',
+                        'ONSITE_DEADLINE_DISPUTE',
+                        `Deadline reached while the booking was in status ${currentJob.jobStatus}. Routed to dispute; no automatic penalty or refund.`
+                    );
+
+                    const assignedFreelancer = job.assignedFreelancerId
+                        ? await trx
+                            .selectFrom('freelancers')
+                            .select('userId')
+                            .where('id', '=', job.assignedFreelancerId)
+                            .executeTakeFirst()
+                        : undefined;
+
+                    sendNotification(
+                        job.clientUserId,
+                        'CLIENT',
+                        'Booking Under Dispute',
+                        `The deadline for "${job.jobTitle}" passed before the work was accepted. The booking is under review; no automatic penalty or refund was applied.`,
+                        'DISPUTE_OPENED',
+                        { jobId: job.id }
+                    );
+                    if (assignedFreelancer) {
+                        sendNotification(
+                            assignedFreelancer.userId,
+                            'FREELANCER',
+                            'Booking Under Dispute',
+                            `The deadline for "${job.jobTitle}" passed before the work was accepted. The booking is under review; no automatic penalty was applied.`,
+                            'DISPUTE_OPENED',
+                            { jobId: job.id }
+                        );
+                    }
+                    return;
+                }
+
+                const cashBooking = job.paymentMethod === 'CASH';
+                const refundChat = cashBooking ? 'No payment was held for this cash booking, so no refund was needed.' : 'Full 100% refund issued to client.';
+                const refundClient = cashBooking ? 'No payment was held for this cash booking, so there was nothing to refund.' : '100% full refund issued to your account.';
                 const isNoShow = isOnSite && !job.otpVerifiedAt;
 
                 if (isNoShow) {
@@ -352,14 +428,16 @@ export async function processJobTimers() {
 
                         if (freelancer) {
                             const currentBalance = parseFloat(freelancer.withdrawableAmount?.toString() || '0');
-                            const newBalance = currentBalance - penaltyAmount;
+                            // The penalty stays owed: a negative balance blocks new applications until it is settled
+                            const deductedPenalty = penaltyAmount;
+                            const newBalance = currentBalance - deductedPenalty;
                             const cooldownExpiry = new Date(now.getTime() + 24 * 60 * 60 * 1000); // 1-Day Cooldown
 
                             await trx
                                 .updateTable('freelancers')
                                 .set((eb) => ({
                                     withdrawableAmount: newBalance.toString(),
-                                    totalPenaltyDeducted: eb('totalPenaltyDeducted', '+', penaltyAmount.toString()),
+                                    totalPenaltyDeducted: eb('totalPenaltyDeducted', '+', deductedPenalty.toString()),
                                     cancellationStrikes: eb('cancellationStrikes', '+', 1),
                                     cooldownExpiresAt: cooldownExpiry,
                                     updatedAt: now,
@@ -373,7 +451,7 @@ export async function processJobTimers() {
                                 clientId: job.clientId,
                                 freelancerId: freelancer.id,
                                 penaltyType: 'FREELANCER_NON_COMPLETION',
-                                amount: penaltyAmount.toString(),
+                                amount: deductedPenalty.toString(),
                                 status: 'DEDUCTED',
                                 description: `On-site freelancer no-show: Failed to verify OTP / arrive for "${job.jobTitle}" before deadline. 2% penalty, 1-day cooldown, 1 cancellation strike applied.`,
                                 createdAt: now,
@@ -387,7 +465,7 @@ export async function processJobTimers() {
                                 userType: 'FREELANCER',
                                 jobId: job.id,
                                 transactionType: 'PENALTY',
-                                amount: (-penaltyAmount).toString(),
+                                amount: (-deductedPenalty).toString(),
                                 balanceBefore: currentBalance.toString(),
                                 balanceAfter: newBalance.toString(),
                                 description: `No-show 2% penalty deducted to BirdEarner - ${job.jobTitle}`,
@@ -444,7 +522,7 @@ export async function processJobTimers() {
                                 chatThreadId: thread.id,
                                 senderId: job.clientUserId,
                                 receiverId: job.clientUserId,
-                                messageContent: `⚠️ BOOKING AUTO-CANCELLED: Freelancer failed to arrive on-site and verify OTP before deadline. Reason: FREELANCER NO-SHOW / FAILED TO COMPLETE. Full 100% refund issued to client. 2% penalty (₹${penaltyAmount.toFixed(2)}) deducted from freelancer.`,
+                                messageContent: `⚠️ BOOKING AUTO-CANCELLED: Freelancer failed to arrive on-site and verify OTP before deadline. Reason: FREELANCER NO-SHOW / FAILED TO COMPLETE. ${refundChat} 2% penalty (₹${penaltyAmount.toFixed(2)}) deducted from freelancer.`,
                                 messageType: 'notification',
                                 senderType: 'SYSTEM',
                                 createdAt: now,
@@ -467,7 +545,7 @@ export async function processJobTimers() {
                         job.clientUserId,
                         'CLIENT',
                         'Booking Auto-Cancelled (Freelancer No-Show)',
-                        `Job "${job.jobTitle}" was auto-cancelled because the freelancer failed to arrive and verify OTP. 100% full refund issued to your account.`,
+                        `Job "${job.jobTitle}" was auto-cancelled because the freelancer failed to arrive and verify OTP. ${refundClient}`,
                         'JOB_CANCELLED',
                         { jobId: job.id }
                     );
@@ -490,7 +568,9 @@ export async function processJobTimers() {
 
                         if (freelancer) {
                             const currentBalance = parseFloat(freelancer.withdrawableAmount?.toString() || '0');
-                            const newBalance = currentBalance - penaltyAmount;
+                            // The penalty stays owed: a negative balance blocks new applications until it is settled
+                            const deductedPenalty = penaltyAmount;
+                            const newBalance = currentBalance - deductedPenalty;
 
                             const cooldownExpiry = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
@@ -498,7 +578,7 @@ export async function processJobTimers() {
                                 .updateTable('freelancers')
                                 .set((eb) => ({
                                     withdrawableAmount: newBalance.toString(),
-                                    totalPenaltyDeducted: eb('totalPenaltyDeducted', '+', penaltyAmount.toString()),
+                                    totalPenaltyDeducted: eb('totalPenaltyDeducted', '+', deductedPenalty.toString()),
                                     cancellationStrikes: eb('cancellationStrikes', '+', 1),
                                     cooldownExpiresAt: cooldownExpiry,
                                     updatedAt: now,
@@ -512,7 +592,7 @@ export async function processJobTimers() {
                                 clientId: job.clientId,
                                 freelancerId: freelancer.id,
                                 penaltyType: 'FREELANCER_NON_COMPLETION',
-                                amount: penaltyAmount.toString(),
+                                amount: deductedPenalty.toString(),
                                 status: 'DEDUCTED',
                                 description: isOnSite
                                     ? `On-site work deadline expired for "${job.jobTitle}". 2% penalty deducted.`
@@ -528,7 +608,7 @@ export async function processJobTimers() {
                                 userType: 'FREELANCER',
                                 jobId: job.id,
                                 transactionType: 'PENALTY',
-                                amount: (-penaltyAmount).toString(),
+                                amount: (-deductedPenalty).toString(),
                                 balanceBefore: currentBalance.toString(),
                                 balanceAfter: newBalance.toString(),
                                 description: `Deadline expired 2% penalty deducted to BirdEarner - ${job.jobTitle}`,
@@ -575,8 +655,8 @@ export async function processJobTimers() {
                                 senderId: job.clientUserId,
                                 receiverId: job.clientUserId,
                                 messageContent: isOnSite
-                                    ? `⚠️ BOOKING AUTO-CANCELLED: On-site work deadline expired. Reason: FREELANCER NON-COMPLETION. Full 100% refund issued to client. 2% penalty (₹${penaltyAmount.toFixed(2)}) deducted from freelancer.`
-                                    : `⚠️ BOOKING AUTO-CANCELLED: Freelancer failed to submit work after deadline and 12-hour grace period. Full 100% refund issued to client. 2% penalty (₹${penaltyAmount.toFixed(2)}) deducted from freelancer.`,
+                                    ? `⚠️ BOOKING AUTO-CANCELLED: On-site work deadline expired. Reason: FREELANCER NON-COMPLETION. ${refundChat} 2% penalty (₹${penaltyAmount.toFixed(2)}) deducted from freelancer.`
+                                    : `⚠️ BOOKING AUTO-CANCELLED: Freelancer failed to submit work after deadline and 12-hour grace period. ${refundChat} 2% penalty (₹${penaltyAmount.toFixed(2)}) deducted from freelancer.`,
                                 messageType: 'notification',
                                 senderType: 'SYSTEM',
                                 createdAt: now,
@@ -601,13 +681,14 @@ export async function processJobTimers() {
                         job.clientUserId,
                         'CLIENT',
                         'Booking Cancelled - Freelancer Non-Completion',
-                        `Job "${job.jobTitle}" was cancelled because the work deadline expired. 100% full refund issued to your account.`,
+                        `Job "${job.jobTitle}" was cancelled because the work deadline expired. ${refundClient}`,
                         'JOB_CANCELLED',
                         { jobId: job.id }
                     );
                 } else if (!job.freelancerGracePeriodExpiresAt) {
                     // Set 12h final grace period ONLY for remote jobs
-                    const graceExpiry = new Date(now.getTime() + 12 * 60 * 60 * 1000);
+                    // Final 12h grace runs from the deadline itself (PDF Case 5), not from when the timer first noticed it
+const graceExpiry = new Date(new Date(job.workDeadline ?? now).getTime() + 12 * 60 * 60 * 1000);
                     await trx
                         .updateTable('jobs')
                         .set({ freelancerGracePeriodExpiresAt: graceExpiry, updatedAt: now })

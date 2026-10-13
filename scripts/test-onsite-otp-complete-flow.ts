@@ -26,8 +26,8 @@ async function testOnSiteOtpCompleteFlow() {
         return;
     }
 
-    const clientToken = generateToken({ id: client.clientUserId, email: client.clientEmail, role: 'user' });
-    const freelancerToken = generateToken({ id: freelancer.freelancerUserId, email: freelancer.freelancerEmail, role: 'user' });
+    const clientToken = generateToken({ id: client!.clientUserId, email: client!.clientEmail, role: 'user' });
+    const freelancerToken = generateToken({ id: freelancer!.freelancerUserId, email: freelancer!.freelancerEmail, role: 'user' });
 
     // 2. Create On-Site Cash Job
     console.log('\n1. Creating On-Site Cash Job...');
@@ -44,15 +44,15 @@ async function testOnSiteOtpCompleteFlow() {
             paymentMethod: 'CASH',
             location: 'Pune Maharashtra India',
         },
-        client.clientUserId,
-        client.clientId
+        client!.clientUserId,
+        client!.clientId
     );
     console.log(`✅ Job Created: ID=${job.id} | Status=${job.jobStatus}`);
 
     // 3. Assign Freelancer
     console.log('\n2. Assigning Freelancer to Job...');
-    await assignFreelancer(job.id, freelancer.freelancerId, client.clientUserId);
-    let jobDB = await db.selectFrom('jobs').select(['jobStatus', 'otpCode']).where('id', '=', job.id).executeTakeFirst();
+    await assignFreelancer(job.id, freelancer!.freelancerId, client!.clientUserId);
+    let jobDB = await db.selectFrom('jobs').select(['jobStatus', 'otpCode', 'otpVerifiedAt', 'postOtpCancellationWindowExpiresAt']).where('id', '=', job.id).executeTakeFirst();
     console.log(`✅ Freelancer Assigned | Status=${jobDB?.jobStatus}`);
 
     // 4. Step 1: Freelancer Marks "I'm On My Way" (TRAVELLING)
@@ -63,7 +63,7 @@ async function testOnSiteOtpCompleteFlow() {
         body: JSON.stringify({ action: 'TRAVELLING' }),
     });
     console.log('HTTP Status:', res.status);
-    jobDB = await db.selectFrom('jobs').select(['jobStatus', 'otpCode']).where('id', '=', job.id).executeTakeFirst();
+    jobDB = await db.selectFrom('jobs').select(['jobStatus', 'otpCode', 'otpVerifiedAt', 'postOtpCancellationWindowExpiresAt']).where('id', '=', job.id).executeTakeFirst();
     console.log(`✅ Updated Status=${jobDB?.jobStatus} | OTP Code=${jobDB?.otpCode || 'None (Correct: Not requested yet)'}`);
 
     // 5. Step 2: Freelancer Marks "I Have Arrived" (ARRIVED / REQUEST_OTP)
@@ -74,7 +74,7 @@ async function testOnSiteOtpCompleteFlow() {
         body: JSON.stringify({ action: 'ARRIVED' }),
     });
     console.log('HTTP Status:', res.status);
-    jobDB = await db.selectFrom('jobs').select(['jobStatus', 'otpCode']).where('id', '=', job.id).executeTakeFirst();
+    jobDB = await db.selectFrom('jobs').select(['jobStatus', 'otpCode', 'otpVerifiedAt', 'postOtpCancellationWindowExpiresAt']).where('id', '=', job.id).executeTakeFirst();
     console.log(`✅ Updated Status=${jobDB?.jobStatus} | Generated OTP Code="${jobDB?.otpCode}"`);
 
     if (!jobDB?.otpCode) {
@@ -106,7 +106,7 @@ async function testOnSiteOtpCompleteFlow() {
 
     jobDB = await db
         .selectFrom('jobs')
-        .select(['jobStatus', 'otpVerifiedAt', 'postOtpCancellationWindowExpiresAt'])
+        .select(['jobStatus', 'otpCode', 'otpVerifiedAt', 'postOtpCancellationWindowExpiresAt'])
         .where('id', '=', job.id)
         .executeTakeFirst();
 

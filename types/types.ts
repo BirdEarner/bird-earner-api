@@ -403,6 +403,7 @@ export type Job = {
     otpVerifiedAt: Timestamp | null;
     submittedWorkData: unknown | null;
     revisionCount: Generated<number>;
+    includedRevisions: Generated<number>;
     clientReviewPeriodExpiresAt: Timestamp | null;
     freelancerGracePeriodExpiresAt: Timestamp | null;
     cancellationReason: string | null;

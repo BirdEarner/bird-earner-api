@@ -95,7 +95,7 @@ export async function POST(
                 if (isCashJob) {
                     // CASH JOB: Client pays agreed budget directly to freelancer in CASH in person.
                     // Deduct platform fee from freelancer wallet if applicable.
-                    if (job.assignedFreelancerId && birdFeeAmount > 0) {
+                    if (job.assignedFreelancerId && job.freelancerUserId && birdFeeAmount > 0) {
                         const freelancer = await trx
                             .selectFrom('freelancers')
                             .select(['withdrawableAmount'])
@@ -136,7 +136,7 @@ export async function POST(
                     if (job.isAmountReserved) {
                         const paymentResult = await processJobPaymentInTransaction(trx, id);
                         payFreelancerAmount = paymentResult.clientChargeAmount.toFixed(2);
-                    } else if (job.assignedFreelancerId && budget > 0) {
+                    } else if (job.assignedFreelancerId && job.freelancerUserId && budget > 0) {
                         const freelancer = await trx
                             .selectFrom('freelancers')
                             .select(['withdrawableAmount', 'totalEarnings'])

@@ -53,13 +53,12 @@ export async function PATCH(
             return NextResponse.json({ message: 'Job not found' }, { status: 404 });
         }
 
-        // Authorization: client, assigned freelancer, or admin
-        const isClient = job.clientUserId === user.id;
-        const isFreelancer = job.freelancerUserId === user.id;
+        // Direct status changes skip the on-site OTP, payment and penalty logic in the dedicated
+        // endpoints (progress, cancel, assign, complete...). Only admins may set status directly.
         const isAdmin = user.role === 'admin' || user.role === 'superadmin';
 
-        if (!isClient && !isFreelancer && !isAdmin) {
-            return NextResponse.json({ message: 'Unauthorized to change this job status' }, { status: 403 });
+        if (!isAdmin) {
+            return NextResponse.json({ message: 'Use the dedicated job action endpoints to change job status' }, { status: 403 });
         }
 
         // Validate status transition
@@ -84,7 +83,7 @@ export async function PATCH(
                 id,
                 newStatus,
                 user.id,
-                isClient ? 'CLIENT' : 'FREELANCER',
+                'ADMIN',
                 'MANUAL_STATUS_UPDATE',
                 reason || `Status changed from ${job.jobStatus} to ${newStatus}`,
                 { previousStatus: job.jobStatus }

@@ -26,8 +26,8 @@ async function runRemotePenaltyTests() {
             return;
         }
 
-        console.log(`✅ Using Client: ${client.clientId} (User: ${client.clientUserId})`);
-        console.log(`✅ Using Freelancer: ${freelancer.freelancerId} (User: ${freelancer.freelancerUserId})`);
+        console.log(`✅ Using Client: ${client!.clientId} (User: ${client!.clientUserId})`);
+        console.log(`✅ Using Freelancer: ${freelancer!.freelancerId} (User: ${freelancer!.freelancerUserId})`);
 
         // Helper: create a remote job
         async function createRemoteJob(title: string, budget: number) {
@@ -46,8 +46,8 @@ async function runRemotePenaltyTests() {
                     latitude: 0,
                     longitude: 0,
                 },
-                client.clientUserId,
-                client.clientId
+                client!.clientUserId,
+                client!.clientId
             );
         }
 
@@ -58,9 +58,9 @@ async function runRemotePenaltyTests() {
         // =====================================================
         console.log('\n--- TEST R1: Client Cancels Remote Job Within 5-Min Grace (0% Penalty) ---');
         const jobR1 = await createRemoteJob('Remote Test R1 - Grace Window', 1000);
-        await assignFreelancer(jobR1.id, freelancer.freelancerId, client.clientUserId);
+        await assignFreelancer(jobR1.id, freelancer!.freelancerId, client!.clientUserId);
 
-        const cancelledR1 = await cancelJob(jobR1.id, client.clientUserId, 'Within grace');
+        const cancelledR1 = await cancelJob(jobR1.id, client!.clientUserId, 'Within grace');
         console.log(`Status: ${cancelledR1.jobStatus}`);
 
         const penaltyLogR1 = await db
@@ -80,22 +80,22 @@ async function runRemotePenaltyTests() {
         // =====================================================
         console.log('\n--- TEST R2: Client Cancels Remote Job After 5 Minutes (2% Deferred) ---');
         const jobR2 = await createRemoteJob('Remote Test R2 - Client Penalty', 2000);
-        await assignFreelancer(jobR2.id, freelancer.freelancerId, client.clientUserId);
+        await assignFreelancer(jobR2.id, freelancer!.freelancerId, client!.clientUserId);
         await db.updateTable('jobs').set({ confirmedAt: tenMinsAgo }).where('id', '=', jobR2.id).execute();
 
         const beforeR2 = await db
             .selectFrom('clients')
             .select('pendingPenaltyAmount')
-            .where('id', '=', client.clientId)
+            .where('id', '=', client!.clientId)
             .executeTakeFirst();
         const pendingBeforeR2 = parseFloat(beforeR2?.pendingPenaltyAmount?.toString() || '0');
 
-        await cancelJob(jobR2.id, client.clientUserId, 'Remote cancel past grace');
+        await cancelJob(jobR2.id, client!.clientUserId, 'Remote cancel past grace');
 
         const afterR2 = await db
             .selectFrom('clients')
             .select('pendingPenaltyAmount')
-            .where('id', '=', client.clientId)
+            .where('id', '=', client!.clientId)
             .executeTakeFirst();
         const pendingAfterR2 = parseFloat(afterR2?.pendingPenaltyAmount?.toString() || '0');
         const expectedR2 = 2000 * 0.02; // ₹40
@@ -124,24 +124,24 @@ async function runRemotePenaltyTests() {
         // =====================================================
         console.log('\n--- TEST R4: Freelancer Cancels Remote Job After 5 Minutes (2% Immediate) ---');
         const jobR4 = await createRemoteJob('Remote Test R4 - Freelancer Penalty', 3000);
-        await assignFreelancer(jobR4.id, freelancer.freelancerId, client.clientUserId);
+        await assignFreelancer(jobR4.id, freelancer!.freelancerId, client!.clientUserId);
         await db.updateTable('jobs').set({ confirmedAt: tenMinsAgo }).where('id', '=', jobR4.id).execute();
 
         const freelancerBeforeR4 = await db
             .selectFrom('freelancers')
             .select(['withdrawableAmount', 'totalPenaltyDeducted'])
-            .where('id', '=', freelancer.freelancerId)
+            .where('id', '=', freelancer!.freelancerId)
             .executeTakeFirst();
 
         const wBeforeR4 = parseFloat(freelancerBeforeR4?.withdrawableAmount?.toString() || '0');
         const pdBeforeR4 = parseFloat(freelancerBeforeR4?.totalPenaltyDeducted?.toString() || '0');
 
-        await cancelJob(jobR4.id, freelancer.freelancerUserId, 'Freelancer remote cancel');
+        await cancelJob(jobR4.id, freelancer!.freelancerUserId, 'Freelancer remote cancel');
 
         const freelancerAfterR4 = await db
             .selectFrom('freelancers')
             .select(['withdrawableAmount', 'totalPenaltyDeducted'])
-            .where('id', '=', freelancer.freelancerId)
+            .where('id', '=', freelancer!.freelancerId)
             .executeTakeFirst();
 
         const wAfterR4 = parseFloat(freelancerAfterR4?.withdrawableAmount?.toString() || '0');
@@ -174,7 +174,7 @@ async function runRemotePenaltyTests() {
         // =====================================================
         console.log('\n--- TEST R5: Non-Completion Penalty via Timer (Remote Job) ---');
         const jobR5 = await createRemoteJob('Remote Test R5 - Non-Completion', 2500);
-        await assignFreelancer(jobR5.id, freelancer.freelancerId, client.clientUserId);
+        await assignFreelancer(jobR5.id, freelancer!.freelancerId, client!.clientUserId);
 
         const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
         const oneHourAgo = new Date(Date.now() - 1 * 60 * 60 * 1000);
@@ -193,7 +193,7 @@ async function runRemotePenaltyTests() {
         const freelancerBeforeR5 = await db
             .selectFrom('freelancers')
             .select(['withdrawableAmount', 'totalPenaltyDeducted'])
-            .where('id', '=', freelancer.freelancerId)
+            .where('id', '=', freelancer!.freelancerId)
             .executeTakeFirst();
 
         const wBeforeR5 = parseFloat(freelancerBeforeR5?.withdrawableAmount?.toString() || '0');
@@ -210,7 +210,7 @@ async function runRemotePenaltyTests() {
         const freelancerAfterR5 = await db
             .selectFrom('freelancers')
             .select(['withdrawableAmount', 'totalPenaltyDeducted'])
-            .where('id', '=', freelancer.freelancerId)
+            .where('id', '=', freelancer!.freelancerId)
             .executeTakeFirst();
 
         const wAfterR5 = parseFloat(freelancerAfterR5?.withdrawableAmount?.toString() || '0');
@@ -237,7 +237,7 @@ async function runRemotePenaltyTests() {
         // =====================================================
         console.log('\n--- TEST R6: Payment-Time Penalty Recovery (Remote Work Submission) ---');
         const jobR6 = await createRemoteJob('Remote Test R6 - Payment Recovery', 4000);
-        await assignFreelancer(jobR6.id, freelancer.freelancerId, client.clientUserId);
+        await assignFreelancer(jobR6.id, freelancer!.freelancerId, client!.clientUserId);
 
         // Set clientPenaltyAmount of ₹80
         const testPenaltyR6 = 80;
@@ -248,7 +248,7 @@ async function runRemotePenaltyTests() {
             .execute();
 
         // Freelancer submits digital work
-        await submitDigitalWork(jobR6.id, freelancer.freelancerUserId, {
+        await submitDigitalWork(jobR6.id, freelancer!.freelancerUserId, {
             fileUrl: 'https://example.com/test-work.pdf',
             notes: 'Test submission for penalty recovery',
         });
@@ -259,19 +259,19 @@ async function runRemotePenaltyTests() {
         const freelancerBeforeR6 = await db
             .selectFrom('freelancers')
             .select(['withdrawableAmount', 'totalPenaltyReceived', 'totalPenaltyDeducted'])
-            .where('id', '=', freelancer.freelancerId)
+            .where('id', '=', freelancer!.freelancerId)
             .executeTakeFirst();
 
         const wBeforeR6 = parseFloat(freelancerBeforeR6?.withdrawableAmount?.toString() || '0');
         const prBeforeR6 = parseFloat(freelancerBeforeR6?.totalPenaltyReceived?.toString() || '0');
         const pdBeforeR6 = parseFloat(freelancerBeforeR6?.totalPenaltyDeducted?.toString() || '0');
 
-        await respondToDigitalWork(jobR6.id, client.clientUserId, 'ACCEPT');
+        await respondToDigitalWork(jobR6.id, client!.clientUserId, 'ACCEPT');
 
         const freelancerAfterR6 = await db
             .selectFrom('freelancers')
             .select(['withdrawableAmount', 'totalPenaltyReceived', 'totalPenaltyDeducted'])
-            .where('id', '=', freelancer.freelancerId)
+            .where('id', '=', freelancer!.freelancerId)
             .executeTakeFirst();
 
         const wAfterR6 = parseFloat(freelancerAfterR6?.withdrawableAmount?.toString() || '0');
@@ -309,7 +309,7 @@ async function runRemotePenaltyTests() {
         // =====================================================
         console.log('\n--- TEST R7: Auto-Accept Timer with Client Penalty Recovery ---');
         const jobR7 = await createRemoteJob('Remote Test R7 - Auto-Accept + Penalty', 3500);
-        await assignFreelancer(jobR7.id, freelancer.freelancerId, client.clientUserId);
+        await assignFreelancer(jobR7.id, freelancer!.freelancerId, client!.clientUserId);
 
         const testPenaltyR7 = 70;
         await db
@@ -319,7 +319,7 @@ async function runRemotePenaltyTests() {
             .execute();
 
         // Freelancer submits work
-        await submitDigitalWork(jobR7.id, freelancer.freelancerUserId, {
+        await submitDigitalWork(jobR7.id, freelancer!.freelancerUserId, {
             fileUrl: 'https://example.com/auto-accept-test.pdf',
             notes: 'Auto-accept test',
         });
@@ -334,7 +334,7 @@ async function runRemotePenaltyTests() {
         const freelancerBeforeR7 = await db
             .selectFrom('freelancers')
             .select(['withdrawableAmount', 'totalPenaltyReceived', 'totalPenaltyDeducted'])
-            .where('id', '=', freelancer.freelancerId)
+            .where('id', '=', freelancer!.freelancerId)
             .executeTakeFirst();
 
         const wBeforeR7 = parseFloat(freelancerBeforeR7?.withdrawableAmount?.toString() || '0');
@@ -353,7 +353,7 @@ async function runRemotePenaltyTests() {
         const freelancerAfterR7 = await db
             .selectFrom('freelancers')
             .select(['withdrawableAmount', 'totalPenaltyReceived', 'totalPenaltyDeducted'])
-            .where('id', '=', freelancer.freelancerId)
+            .where('id', '=', freelancer!.freelancerId)
             .executeTakeFirst();
 
         const wAfterR7 = parseFloat(freelancerAfterR7?.withdrawableAmount?.toString() || '0');
@@ -388,7 +388,7 @@ async function runRemotePenaltyTests() {
         // =====================================================
         console.log('\n--- TEST R8: Double-Count Verification (Remote Job) ---');
         const jobR8 = await createRemoteJob('Remote Test R8 - Double Count Check', 5000);
-        await assignFreelancer(jobR8.id, freelancer.freelancerId, client.clientUserId);
+        await assignFreelancer(jobR8.id, freelancer!.freelancerId, client!.clientUserId);
 
         const testPenaltyR8 = 100;
         await db
@@ -397,25 +397,25 @@ async function runRemotePenaltyTests() {
             .where('id', '=', jobR8.id)
             .execute();
 
-        await submitDigitalWork(jobR8.id, freelancer.freelancerUserId, {
+        await submitDigitalWork(jobR8.id, freelancer!.freelancerUserId, {
             fileUrl: 'https://example.com/double-count-test.pdf',
         });
 
         const freelancerBeforeR8 = await db
             .selectFrom('freelancers')
             .select(['totalPenaltyReceived', 'totalPenaltyDeducted'])
-            .where('id', '=', freelancer.freelancerId)
+            .where('id', '=', freelancer!.freelancerId)
             .executeTakeFirst();
 
         const prBeforeR8 = parseFloat(freelancerBeforeR8?.totalPenaltyReceived?.toString() || '0');
         const pdBeforeR8 = parseFloat(freelancerBeforeR8?.totalPenaltyDeducted?.toString() || '0');
 
-        await respondToDigitalWork(jobR8.id, client.clientUserId, 'ACCEPT');
+        await respondToDigitalWork(jobR8.id, client!.clientUserId, 'ACCEPT');
 
         const freelancerAfterR8 = await db
             .selectFrom('freelancers')
             .select(['totalPenaltyReceived', 'totalPenaltyDeducted'])
-            .where('id', '=', freelancer.freelancerId)
+            .where('id', '=', freelancer!.freelancerId)
             .executeTakeFirst();
 
         const prAfterR8 = parseFloat(freelancerAfterR8?.totalPenaltyReceived?.toString() || '0');

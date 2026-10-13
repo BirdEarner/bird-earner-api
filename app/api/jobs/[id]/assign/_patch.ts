@@ -48,14 +48,15 @@ export async function PATCH(
     } catch (error: any) {
         const message = error.message || 'Failed to assign freelancer';
         const isValidationOrBlockError = message.includes('blocked') || message.includes('not found') || message.includes('insufficient') || message.includes('penalty');
-        
-        if (!isValidationOrBlockError) {
+        const isForbidden = message.startsWith('Unauthorized');
+
+        if (!isValidationOrBlockError && !isForbidden) {
             console.error('Assign freelancer error:', error);
         }
 
         return NextResponse.json({
             success: false,
             message: message
-        }, { status: isValidationOrBlockError ? 400 : 500 });
+        }, { status: isForbidden ? 403 : isValidationOrBlockError ? 400 : 500 });
     }
 }

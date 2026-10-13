@@ -2,6 +2,7 @@ import { getAuthUser } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
+import type { JobStatus } from '@/types/types';
 
 const blockSchema = z.object({
     threadId: z.string(),
@@ -102,7 +103,7 @@ export async function POST(request: Request) {
         }
 
         // Active job protection check
-        const ACTIVE_JOB_STATUSES = [
+        const ACTIVE_JOB_STATUSES: JobStatus[] = [
             'CONFIRMED', 'IN_PROGRESS', 'FREELANCER_TRAVELLING', 'ARRIVED',
             'JOB_STARTED', 'WORK_SUBMITTED', 'REVISION_REQUESTED',
             'REVISION_SUBMITTED', 'WORK_ACCEPTED'

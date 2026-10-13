@@ -1,4 +1,5 @@
 import { db } from '@/lib/db';
+import { isOnSiteJob } from '@/lib/job-type';
 import { getAuthUser } from '@/lib/auth';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -52,7 +53,7 @@ export async function POST(request: Request) {
             if (!job.freelancerUserId) throw new Error('No freelancer assigned');
 
             // On-site jobs require OTP verification before completion request
-            const isOnSite = job.projectType === 'On-site' && job.location?.toLowerCase() !== 'remote';
+            const isOnSite = isOnSiteJob(job);
             if (isOnSite && !job.otpVerifiedAt) {
                 throw new Error('OTP verification pending. Please wait for the freelancer to complete the on-site attendance flow.');
             }

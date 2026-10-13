@@ -36,7 +36,6 @@ export async function POST(request: Request) {
         }
 
         const { threadId, amount, days, userRole } = validation.data;
-        const normalizedRole = userRole.toUpperCase();
         const parsedAmount = parseFloat(amount.toString());
 
         if (isNaN(parsedAmount) || parsedAmount <= 0) {
@@ -58,6 +57,18 @@ export async function POST(request: Request) {
 
         if (!thread) {
             return NextResponse.json({ success: false, message: 'Chat thread not found' }, { status: 404 });
+        }
+
+        // The caller's side comes from their account on this thread, never from the request body
+        const [threadClient, threadFreelancer] = await Promise.all([
+            db.selectFrom('clients').select('userId').where('id', '=', thread.clientId).executeTakeFirst(),
+            thread.freelancerId
+                ? db.selectFrom('freelancers').select('userId').where('id', '=', thread.freelancerId).executeTakeFirst()
+                : Promise.resolve(undefined),
+        ]);
+        const normalizedRole = user.id === threadClient?.userId ? 'CLIENT' : user.id === threadFreelancer?.userId ? 'FREELANCER' : null;
+        if (!normalizedRole) {
+            return NextResponse.json({ success: false, message: 'You are not a party to this chat' }, { status: 403 });
         }
 
         if (thread.status === 'ACCEPTED' || thread.isAccepted) {

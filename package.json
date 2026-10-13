@@ -36,6 +36,7 @@
     "@types/bcryptjs": "^2.4.6",
     "@types/jsonwebtoken": "^9.0.8",
     "@types/node": "^22",
+    "@types/node-fetch": "^2.6.13",
     "@types/nodemailer": "^6.4.17",
     "@types/pg": "^8.11.11",
     "@types/react": "^19",

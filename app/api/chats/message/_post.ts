@@ -36,10 +36,17 @@ export async function POST(request: Request) {
             data: message
         });
     } catch (error: any) {
+        const message: string = error.message || 'Server error';
+
+        // Refusals we raise on purpose (not server faults) are client errors
+        if (/cannot be submitted|waiting for the client|must include a file|dispute is open|not a party|declined your application|Unauthorized/i.test(message)) {
+            return NextResponse.json({ success: false, message }, { status: 400 });
+        }
+
         console.error('Send message error:', error);
         return NextResponse.json({
             success: false,
-            message: error.message || 'Server error'
+            message
         }, { status: 500 });
     }
 }

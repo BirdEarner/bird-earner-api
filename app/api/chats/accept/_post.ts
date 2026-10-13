@@ -34,8 +34,33 @@ export async function POST(request: Request) {
             return NextResponse.json({ message: 'Chat thread not found' }, { status: 404 });
         }
 
-        const agreedAmount = thread.agreedAmount || thread.freelancerOffer || thread.clientOffer;
-        const agreedDays = thread.agreedDays || thread.freelancerDays || thread.clientDays || null;
+        // Only the client or freelancer on this thread can accept, and not the side that made the last offer
+        const [client, freelancer] = await Promise.all([
+            db.selectFrom('clients').select('userId').where('id', '=', thread.clientId).executeTakeFirst(),
+            thread.freelancerId
+                ? db.selectFrom('freelancers').select('userId').where('id', '=', thread.freelancerId).executeTakeFirst()
+                : Promise.resolve(undefined),
+        ]);
+        const callerRole = user.id === client?.userId ? 'CLIENT' : user.id === freelancer?.userId ? 'FREELANCER' : null;
+        if (!callerRole) {
+            return NextResponse.json({ message: 'You are not a party to this chat' }, { status: 403 });
+        }
+
+        const lastOffer = await db
+            .selectFrom('negotiationHistory')
+            .select(['senderType', 'amount', 'days'])
+            .where('chatThreadId', '=', chatThreadId)
+            .where('offerType', '=', 'OFFER')
+            .orderBy('createdAt', 'desc')
+            .executeTakeFirst();
+
+        if (lastOffer && lastOffer.senderType === callerRole) {
+            return NextResponse.json({ message: 'You made the last offer. The other party has to accept it.' }, { status: 400 });
+        }
+
+        // Lock in the latest offer rather than a stale fallback
+        const agreedAmount = lastOffer?.amount ?? thread.agreedAmount ?? thread.freelancerOffer ?? thread.clientOffer;
+        const agreedDays = lastOffer?.days ?? thread.agreedDays ?? thread.freelancerDays ?? thread.clientDays ?? null;
 
         const updatedThread = await db
             .updateTable('chatThreads')
@@ -56,7 +81,7 @@ export async function POST(request: Request) {
             chatThreadId: chatThreadId,
             jobId: thread.jobId,
             senderId: user.id,
-            senderType: user.role || 'CLIENT',
+            senderType: callerRole,
             offerType: 'ACCEPTED',
             amount: agreedAmount?.toString() || '0',
             previousAmount: null,

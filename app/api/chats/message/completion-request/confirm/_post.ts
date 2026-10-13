@@ -1,6 +1,7 @@
 import { db } from '@/lib/db';
+import { isOnSiteJob } from '@/lib/job-type';
 import { getAuthUser } from '@/lib/auth';
-import { completeJob } from '@/lib/services/jobs';
+import { completeJob, TERMINAL_JOB_STATUSES } from '@/lib/services/jobs';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { validateParams } from '@/lib/validation';
@@ -56,19 +57,39 @@ export async function POST(request: Request) {
 
             const { jobId, paymentMethod, budgetAmount, requestedBy } = messageData;
 
-            // On-site jobs require OTP verification before confirmation
+            // The request must belong to this chat, and the other party (not the requester) must confirm it
+            if (message.chatThreadId !== threadId) throw new Error('Completion request does not belong to this chat');
+            if (message.senderId === user.id) throw new Error('You cannot confirm your own completion request');
+
             const jobCheck = await trx
                 .selectFrom('jobs')
-                .select(['projectType', 'location', 'otpVerifiedAt'])
-                .where('id', '=', jobId)
-                .where('deleted', '=', false)
+                .innerJoin('clients', 'clients.id', 'jobs.clientId')
+                .leftJoin('freelancers', 'freelancers.id', 'jobs.assignedFreelancerId')
+                .select([
+                    'jobs.projectType',
+                    'jobs.location',
+                    'jobs.otpVerifiedAt',
+                    'jobs.jobStatus',
+                    'clients.userId as clientUserId',
+                    'freelancers.userId as freelancerUserId',
+                ])
+                .where('jobs.id', '=', jobId)
+                .where('jobs.deleted', '=', false)
                 .executeTakeFirst();
 
-            if (jobCheck) {
-                const isOnSite = jobCheck.projectType === 'On-site' && jobCheck.location?.toLowerCase() !== 'remote';
-                if (isOnSite && !jobCheck.otpVerifiedAt) {
-                    throw new Error('OTP verification pending. Please wait for the on-site attendance flow to complete.');
-                }
+            if (!jobCheck) throw new Error('Job not found');
+            if (user.id !== jobCheck.clientUserId && user.id !== jobCheck.freelancerUserId) {
+                throw new Error('Unauthorized - you are not a party to this job');
+            }
+            // A cancelled, settled or disputed job must not be revived by a stale completion request
+            if (TERMINAL_JOB_STATUSES.includes(jobCheck.jobStatus)) {
+                throw new Error('This job is no longer active');
+            }
+
+            // On-site jobs require OTP verification before confirmation
+            const isOnSite = isOnSiteJob(jobCheck);
+            if (isOnSite && !jobCheck.otpVerifiedAt) {
+                throw new Error('OTP verification pending. Please wait for the on-site attendance flow to complete.');
             }
 
             // 1. Update request status

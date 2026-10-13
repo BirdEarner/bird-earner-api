@@ -14,7 +14,7 @@ const updateJobSchema = z.object({
     jobCategory: z.string().optional(),
     jobSubCategory: z.string().optional(),
     skillsRequired: z.array(z.string().trim().min(1)).optional(),
-    projectType: z.string().optional(),
+    projectType: z.string().refine((v) => /remote|site/i.test(v), 'Project type must be Remote or On-site').optional(),
     budgetType: z.string().optional(),
     budgetAmount: z.union([z.number(), z.string()]).transform(v => parseFloat(v.toString())).optional(),
     deadlineDate: z.string().optional(),

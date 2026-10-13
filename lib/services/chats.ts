@@ -26,10 +26,25 @@ async function ensureNegotiationColumns() {
  * auto-restored to ACCEPTED via block/unblock. Returns 'REJECTED' for that case, else null
  * (callers keep their existing restore behaviour for every other case).
  */
+/**
+ * True when the client explicitly turned this applicant down (recorded by rejectFreelancer).
+ * Such a freelancer must never be restored to the booking by unblock, reopen or re-apply.
+ */
+export async function hasClientRejection(chatThreadId: string): Promise<boolean> {
+    const row = await db
+        .selectFrom('negotiationHistory')
+        .select('id')
+        .where('chatThreadId', '=', chatThreadId)
+        .where('offerType', '=', 'CLIENT_REJECTED')
+        .executeTakeFirst();
+    return Boolean(row);
+}
+
 export async function resolveRestoredThreadStatus(
-    thread: { isAccepted?: boolean | null; jobId?: string | null },
+    thread: { id?: string; isAccepted?: boolean | null; jobId?: string | null },
     jobStatus?: string | null
 ): Promise<'PENDING' | 'ACCEPTED' | 'REJECTED' | 'COMPLETED' | 'BLOCKED' | null> {
+    if (thread.id && await hasClientRejection(thread.id)) return 'REJECTED';
     if (!thread.isAccepted) return null;
     let status = jobStatus ?? null;
     if (!status && thread.jobId) {
@@ -95,6 +110,11 @@ export async function createOrGetThread(jobId: string, freelancerId: string, cli
                 .execute();
             thread.status = restoredStatus;
         }
+    }
+
+    // A freelancer the client turned down cannot come back to this booking
+    if (thread && thread.status === 'REJECTED' && await hasClientRejection(thread.id)) {
+        throw new Error('The client has declined your application for this job.');
     }
 
     // Find Another Freelancer: the previously selected freelancer cannot re-apply after the job is reopened.
@@ -327,6 +347,7 @@ export async function sendMessage(data: any) {
         .select([
             'jobs.projectType',
             'jobs.jobStatus',
+            'chatThreads.id',
             'chatThreads.jobId',
             'chatThreads.characterLimit',
             'chatThreads.status',
@@ -375,6 +396,19 @@ export async function sendMessage(data: any) {
             .where('id', '=', chatThreadId)
             .execute();
         thread.status = restoredStatus;
+    }
+
+    // A freelancer the client declined cannot keep messaging the booking
+    if (thread.status === 'REJECTED' && await hasClientRejection(thread.id)) {
+        const declinedFreelancer = await db
+            .selectFrom('freelancers')
+            .select('userId')
+            .where('id', '=', thread.freelancerId)
+            .executeTakeFirst();
+
+        if (senderId === thread.freelancerId || senderId === declinedFreelancer?.userId) {
+            throw new Error('The client has declined your application for this job.');
+        }
     }
 
     // Find Another Freelancer: once the client reopened the job, the released freelancer cannot post any
@@ -439,7 +473,12 @@ export async function sendMessage(data: any) {
             throw new Error('Work submission must include a file attachment');
         }
 
-        const submittableStatuses = ['CONFIRMED', 'IN_PROGRESS', 'REVISION_REQUESTED', 'WORK_SUBMITTED'];
+        // A new version is only accepted when the client has asked for changes (or on first delivery).
+        // While a version is waiting for the client's review, the freelancer must wait for their response.
+        if (thread.jobStatus === 'WORK_SUBMITTED') {
+            throw new Error('Your previous version is waiting for the client\'s review. Wait for their response before sending another version.');
+        }
+        const submittableStatuses = ['CONFIRMED', 'REVISION_REQUESTED'];
         if (!submittableStatuses.includes(thread.jobStatus)) {
             throw new Error(`Work cannot be submitted while job status is ${thread.jobStatus}`);
         }
@@ -645,6 +684,16 @@ export async function respondToWorkSubmissionMessage(
     const newStatus = decision === 'ACCEPT' ? 'ACCEPTED' : 'REVISE_REQUESTED';
     const reviewedAt = new Date().toISOString();
 
+    // Apply the decision to the job first (this enforces the revision cap and the active-status rules).
+    // Only when it succeeds are the chat messages marked, so a refused request leaves no trace in chat.
+    const { respondToDigitalWork } = await import('./jobs');
+
+    if (decision === 'ACCEPT') {
+        await respondToDigitalWork(msg.jobId, clientUserId, 'ACCEPT');
+    } else {
+        await respondToDigitalWork(msg.jobId, clientUserId, 'REQUEST_REVISION', revisionNotes);
+    }
+
     // Query all messages in this chatThreadId to update all messages belonging to targetVersion
     const threadMsgs = await db
         .selectFrom('messages')
@@ -678,14 +727,6 @@ export async function respondToWorkSubmissionMessage(
                 .where('id', '=', threadMsg.id)
                 .execute();
         }
-    }
-
-    const { respondToDigitalWork } = await import('./jobs');
-
-    if (decision === 'ACCEPT') {
-        await respondToDigitalWork(msg.jobId, clientUserId, 'ACCEPT');
-    } else {
-        await respondToDigitalWork(msg.jobId, clientUserId, 'REQUEST_REVISION', revisionNotes);
     }
 
     return { success: true, messageId, submissionStatus: newStatus, version: targetVersion };

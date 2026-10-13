@@ -26,8 +26,8 @@ async function runDisputeFlowTests() {
             return;
         }
 
-        console.log(`✅ Client ID: ${client.clientId} (User: ${client.clientUserId})`);
-        console.log(`✅ Freelancer ID: ${freelancer.freelancerId} (User: ${freelancer.freelancerUserId})`);
+        console.log(`✅ Client ID: ${client!.clientId} (User: ${client!.clientUserId})`);
+        console.log(`✅ Freelancer ID: ${freelancer!.freelancerId} (User: ${freelancer!.freelancerUserId})`);
 
         // Helper to create an active job
         async function createTestJob(title: string) {
@@ -43,10 +43,10 @@ async function runDisputeFlowTests() {
                     workDurationDays: 1,
                     paymentMethod: 'CASH',
                 },
-                client.clientUserId,
-                client.clientId
+                client!.clientUserId,
+                client!.clientId
             );
-            await assignFreelancer(job.id, freelancer.freelancerId, client.clientUserId);
+            await assignFreelancer(job.id, freelancer!.freelancerId, client!.clientUserId);
             return job;
         }
 
@@ -57,19 +57,19 @@ async function runDisputeFlowTests() {
         const jobD1 = await createTestJob('Dispute Test D1 - Raise Dispute');
 
         // Progress job to TRAVELLING -> ARRIVED -> REQUEST_OTP -> VERIFY_OTP
-        await updatePhysicalJobProgress(jobD1.id, 'TRAVELLING', freelancer.freelancerUserId);
-        await updatePhysicalJobProgress(jobD1.id, 'ARRIVED', freelancer.freelancerUserId);
-        await updatePhysicalJobProgress(jobD1.id, 'REQUEST_OTP', freelancer.freelancerUserId);
+        await updatePhysicalJobProgress(jobD1.id, 'TRAVELLING', freelancer!.freelancerUserId);
+        await updatePhysicalJobProgress(jobD1.id, 'ARRIVED', freelancer!.freelancerUserId);
+        await updatePhysicalJobProgress(jobD1.id, 'REQUEST_OTP', freelancer!.freelancerUserId);
 
         const otpJob = await db.selectFrom('jobs').select('otpCode').where('id', '=', jobD1.id).executeTakeFirst();
-        await updatePhysicalJobProgress(jobD1.id, 'VERIFY_OTP', freelancer.freelancerUserId, { otpCode: otpJob?.otpCode || '' });
+        await updatePhysicalJobProgress(jobD1.id, 'VERIFY_OTP', freelancer!.freelancerUserId, { otpCode: otpJob?.otpCode || '' });
 
         // Backdate post-OTP cancellation window to simulate expired window
         const tenMinsAgo = new Date(Date.now() - 10 * 60 * 1000);
         await db.updateTable('jobs').set({ postOtpCancellationWindowExpiresAt: tenMinsAgo }).where('id', '=', jobD1.id).execute();
 
         // Client raises dispute
-        const disputeJob = await updatePhysicalJobProgress(jobD1.id, 'RAISE_DISPUTE', client.clientUserId);
+        const disputeJob = await updatePhysicalJobProgress(jobD1.id, 'RAISE_DISPUTE', client!.clientUserId);
         console.log(`Job status after dispute raised: ${disputeJob.jobStatus}`);
 
         const statusHistoryD1 = await db
@@ -119,7 +119,7 @@ async function runDisputeFlowTests() {
                 trx,
                 jobD1.id,
                 'DISPUTE_RESOLVED',
-                client.clientUserId,
+                client!.clientUserId,
                 'CLIENT',
                 'DISPUTE_RESOLVED',
                 'Dispute resolved by admin team'

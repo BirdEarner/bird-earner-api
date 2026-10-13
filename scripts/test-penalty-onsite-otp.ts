@@ -25,8 +25,8 @@ async function runOnSiteOtpTests() {
             return;
         }
 
-        console.log(`✅ Using Client: ${client.clientId} (User: ${client.clientUserId})`);
-        console.log(`✅ Using Freelancer: ${freelancer.freelancerId} (User: ${freelancer.freelancerUserId})`);
+        console.log(`✅ Using Client: ${client!.clientId} (User: ${client!.clientUserId})`);
+        console.log(`✅ Using Freelancer: ${freelancer!.freelancerId} (User: ${freelancer!.freelancerUserId})`);
 
         async function createOnSiteJob(title: string, budget: number) {
             return createJob(
@@ -41,19 +41,19 @@ async function runOnSiteOtpTests() {
                     workDurationDays: 1,
                     paymentMethod: 'CASH',
                 },
-                client.clientUserId,
-                client.clientId
+                client!.clientUserId,
+                client!.clientId
             );
         }
 
         // Helper: run full OTP flow up to JOB_STARTED
         async function runOtpFlow(jobId: string) {
             // Freelancer: TRAVELLING
-            await updatePhysicalJobProgress(jobId, 'TRAVELLING', freelancer.freelancerUserId);
+            await updatePhysicalJobProgress(jobId, 'TRAVELLING', freelancer!.freelancerUserId);
             // Freelancer: ARRIVED
-            await updatePhysicalJobProgress(jobId, 'ARRIVED', freelancer.freelancerUserId);
+            await updatePhysicalJobProgress(jobId, 'ARRIVED', freelancer!.freelancerUserId);
             // Freelancer: REQUEST_OTP
-            await updatePhysicalJobProgress(jobId, 'REQUEST_OTP', freelancer.freelancerUserId);
+            await updatePhysicalJobProgress(jobId, 'REQUEST_OTP', freelancer!.freelancerUserId);
 
             // Get the generated OTP code
             const job = await db
@@ -63,7 +63,7 @@ async function runOnSiteOtpTests() {
                 .executeTakeFirst();
 
             // Freelancer: VERIFY_OTP
-            await updatePhysicalJobProgress(jobId, 'VERIFY_OTP', freelancer.freelancerUserId, { otpCode: job?.otpCode || '' });
+            await updatePhysicalJobProgress(jobId, 'VERIFY_OTP', freelancer!.freelancerUserId, { otpCode: job?.otpCode || '' });
 
             return job?.otpCode;
         }
@@ -73,7 +73,7 @@ async function runOnSiteOtpTests() {
         // =====================================================
         console.log('\n--- TEST O1: Full OTP Flow (TRAVELLING → ARRIVED → REQUEST_OTP → VERIFY_OTP) ---');
         const jobO1 = await createOnSiteJob('On-Site Test O1 - OTP Flow', 1000);
-        await assignFreelancer(jobO1.id, freelancer.freelancerId, client.clientUserId);
+        await assignFreelancer(jobO1.id, freelancer!.freelancerId, client!.clientUserId);
 
         const otpCode = await runOtpFlow(jobO1.id);
 
@@ -98,12 +98,12 @@ async function runOnSiteOtpTests() {
         // =====================================================
         console.log('\n--- TEST O2: Emergency Cancel Within 5-Min Post-OTP Window (0% Penalty) ---');
         const jobO2 = await createOnSiteJob('On-Site Test O2 - Emergency Cancel', 2000);
-        await assignFreelancer(jobO2.id, freelancer.freelancerId, client.clientUserId);
+        await assignFreelancer(jobO2.id, freelancer!.freelancerId, client!.clientUserId);
         await runOtpFlow(jobO2.id);
 
         // Both client and freelancer should be able to emergency cancel within 5 min of OTP
         // Client emergency cancels
-        const emergencyResult = await updatePhysicalJobProgress(jobO2.id, 'EMERGENCY_CANCEL', client.clientUserId);
+        const emergencyResult = await updatePhysicalJobProgress(jobO2.id, 'EMERGENCY_CANCEL', client!.clientUserId);
 
         const jobO2After = await db
             .selectFrom('jobs')
@@ -129,7 +129,7 @@ async function runOnSiteOtpTests() {
         // =====================================================
         console.log('\n--- TEST O3: Emergency Cancel After Post-OTP Window Expired → Blocked ---');
         const jobO3 = await createOnSiteJob('On-Site Test O3 - Emergency Window Expired', 1500);
-        await assignFreelancer(jobO3.id, freelancer.freelancerId, client.clientUserId);
+        await assignFreelancer(jobO3.id, freelancer!.freelancerId, client!.clientUserId);
         await runOtpFlow(jobO3.id);
 
         // Backdate postOtpCancellationWindowExpiresAt to 10 minutes ago
@@ -141,7 +141,7 @@ async function runOnSiteOtpTests() {
             .execute();
 
         try {
-            await updatePhysicalJobProgress(jobO3.id, 'EMERGENCY_CANCEL', client.clientUserId);
+            await updatePhysicalJobProgress(jobO3.id, 'EMERGENCY_CANCEL', client!.clientUserId);
             console.log('⚠️ TEST O3: Expected error but none thrown.');
         } catch (err: any) {
             if (err.message.includes('Emergency cancellation window has expired')) {
@@ -156,11 +156,11 @@ async function runOnSiteOtpTests() {
         // =====================================================
         console.log('\n--- TEST O4: Client Cancels Within Post-OTP Window → 0% Penalty ---');
         const jobO4 = await createOnSiteJob('On-Site Test O4 - Cancel in Post-OTP Window', 2500);
-        await assignFreelancer(jobO4.id, freelancer.freelancerId, client.clientUserId);
+        await assignFreelancer(jobO4.id, freelancer!.freelancerId, client!.clientUserId);
         await runOtpFlow(jobO4.id);
 
         // postOtpCancellationWindowExpiresAt is set to 5 min from OTP verification, so should still be within window
-        const cancelledO4 = await cancelJob(jobO4.id, client.clientUserId, 'Cancel within post-OTP window');
+        const cancelledO4 = await cancelJob(jobO4.id, client!.clientUserId, 'Cancel within post-OTP window');
 
         const penaltyLogO4 = await db
             .selectFrom('penaltyLogs')
@@ -180,7 +180,7 @@ async function runOnSiteOtpTests() {
         // =====================================================
         console.log('\n--- TEST O5: Client Cancels After Post-OTP Window + OTP Verified → Blocked ---');
         const jobO5 = await createOnSiteJob('On-Site Test O5 - Cancel After OTP Window', 3000);
-        await assignFreelancer(jobO5.id, freelancer.freelancerId, client.clientUserId);
+        await assignFreelancer(jobO5.id, freelancer!.freelancerId, client!.clientUserId);
         await runOtpFlow(jobO5.id);
 
         // Backdate both confirmedAt (past 5-min grace) and postOtpCancellationWindowExpiresAt (past window)
@@ -194,7 +194,7 @@ async function runOnSiteOtpTests() {
             .execute();
 
         try {
-            await cancelJob(jobO5.id, client.clientUserId, 'Should be blocked');
+            await cancelJob(jobO5.id, client!.clientUserId, 'Should be blocked');
             console.log('⚠️ TEST O5: Expected error but none thrown.');
         } catch (err: any) {
             if (err.message.includes('Normal cancellation is disabled') || err.message.includes('Raise a Dispute')) {
@@ -209,7 +209,7 @@ async function runOnSiteOtpTests() {
         // =====================================================
         console.log('\n--- TEST O6: Freelancer Cancels After Post-OTP Window → Blocked ---');
         const jobO6 = await createOnSiteJob('On-Site Test O6 - Freelancer Cancel After OTP', 3500);
-        await assignFreelancer(jobO6.id, freelancer.freelancerId, client.clientUserId);
+        await assignFreelancer(jobO6.id, freelancer!.freelancerId, client!.clientUserId);
         await runOtpFlow(jobO6.id);
 
         await db
@@ -222,7 +222,7 @@ async function runOnSiteOtpTests() {
             .execute();
 
         try {
-            await cancelJob(jobO6.id, freelancer.freelancerUserId, 'Should be blocked');
+            await cancelJob(jobO6.id, freelancer!.freelancerUserId, 'Should be blocked');
             console.log('⚠️ TEST O6: Expected error but none thrown.');
         } catch (err: any) {
             if (err.message.includes('Normal cancellation is disabled') || err.message.includes('Raise a Dispute')) {
@@ -237,7 +237,7 @@ async function runOnSiteOtpTests() {
         // =====================================================
         console.log('\n--- TEST O7: Payment Recovery via CONFIRM_WORK_COMPLETED After OTP ---');
         const jobO7 = await createOnSiteJob('On-Site Test O7 - Payment via OTP Flow', 4000);
-        await assignFreelancer(jobO7.id, freelancer.freelancerId, client.clientUserId);
+        await assignFreelancer(jobO7.id, freelancer!.freelancerId, client!.clientUserId);
         await runOtpFlow(jobO7.id);
 
         // Set clientPenaltyAmount of ₹80
@@ -251,7 +251,7 @@ async function runOnSiteOtpTests() {
         const freelancerBeforeO7 = await db
             .selectFrom('freelancers')
             .select(['withdrawableAmount', 'totalPenaltyReceived', 'totalPenaltyDeducted'])
-            .where('id', '=', freelancer.freelancerId)
+            .where('id', '=', freelancer!.freelancerId)
             .executeTakeFirst();
 
         const wBeforeO7 = parseFloat(freelancerBeforeO7?.withdrawableAmount?.toString() || '0');
@@ -259,7 +259,7 @@ async function runOnSiteOtpTests() {
         const pdBeforeO7 = parseFloat(freelancerBeforeO7?.totalPenaltyDeducted?.toString() || '0');
 
         // Client confirms work completed → triggers payment
-        await updatePhysicalJobProgress(jobO7.id, 'CONFIRM_WORK_COMPLETED', client.clientUserId);
+        await updatePhysicalJobProgress(jobO7.id, 'CONFIRM_WORK_COMPLETED', client!.clientUserId);
 
         const jobO7After = await db
             .selectFrom('jobs')
@@ -270,7 +270,7 @@ async function runOnSiteOtpTests() {
         const freelancerAfterO7 = await db
             .selectFrom('freelancers')
             .select(['withdrawableAmount', 'totalPenaltyReceived', 'totalPenaltyDeducted'])
-            .where('id', '=', freelancer.freelancerId)
+            .where('id', '=', freelancer!.freelancerId)
             .executeTakeFirst();
 
         const wAfterO7 = parseFloat(freelancerAfterO7?.withdrawableAmount?.toString() || '0');
@@ -302,15 +302,15 @@ async function runOnSiteOtpTests() {
         // =====================================================
         console.log('\n--- TEST O8: Invalid OTP Rejection ---');
         const jobO8 = await createOnSiteJob('On-Site Test O8 - Invalid OTP', 1000);
-        await assignFreelancer(jobO8.id, freelancer.freelancerId, client.clientUserId);
+        await assignFreelancer(jobO8.id, freelancer!.freelancerId, client!.clientUserId);
 
         // TRAVELLING → ARRIVED → REQUEST_OTP
-        await updatePhysicalJobProgress(jobO8.id, 'TRAVELLING', freelancer.freelancerUserId);
-        await updatePhysicalJobProgress(jobO8.id, 'ARRIVED', freelancer.freelancerUserId);
-        await updatePhysicalJobProgress(jobO8.id, 'REQUEST_OTP', freelancer.freelancerUserId);
+        await updatePhysicalJobProgress(jobO8.id, 'TRAVELLING', freelancer!.freelancerUserId);
+        await updatePhysicalJobProgress(jobO8.id, 'ARRIVED', freelancer!.freelancerUserId);
+        await updatePhysicalJobProgress(jobO8.id, 'REQUEST_OTP', freelancer!.freelancerUserId);
 
         try {
-            await updatePhysicalJobProgress(jobO8.id, 'VERIFY_OTP', freelancer.freelancerUserId, { otpCode: '000000' });
+            await updatePhysicalJobProgress(jobO8.id, 'VERIFY_OTP', freelancer!.freelancerUserId, { otpCode: '000000' });
             console.log('⚠️ TEST O8: Expected error for invalid OTP but none thrown.');
         } catch (err: any) {
             if (err.message.includes('Invalid OTP')) {
@@ -325,13 +325,13 @@ async function runOnSiteOtpTests() {
         // =====================================================
         console.log('\n--- TEST O9: OTP Cannot Be Requested Before ARRIVED ---');
         const jobO9 = await createOnSiteJob('On-Site Test O9 - OTP Before Arrived', 1000);
-        await assignFreelancer(jobO9.id, freelancer.freelancerId, client.clientUserId);
+        await assignFreelancer(jobO9.id, freelancer!.freelancerId, client!.clientUserId);
 
         // Only TRAVELLING, skip ARRIVED
-        await updatePhysicalJobProgress(jobO9.id, 'TRAVELLING', freelancer.freelancerUserId);
+        await updatePhysicalJobProgress(jobO9.id, 'TRAVELLING', freelancer!.freelancerUserId);
 
         try {
-            await updatePhysicalJobProgress(jobO9.id, 'REQUEST_OTP', freelancer.freelancerUserId);
+            await updatePhysicalJobProgress(jobO9.id, 'REQUEST_OTP', freelancer!.freelancerUserId);
             console.log('⚠️ TEST O9: Expected error but none thrown.');
         } catch (err: any) {
             if (err.message.includes('OTP can only be requested after freelancer has arrived')) {

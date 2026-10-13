@@ -4,7 +4,8 @@ import { reserveAmountForJobInTransaction, processJobPaymentInTransaction, relea
 import { sendNotification } from './notifications';
 import { recordJobStatusHistory } from './timers';
 import { DB, JobStatus } from '../../types/types';
-import { Transaction } from 'kysely';
+import { isOnSiteJob } from '../job-type';
+import { Transaction, sql } from 'kysely';
 
 /**
  * Valid status transitions - prevents unauthorized state changes
@@ -28,6 +29,51 @@ const VALID_TRANSITIONS: Record<string, string[]> = {
     DEADLINE_EXPIRED: ['CANCELLED_BY_FREELANCER', 'CLOSED'],
     DISPUTE_OPEN: ['DISPUTE_RESOLVED', 'CLOSED', 'REFUNDED'],
 };
+
+/** Job is finished, closed or under dispute: no completion, cancellation or payment flow may run on it */
+export const TERMINAL_JOB_STATUSES: string[] = [
+    'COMPLETED', 'AUTO_ACCEPTED', 'CANCELLED', 'CANCELLED_BY_CLIENT', 'CANCELLED_BY_FREELANCER',
+    'CANCELLED_SCOPE_MISMATCH', 'DEADLINE_EXPIRED', 'EXPIRED', 'FAILED', 'REFUNDED', 'CLOSED',
+    'DISPUTE_OPEN', 'DISPUTE_RESOLVED',
+];
+
+/** Statuses a job can still be cancelled from; once work is settled or disputed, cancellation is not allowed */
+const CANCELLABLE_JOB_STATUSES: string[] = [
+    'OPEN', 'FREELANCER_APPLIED', 'NEGOTIATING', 'AWAITING_CLIENT_CONFIRMATION', 'CONFIRMED',
+    'FREELANCER_TRAVELLING', 'ARRIVED', 'JOB_STARTED', 'IN_PROGRESS', 'WORK_SUBMITTED',
+    'REVISION_REQUESTED', 'REVISION_SUBMITTED',
+];
+
+/**
+ * Close any still-pending completion request in the job's chats so it can't be confirmed after the job has ended
+ */
+export async function closePendingCompletionRequests(trx: any, jobId: string, now: Date) {
+    await trx
+        .updateTable('messages')
+        .set({
+            messageData: sql`jsonb_set("messageData"::jsonb, '{status}', '"closed"'::jsonb)`,
+            updatedAt: now,
+        } as any)
+        .where('chatThreadId', 'in', trx.selectFrom('chatThreads').select('id').where('jobId', '=', jobId))
+        .where('messageType', '=', 'completion_request')
+        .where(sql`("messageData"::jsonb ->> 'status')`, '=', 'pending')
+        .execute();
+}
+
+/**
+ * True when the freelancer has marked the work completed in the job's chat (completion request).
+ * On-site completion, cash settlement and client confirmation all depend on this happening first.
+ */
+export async function hasFreelancerCompletionRequest(executor: any, jobId: string): Promise<boolean> {
+    const row = await executor
+        .selectFrom('messages')
+        .select('messages.id')
+        .where('messages.chatThreadId', 'in', executor.selectFrom('chatThreads').select('id').where('jobId', '=', jobId))
+        .where('messages.messageType', '=', 'completion_request')
+        .where(sql`("messageData"::jsonb ->> 'requestedBy')`, '=', 'freelancer')
+        .executeTakeFirst();
+    return Boolean(row);
+}
 
 export function isValidStatusTransition(from: string, to: string): boolean {
     const allowed = VALID_TRANSITIONS[from];
@@ -57,6 +103,11 @@ export async function createJob(jobData: any, userId: string, clientId: string) 
 
     // 2. Timeline calculations
     // Work duration in days (workDeadline starts only after booking is confirmed)
+    // Remote (digital) jobs are always platform-paid; cash settlement only exists on-site
+    if (!isOnSiteJob(jobData)) {
+        jobData = { ...jobData, paymentMethod: 'PLATFORM' };
+    }
+
     const workDurationDays = parseInt(jobData.workDurationDays || jobData.deadlineDays || 1, 10);
 
     const result = await db.transaction().execute(async (trx) => {
@@ -84,6 +135,7 @@ export async function createJob(jobData: any, userId: string, clientId: string) 
                     .set({
                         wallet: newWalletBalance.toString(),
                         pendingPenaltyAmount: '0',
+                        totalPenaltyPaid: sql`COALESCE("totalPenaltyPaid", 0) + ${pendingPenalty}` as any,
                         updatedAt: new Date()
                     })
                     .where('id', '=', clientId)
@@ -134,6 +186,7 @@ export async function createJob(jobData: any, userId: string, clientId: string) 
                 applicationExtended: false,
                 workDurationDays: workDurationDays,
                 paymentMethod: jobData.paymentMethod || 'PLATFORM',
+                includedRevisions: jobData.includedRevisions ?? DEFAULT_INCLUDED_REVISIONS,
                 attachedFiles: JSON.stringify(jobData.attachedFiles || []),
                 location: jobData.location || null,
                 latitude: jobData.latitude != null ? jobData.latitude.toString() : null,
@@ -171,6 +224,7 @@ export async function createJob(jobData: any, userId: string, clientId: string) 
                     .set({
                         wallet: newWalletBalance.toString(),
                         pendingPenaltyAmount: '0',
+                        totalPenaltyPaid: sql`COALESCE("totalPenaltyPaid", 0) + ${pendingPenalty}` as any,
                         updatedAt: new Date()
                     })
                     .where('id', '=', clientId)
@@ -292,6 +346,8 @@ export async function assignFreelancer(jobId: string, freelancerId: string, clie
             .selectFrom('jobs')
             .select(['id', 'clientId', 'assignedFreelancerId', 'jobStatus', 'budgetAmount', 'paymentMethod', 'isAmountReserved', 'jobTitle', 'clientPenaltyAmount', 'workDurationDays', 'discountAmount'])
             .where('id', '=', jobId)
+            // Lock the job so two concurrent assignments can't both pass the "not assigned" check
+            .forUpdate()
             .executeTakeFirst();
 
         if (!job) throw new Error('Job not found');
@@ -306,6 +362,11 @@ export async function assignFreelancer(jobId: string, freelancerId: string, clie
             .select('id')
             .where('userId', '=', clientUserId)
             .executeTakeFirst();
+
+        // Only the client who posted the job may pick a freelancer for it
+        if (!clientProfile || clientProfile.id !== job.clientId) {
+            throw new Error('Unauthorized: only the job owner can assign a freelancer');
+        }
 
         if (clientProfile) {
             const blockExists = await trx
@@ -340,7 +401,20 @@ export async function assignFreelancer(jobId: string, freelancerId: string, clie
             .where('freelancerId', '=', freelancerId)
             .executeTakeFirst();
 
-        const finalAmountStr = thread?.agreedAmount || thread?.freelancerOffer || thread?.clientOffer || job.budgetAmount.toString();
+        // If the price was negotiated, both sides must have accepted it (chat accept sets agreedAmount)
+        // The latest recorded offer is the price on the table. The client's assignment is their confirmation of it
+        // (the app has no separate accept step for freelancers), so the agreed price is that latest offer.
+        const latestOffer = thread?.id
+            ? await trx
+                .selectFrom('negotiationHistory')
+                .select(['amount', 'days'])
+                .where('chatThreadId', '=', thread.id)
+                .where('offerType', '=', 'OFFER')
+                .orderBy('createdAt', 'desc')
+                .executeTakeFirst()
+            : undefined;
+
+        const finalAmountStr = latestOffer?.amount?.toString() || thread?.agreedAmount || thread?.freelancerOffer || thread?.clientOffer || job.budgetAmount.toString();
         const finalAmountNum = parseFloat(finalAmountStr);
 
         const originalBudgetNum = parseFloat(job.budgetAmount.toString());
@@ -447,7 +521,7 @@ export async function assignFreelancer(jobId: string, freelancerId: string, clie
         }
 
         // Calculate Work Deadline from confirmed timestamp + agreed work duration
-        const finalDays = thread?.agreedDays || thread?.freelancerDays || thread?.clientDays || job.workDurationDays || 1;
+        const finalDays = latestOffer?.days || thread?.agreedDays || thread?.freelancerDays || thread?.clientDays || job.workDurationDays || 1;
         const confirmedAt = new Date();
         const workDeadline = new Date(confirmedAt.getTime() + finalDays * 24 * 60 * 60 * 1000);
 
@@ -666,6 +740,24 @@ export async function rejectFreelancer(jobId: string, freelancerId: string, clie
             );
         }
 
+        // Remember that the client turned this freelancer down, so the booking never restores them
+        for (const thread of threads) {
+            await trx.insertInto('negotiationHistory').values({
+                id: crypto.randomUUID(),
+                chatThreadId: thread.id,
+                jobId,
+                senderId: clientUserId,
+                senderType: 'CLIENT',
+                offerType: 'CLIENT_REJECTED',
+                amount: '0',
+                previousAmount: null,
+                days: null,
+                previousDays: null,
+                note: 'Client declined this freelancer',
+                createdAt: new Date(),
+            }).execute();
+        }
+
         // Return job along with the affected threads
         return {
             ...updatedJob,
@@ -754,6 +846,7 @@ export async function cancelJob(jobId: string, userId: string, reason?: string) 
             .leftJoin('freelancers', 'freelancers.id', 'jobs.assignedFreelancerId')
             .select([
                 'jobs.id',
+                'jobs.jobStatus',
                 'jobs.budgetAmount',
                 'jobs.negotiatedAmount',
                 'jobs.paymentMethod',
@@ -785,6 +878,11 @@ export async function cancelJob(jobId: string, userId: string, reason?: string) 
             throw new Error('Unauthorized');
         }
 
+        // Completed, settled or disputed jobs can't be cancelled (that would reverse money already moved)
+        if (!CANCELLABLE_JOB_STATUSES.includes(job.jobStatus)) {
+            throw new Error('This job can no longer be cancelled');
+        }
+
         // Check 5-minute cancellation grace window starting from assignment timestamp
         const confirmedAtTime = job.confirmedAt ? new Date(job.confirmedAt).getTime() : (job.assignedAt ? new Date(job.assignedAt).getTime() : 0);
         const isWithin5MinGrace = confirmedAtTime > 0 && (Date.now() - confirmedAtTime <= 5 * 60 * 1000);
@@ -794,9 +892,7 @@ export async function cancelJob(jobId: string, userId: string, reason?: string) 
         const isWithinPostOtpWindow = postOtpWindowExpiry > 0 && Date.now() <= postOtpWindowExpiry;
 
         // Determine if on-site job
-        const isOnSite = (job.projectType || '').toLowerCase() === 'on-site' ||
-            ((job.projectType || '').toLowerCase() !== 'remote' &&
-             (job.location || '').toLowerCase() !== 'remote');
+        const isOnSite = isOnSiteJob(job);
 
         // If work started/submitted and past both grace windows, block simple cancellation
         // For on-site jobs: after OTP verification + 5min window, must raise dispute
@@ -807,6 +903,12 @@ export async function cancelJob(jobId: string, userId: string, reason?: string) 
         // For on-site jobs: after OTP verification + 5min window, block cancellation
         if (isOnSite && job.otpVerifiedAt && !isWithinPostOtpWindow) {
             throw new Error('Normal cancellation is not available for on-site jobs after OTP verification. Please Raise a Dispute.');
+        }
+
+        // Once the freelancer has arrived on-site, a normal cancellation is not allowed (outside the
+        // 5-minute grace window). Either party must raise a dispute instead.
+        if (isOnSite && job.jobStatus === 'ARRIVED' && !isWithin5MinGrace) {
+            throw new Error('The freelancer has already arrived. Cancellation is not available; please raise a dispute.');
         }
 
         const isClientCancelling = job.clientUserId === userId;
@@ -848,6 +950,8 @@ export async function cancelJob(jobId: string, userId: string, reason?: string) 
             .where('id', '=', jobId)
             .returningAll()
             .executeTakeFirstOrThrow();
+
+        await closePendingCompletionRequests(trx, jobId, new Date());
 
         // Release reserved coupon if any
         if (job.cashbackOfferId) {
@@ -923,7 +1027,6 @@ export async function cancelJob(jobId: string, userId: string, reason?: string) 
                         .updateTable('clients')
                         .set((eb) => ({
                             pendingPenaltyAmount: eb('pendingPenaltyAmount', '+', penaltyAmount.toString()),
-                            totalPenaltyPaid: eb('totalPenaltyPaid', '+', penaltyAmount.toString()),
                             updatedAt: new Date()
                         }))
                         .where('id', '=', job.clientId)
@@ -1034,7 +1137,9 @@ export async function cancelJob(jobId: string, userId: string, reason?: string) 
 
             if (penaltyAmount > 0) {
                 const currentBalance = parseFloat(job.withdrawableAmount?.toString() || '0');
-                const newBalance = currentBalance - penaltyAmount;
+                // The penalty stays owed: a negative balance blocks new applications until it is settled
+                const deductedPenalty = penaltyAmount;
+                const newBalance = currentBalance - deductedPenalty;
 
                 const cooldownExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 1-day cooldown
 
@@ -1043,7 +1148,7 @@ export async function cancelJob(jobId: string, userId: string, reason?: string) 
                     .updateTable('freelancers')
                     .set((eb) => ({
                         withdrawableAmount: newBalance.toString(),
-                        totalPenaltyDeducted: eb('totalPenaltyDeducted', '+', penaltyAmount.toString()),
+                        totalPenaltyDeducted: eb('totalPenaltyDeducted', '+', deductedPenalty.toString()),
                         cancellationStrikes: eb('cancellationStrikes', '+', 1),
                         cooldownExpiresAt: cooldownExpiry,
                         updatedAt: new Date()
@@ -1059,7 +1164,7 @@ export async function cancelJob(jobId: string, userId: string, reason?: string) 
                         userId: job.freelancerUserId!,
                         userType: 'FREELANCER',
                         jobId: job.id,
-                        amount: (-penaltyAmount).toString(),
+                        amount: (-deductedPenalty).toString(),
                         transactionType: 'PENALTY',
                         balanceBefore: currentBalance.toString(),
                         balanceAfter: newBalance.toString(),
@@ -1154,6 +1259,56 @@ export async function cancelJob(jobId: string, userId: string, reason?: string) 
             );
         }
 
+        // Audit trail for cancellations the client-assigned branch doesn't already log
+        if (!(isClientCancelling && isAssigned)) {
+            await recordJobStatusHistory(
+                trx,
+                jobId,
+                cancelledStatus,
+                userId,
+                isClientCancelling ? 'CLIENT' : 'FREELANCER',
+                'CANCEL_JOB',
+                reason || 'Job cancelled',
+                { wasAssigned: isAssigned, isWithin5MinGrace, isWithinPostOtpWindow }
+            );
+        }
+
+        // Cancellations inside a grace window carry no penalty, but are still recorded so repeated use can be reviewed
+        if (isAssigned && (isWithin5MinGrace || isWithinPostOtpWindow)) {
+            const actorName = isClientCancelling ? 'Client' : 'Freelancer';
+            await trx.insertInto('penaltyLogs').values({
+                id: crypto.randomUUID(),
+                jobId,
+                clientId: job.clientId,
+                freelancerId: job.assignedFreelancerId,
+                penaltyType: 'CANCEL_WITHIN_GRACE',
+                amount: '0',
+                status: 'NO_PENALTY',
+                description: `${actorName} cancelled "${job.jobTitle}" within the grace window. No penalty.`,
+                createdAt: new Date(),
+                updatedAt: new Date(),
+            }).execute();
+
+            const recentGraceCancels = await trx
+                .selectFrom('penaltyLogs')
+                .select(trx.fn.countAll<number>().as('count'))
+                .where('penaltyType', '=', 'CANCEL_WITHIN_GRACE')
+                .where(isClientCancelling ? 'clientId' : 'freelancerId', '=', isClientCancelling ? job.clientId : job.assignedFreelancerId)
+                .where('createdAt', '>', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000))
+                .executeTakeFirst();
+
+            if (Number(recentGraceCancels?.count ?? 0) >= 3) {
+                sendNotification(
+                    userId,
+                    isClientCancelling ? 'CLIENT' : 'FREELANCER',
+                    'Repeated Cancellation Warning',
+                    'You have cancelled several bookings within the grace window. Repeated use may lead to booking restrictions.',
+                    'JOB_CANCELLED',
+                    { jobId }
+                );
+            }
+        }
+
         return cancelledJob;
     });
 }
@@ -1178,6 +1333,7 @@ export async function findAnotherFreelancer(jobId: string, userId: string) {
                 'jobs.assignedAt',
                 'jobs.otpVerifiedAt',
                 'jobs.submittedWorkData',
+                'jobs.isAmountReserved',
                 'clients.userId as clientUserId',
                 'freelancers.id as freelancerId',
                 'freelancers.userId as freelancerUserId'
@@ -1210,6 +1366,12 @@ export async function findAnotherFreelancer(jobId: string, userId: string) {
             throw new Error('Find another freelancer is not available once work has started');
         }
 
+        // Give back the client's reservation. Assignment reserves again at the newly agreed price,
+        // so the reservation always matches the price of the freelancer who is actually assigned.
+        if (job.isAmountReserved) {
+            await releaseReservedAmountInTransaction(trx, job.clientUserId, jobId);
+        }
+
         const previousFreelancerId = job.assignedFreelancerId;
         const previousFreelancerUserId = job.freelancerUserId;
 
@@ -1222,6 +1384,7 @@ export async function findAnotherFreelancer(jobId: string, userId: string) {
                 confirmedAt: null,
                 assignedAt: null,
                 negotiatedAmount: null,
+                isAmountReserved: false,
                 workDeadline: null,
                 workDurationDays: null,
                 updatedAt: new Date()
@@ -1246,6 +1409,11 @@ export async function findAnotherFreelancer(jobId: string, userId: string) {
             .where('freelancerId', '!=', previousFreelancerId)
             .where('isAccepted', '=', false)
             .where('status', '=', 'REJECTED')
+            // Applicants the client explicitly declined stay out of the booking
+            .where(sql<boolean>`NOT EXISTS (
+                SELECT 1 FROM "negotiationHistory" nh
+                WHERE nh."chatThreadId" = "chatThreads"."id" AND nh."offerType" = 'CLIENT_REJECTED'
+            )`)
             .execute();
 
         await recordJobStatusHistory(
@@ -1315,10 +1483,7 @@ export async function reportFreelancerNonSubmission(jobId: string, userId: strin
         if (job.clientUserId !== userId) throw new Error('Unauthorized');
 
         // Remote jobs only (same detection as cancelJob / processJobTimers)
-        const isOnSite = (job.projectType || '').toLowerCase() === 'on-site' ||
-            ((job.projectType || '').toLowerCase() !== 'remote' &&
-                (job.location || '').toLowerCase() !== 'remote');
-        if (isOnSite) {
+        if (isOnSiteJob(job)) {
             throw new Error('This action is only available for remote jobs.');
         }
 
@@ -1401,14 +1566,16 @@ export async function reportFreelancerNonSubmission(jobId: string, userId: strin
 
         if (freelancer) {
             const currentBalance = parseFloat(freelancer.withdrawableAmount?.toString() || '0');
-            const newBalance = currentBalance - penaltyAmount;
+            // The penalty stays owed: a negative balance blocks new applications until it is settled
+            const deductedPenalty = penaltyAmount;
+            const newBalance = currentBalance - deductedPenalty;
             const cooldownExpiry = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
             await trx
                 .updateTable('freelancers')
                 .set((eb) => ({
                     withdrawableAmount: newBalance.toString(),
-                    totalPenaltyDeducted: eb('totalPenaltyDeducted', '+', penaltyAmount.toString()),
+                    totalPenaltyDeducted: eb('totalPenaltyDeducted', '+', deductedPenalty.toString()),
                     cancellationStrikes: eb('cancellationStrikes', '+', 1),
                     cooldownExpiresAt: cooldownExpiry,
                     updatedAt: now,
@@ -1422,7 +1589,7 @@ export async function reportFreelancerNonSubmission(jobId: string, userId: strin
                 clientId: job.clientId,
                 freelancerId: freelancer.id,
                 penaltyType: 'FREELANCER_NON_COMPLETION',
-                amount: penaltyAmount.toString(),
+                amount: deductedPenalty.toString(),
                 status: 'DEDUCTED',
                 description: `Client reported no submission after deadline + 12h grace period for "${job.jobTitle}". 2% penalty deducted.`,
                 createdAt: now,
@@ -1435,7 +1602,7 @@ export async function reportFreelancerNonSubmission(jobId: string, userId: strin
                 userType: 'FREELANCER',
                 jobId: job.id,
                 transactionType: 'PENALTY',
-                amount: (-penaltyAmount).toString(),
+                amount: (-deductedPenalty).toString(),
                 balanceBefore: currentBalance.toString(),
                 balanceAfter: newBalance.toString(),
                 description: `No-submission report 2% penalty deducted to BirdEarner - ${job.jobTitle}`,
@@ -1539,6 +1706,23 @@ export async function reportFreelancerNonSubmission(jobId: string, userId: strin
 /**
  * Handle Physical Service Progress Steps (I'm On My Way, Arrived, Request OTP, Verify OTP)
  */
+/** Options a client must pick from when cancelling inside the post-OTP window (PDF Case 2C) */
+export const CLIENT_EMERGENCY_REASONS = [
+    'Freelancer did not start the work',
+    'Freelancer asked for extra money',
+    'Freelancer is not providing the requested service',
+    'Wrong service',
+    'Other',
+];
+
+/** Default revisions included in a booking; each job stores its own value in includedRevisions */
+export const DEFAULT_INCLUDED_REVISIONS = 2;
+/** After a revision is requested, the freelancer has this long to resubmit before the booking goes to dispute */
+const REVISION_WINDOW_HOURS = 24;
+
+/** Wrong OTP attempts allowed before the job is locked and must be disputed */
+const MAX_OTP_ATTEMPTS = 5;
+
 export async function updatePhysicalJobProgress(
     jobId: string,
     action: 'TRAVELLING' | 'ARRIVED' | 'REQUEST_OTP' | 'VERIFY_OTP' | 'CONFIRM_WORK_COMPLETED' | 'EMERGENCY_CANCEL' | 'RAISE_DISPUTE' | 'CANCEL_SCOPE_MISMATCH',
@@ -1560,6 +1744,7 @@ export async function updatePhysicalJobProgress(
                 'jobs.paymentMethod',
                 'jobs.isAmountReserved',
                 'jobs.clientPenaltyAmount',
+                'jobs.cashbackOfferId',
                 'jobs.clientId',
                 'clients.userId as clientUserId',
                 'freelancers.userId as freelancerUserId',
@@ -1622,11 +1807,22 @@ export async function updatePhysicalJobProgress(
 
         if (action === 'ARRIVED' || action === 'REQUEST_OTP') {
             if (job.freelancerUserId !== userId) throw new Error('Unauthorized');
-            if (job.jobStatus !== 'FREELANCER_TRAVELLING' && job.jobStatus !== 'ARRIVED' && job.jobStatus !== 'CONFIRMED' && job.jobStatus !== 'IN_PROGRESS') {
-                throw new Error('Freelancer must be assigned or travelling before marking as arrived');
+            // Already arrived: repeat calls must not reset the arrival time or change the OTP
+            if (job.jobStatus === 'ARRIVED') {
+                return await trx.selectFrom('jobs').selectAll().where('id', '=', jobId).executeTakeFirstOrThrow();
+            }
+
+            // Arrival only follows the travel step, so the freelancer has to be on the way first
+            if (job.jobStatus !== 'FREELANCER_TRAVELLING') {
+                throw new Error('Freelancer must be travelling to the client before marking as arrived');
             }
 
             const otpCode = job.otpCode || Math.floor(1000 + Math.random() * 9000).toString();
+
+            // Testing aid only: print the OTP the client should share. Never on in production.
+            if (process.env.NODE_ENV !== 'production' && process.env.LOG_ONSITE_OTP === '1') {
+                console.log(`[TEST ONLY] On-site OTP for job ${jobId}: ${otpCode}`);
+            }
 
             const updatedJob = await trx
                 .updateTable('jobs')
@@ -1635,7 +1831,7 @@ export async function updatePhysicalJobProgress(
                 .returningAll()
                 .executeTakeFirstOrThrow();
 
-            await recordJobStatusHistory(trx, jobId, 'ARRIVED', userId, 'FREELANCER', 'ARRIVED_AT_LOCATION', `Freelancer arrived at client location. OTP Generated: ${otpCode}`);
+            await recordJobStatusHistory(trx, jobId, 'ARRIVED', userId, 'FREELANCER', 'ARRIVED_AT_LOCATION', 'Freelancer arrived at client location. OTP generated.');
 
             sendNotification(
                 job.clientUserId,
@@ -1672,11 +1868,29 @@ export async function updatePhysicalJobProgress(
         }
 
         if (action === 'VERIFY_OTP') {
+            // Only the assigned freelancer verifies the OTP the client reads out
+            if (job.freelancerUserId !== userId) throw new Error('Unauthorized - only the assigned freelancer can verify the OTP');
             if (!payload?.otpCode) throw new Error('OTP code required');
             if (job.jobStatus !== 'ARRIVED') {
                 throw new Error('OTP can only be verified after freelancer has arrived');
             }
-            if (job.otpCode !== payload.otpCode.trim()) throw new Error('Invalid OTP code');
+
+            // Failed attempts are logged on the shared db (not trx) so they survive the rollback from throwing
+            const failedAttempts = await db
+                .selectFrom('jobStatusHistory')
+                .select(db.fn.countAll<number>().as('count'))
+                .where('jobId', '=', jobId)
+                .where('action', '=', 'VERIFY_OTP_FAILED')
+                .executeTakeFirst();
+
+            if (Number(failedAttempts?.count ?? 0) >= MAX_OTP_ATTEMPTS) {
+                throw new Error('Too many invalid OTP attempts. Please raise a dispute.');
+            }
+
+            if (job.otpCode !== payload.otpCode.trim()) {
+                await recordJobStatusHistory(db, jobId, 'ARRIVED', userId, 'FREELANCER', 'VERIFY_OTP_FAILED', 'Invalid OTP attempt');
+                throw new Error('Invalid OTP code');
+            }
 
             const postOtpWindow = new Date(now.getTime() + 5 * 60 * 1000);
 
@@ -1739,6 +1953,14 @@ export async function updatePhysicalJobProgress(
             if (job.jobStatus !== 'JOB_STARTED') {
                 throw new Error('Work can only be confirmed after OTP verification (JOB_STARTED)');
             }
+            // Cash jobs are never reserved; they are settled through the cash payment flow in chat
+            if (job.paymentMethod === 'CASH') {
+                throw new Error('Cash jobs are completed through the cash payment flow in chat');
+            }
+            // Order: freelancer marks the work completed first, then the client confirms
+            if (!(await hasFreelancerCompletionRequest(trx, jobId))) {
+                throw new Error('The freelancer must mark the work as completed first.');
+            }
 
             // Process payment for on-site job
             await processJobPaymentInTransaction(trx, jobId);
@@ -1756,6 +1978,8 @@ export async function updatePhysicalJobProgress(
                 .where('id', '=', jobId)
                 .returningAll()
                 .executeTakeFirstOrThrow();
+
+            await closePendingCompletionRequests(trx, jobId, now);
 
             await recordJobStatusHistory(trx, jobId, 'COMPLETED', userId, 'CLIENT', 'CONFIRM_WORK_COMPLETED', 'Client confirmed on-site work completed. Payment processed.');
 
@@ -1801,22 +2025,66 @@ export async function updatePhysicalJobProgress(
                 throw new Error('Emergency cancellation window has expired. Please raise a dispute instead.');
             }
 
+            // Only while the work is live; never after completion/payment
+            if (job.jobStatus !== 'JOB_STARTED') {
+                throw new Error('Emergency cancellation is only available while the job is in progress');
+            }
+
             const isClientUser = job.clientUserId === userId;
             const isFreelancerUser = job.freelancerUserId === userId;
             if (!isClientUser && !isFreelancerUser) throw new Error('Unauthorized');
+
+            // A reason is mandatory and the client must pick one of the listed options
+            const emergencyReason = (payload?.reason || '').trim();
+            if (isClientUser && !CLIENT_EMERGENCY_REASONS.includes(emergencyReason)) {
+                throw new Error(`Choose a reason for cancelling: ${CLIENT_EMERGENCY_REASONS.join(' / ')}`);
+            }
+            if (isFreelancerUser && !emergencyReason) {
+                throw new Error('A reason is required to cancel the job');
+            }
+
+            // Return the client's reserved funds (PLATFORM) and any coupon held for this job
+            if (job.isAmountReserved) {
+                await releaseReservedAmountInTransaction(trx, job.clientUserId, jobId);
+            }
+            if (job.cashbackOfferId) {
+                await trx
+                    .updateTable('cashbackOffers')
+                    .set({ reservedJobId: null, updatedAt: now })
+                    .where('id', '=', job.cashbackOfferId)
+                    .execute();
+            }
+
+            // Carry forward an existing client penalty for CASH jobs, as cancelJob does
+            const existingPenalty = parseFloat(job.clientPenaltyAmount?.toString() || '0');
+            if (existingPenalty > 0 && job.paymentMethod !== 'PLATFORM') {
+                await trx
+                    .updateTable('clients')
+                    .set((eb) => ({
+                        pendingPenaltyAmount: eb('pendingPenaltyAmount', '+', existingPenalty.toString()),
+                        updatedAt: now
+                    }))
+                    .where('id', '=', job.clientId)
+                    .execute();
+            }
 
             const updatedJob = await trx
                 .updateTable('jobs')
                 .set({
                     jobStatus: isClientUser ? 'CANCELLED_BY_CLIENT' : 'CANCELLED_BY_FREELANCER',
-                    cancellationReason: 'Emergency cancellation within 5-minute post-OTP window',
+                    paymentStatus: 'CANCELLED',
+                    isAmountReserved: false,
+                    cancellationReason: `Emergency cancellation within 5-minute post-OTP window: ${emergencyReason}`,
+                    cancelledAt: now,
                     updatedAt: now,
                 })
                 .where('id', '=', jobId)
                 .returningAll()
                 .executeTakeFirstOrThrow();
 
-            await recordJobStatusHistory(trx, jobId, updatedJob.jobStatus, userId, isClientUser ? 'CLIENT' : 'FREELANCER', 'EMERGENCY_CANCEL', 'Emergency cancellation within 5-minute post-OTP window');
+            await closePendingCompletionRequests(trx, jobId, now);
+
+            await recordJobStatusHistory(trx, jobId, updatedJob.jobStatus, userId, isClientUser ? 'CLIENT' : 'FREELANCER', 'EMERGENCY_CANCEL', `Emergency cancellation within 5-minute post-OTP window: ${emergencyReason}`);
 
             const recipientId = isClientUser ? job.freelancerUserId : job.clientUserId;
             const recipientType = isClientUser ? 'FREELANCER' : 'CLIENT';
@@ -1882,6 +2150,55 @@ export async function updatePhysicalJobProgress(
             if (!reason) {
                 throw new Error('A mandatory reason is required for scope mismatch cancellation');
             }
+
+            // Only a claim made inside the 5-minute post-OTP window cancels directly (no penalty).
+            // Later claims go to investigation, so the claim can't be used as a penalty-free exit.
+            const postOtpWindowExpiry = job.postOtpCancellationWindowExpiresAt ? new Date(job.postOtpCancellationWindowExpiresAt).getTime() : 0;
+            if (!(postOtpWindowExpiry > 0 && now.getTime() <= postOtpWindowExpiry)) {
+                const disputedJob = await trx
+                    .updateTable('jobs')
+                    .set({
+                        jobStatus: 'DISPUTE_OPEN',
+                        cancellationReason: `DISPUTE: SCOPE MISMATCH CLAIM: ${reason}`,
+                        updatedAt: now,
+                    })
+                    .where('id', '=', jobId)
+                    .returningAll()
+                    .executeTakeFirstOrThrow();
+
+                await recordJobStatusHistory(
+                    trx,
+                    jobId,
+                    'DISPUTE_OPEN',
+                    userId,
+                    'FREELANCER',
+                    'SCOPE_MISMATCH_DISPUTE',
+                    `Scope mismatch claimed after the 5-minute window; routed to investigation: ${reason}`
+                );
+
+                sendNotification(
+                    job.clientUserId,
+                    'CLIENT',
+                    'Booking Under Dispute',
+                    `The freelancer reported a scope mismatch for "${job.jobTitle}". The booking is under review; no automatic cancellation was applied.`,
+                    'DISPUTE_OPENED',
+                    { jobId }
+                );
+                if (job.freelancerUserId) {
+                    sendNotification(
+                        job.freelancerUserId,
+                        'FREELANCER',
+                        'Scope Mismatch Under Review',
+                        `Your scope mismatch claim for "${job.jobTitle}" is under review by our team.`,
+                        'DISPUTE_OPENED',
+                        { jobId }
+                    );
+                }
+
+                return disputedJob;
+            }
+
+            await closePendingCompletionRequests(trx, jobId, now);
 
             // 1. Release reserved amount for Platform payment jobs
             if (job.isAmountReserved && job.paymentMethod === 'PLATFORM') {
@@ -2000,6 +2317,7 @@ export async function submitDigitalWork(
                 'jobs.id',
                 'jobs.jobTitle',
                 'jobs.revisionCount',
+                'jobs.jobStatus',
                 'clients.userId as clientUserId',
                 'freelancers.userId as freelancerUserId',
             ])
@@ -2008,6 +2326,10 @@ export async function submitDigitalWork(
 
         if (!job) throw new Error('Job not found');
         if (job.freelancerUserId !== freelancerUserId) throw new Error('Unauthorized');
+        // Work is only delivered on an active booking (not cancelled, completed, or under dispute)
+        if (job.jobStatus !== 'CONFIRMED' && job.jobStatus !== 'REVISION_REQUESTED') {
+            throw new Error('Work can only be submitted while the booking is active.');
+        }
 
         const now = new Date();
         const clientReviewPeriodExpiresAt = new Date(now.getTime() + 12 * 60 * 60 * 1000); // 12-hour review period
@@ -2082,6 +2404,7 @@ export async function respondToDigitalWork(
                 'jobs.budgetAmount',
                 'jobs.negotiatedAmount',
                 'jobs.revisionCount',
+                'jobs.includedRevisions',
                 'clients.userId as clientUserId',
                 'freelancers.id as freelancerId',
                 'freelancers.userId as freelancerUserId',
@@ -2093,6 +2416,9 @@ export async function respondToDigitalWork(
         if (job.clientUserId !== clientUserId) throw new Error('Unauthorized');
         if (job.jobStatus === 'DISPUTE_OPEN') {
             throw new Error('A dispute is open for this job. Accept / Revise is disabled until an admin resolves the dispute.');
+        }
+        if (job.jobStatus !== 'WORK_SUBMITTED') {
+            throw new Error('There is no submitted work to accept or revise.');
         }
 
         const now = new Date();
@@ -2173,6 +2499,10 @@ export async function respondToDigitalWork(
         }
 
         if (decision === 'REQUEST_REVISION') {
+            const included = job.includedRevisions ?? DEFAULT_INCLUDED_REVISIONS;
+            if ((job.revisionCount || 0) >= included) {
+                throw new Error(`All ${included} included revisions have been used. Agree additional work with a price change to continue.`);
+            }
             const newRevisionCount = (job.revisionCount || 0) + 1;
 
             const updatedJob = await trx
@@ -2181,6 +2511,8 @@ export async function respondToDigitalWork(
                     jobStatus: 'REVISION_REQUESTED',
                     revisionCount: newRevisionCount,
                     clientReviewPeriodExpiresAt: null, // Pause/reset 12-hour review timer
+                    // Revision gets its own window; if it passes without a resubmission the booking goes to dispute
+                    workDeadline: new Date(now.getTime() + REVISION_WINDOW_HOURS * 60 * 60 * 1000),
                     updatedAt: now,
                 })
                 .where('id', '=', jobId)
@@ -2240,6 +2572,8 @@ export async function requestScopePriceChange(
                 'jobs.location',
                 'jobs.otpVerifiedAt',
                 'jobs.priceChangeRequested',
+                'jobs.negotiatedAmount',
+                'jobs.assignedFreelancerId',
                 'clients.userId as clientUserId',
                 'freelancers.userId as freelancerUserId',
             ])
@@ -2249,17 +2583,14 @@ export async function requestScopePriceChange(
         if (!job) throw new Error('Job not found');
         if (job.freelancerUserId !== freelancerUserId) throw new Error('Unauthorized');
 
-        // Check 1: On-site jobs ONLY
-        const pType = (job.projectType || '').toLowerCase();
-        const loc = (job.location || '').toLowerCase();
-        const isOnSite = pType === 'on-site' || pType === 'onsite' || (pType !== 'remote' && loc !== 'remote');
-        if (!isOnSite) {
-            throw new Error('Price change requests are only allowed for on-site jobs.');
-        }
-
-        // Check 2: OTP verification required
-        if (!job.otpVerifiedAt) {
-            throw new Error('Price change can only be requested after successful OTP verification.');
+        if (isOnSiteJob(job)) {
+            // On-site: only once the work is under way (OTP verified)
+            if (!job.otpVerifiedAt) {
+                throw new Error('Price change can only be requested after successful OTP verification.');
+            }
+        } else if (!['CONFIRMED', 'REVISION_REQUESTED', 'WORK_SUBMITTED'].includes(job.jobStatus || '')) {
+            // Remote: extra work can be agreed while the booking is active, before the client accepts the work
+            throw new Error('Additional work can only be requested while the booking is active.');
         }
 
         // Check 3: Active booking check
@@ -2280,7 +2611,8 @@ export async function requestScopePriceChange(
             .where('action', '=', 'REQUEST_PRICE_CHANGE')
             .executeTakeFirst();
 
-        if (existingRequestHistory) {
+        // On-site jobs allow one request per job. Remote jobs can request again for each extra revision round.
+        if (existingRequestHistory && isOnSiteJob(job)) {
             throw new Error('A price change request has already been raised for this job. Only 1 price change request is allowed per job.');
         }
 
@@ -2289,9 +2621,10 @@ export async function requestScopePriceChange(
             throw new Error('Invalid requested price amount.');
         }
 
-        const originalPrice = parseFloat(job.budgetAmount.toString());
-        if (requestedAmount <= originalPrice) {
-            throw new Error('Requested price must be greater than the original booking price.');
+        // Compare against the price currently agreed (the negotiated total), not the original budget
+        const currentPrice = job.negotiatedAmount ? parseFloat(job.negotiatedAmount.toString()) : parseFloat(job.budgetAmount.toString());
+        if (requestedAmount <= currentPrice) {
+            throw new Error(`Requested price must be greater than the current booking price (₹${currentPrice}).`);
         }
 
         // Reason / Explanation combination
@@ -2319,15 +2652,38 @@ export async function requestScopePriceChange(
             freelancerUserId,
             'FREELANCER',
             'REQUEST_PRICE_CHANGE',
-            `Price change requested from ₹${job.budgetAmount} to ₹${requestedAmount}`,
+            `Price change requested from ₹${currentPrice} to ₹${requestedAmount}`,
             { requestedAmount, reason: fullReason }
         );
+
+        // Post the request in the job's chat too, so the client sees it in the conversation
+        const requestThread = await trx
+            .selectFrom('chatThreads')
+            .select('id')
+            .where('jobId', '=', jobId)
+            .where('freelancerId', '=', job.assignedFreelancerId)
+            .executeTakeFirst();
+        if (requestThread) {
+            await trx.insertInto('messages').values({
+                id: crypto.randomUUID(),
+                chatThreadId: requestThread.id,
+                jobId: jobId,
+                senderId: freelancerUserId,
+                receiverId: job.clientUserId,
+                senderType: 'SYSTEM',
+                messageContent: `Freelancer requested a price change from ₹${currentPrice} to ₹${requestedAmount}. Reason: ${fullReason}`,
+                messageType: 'text',
+                isRead: false,
+                createdAt: now,
+                updatedAt: now,
+            }).execute();
+        }
 
         sendNotification(
             job.clientUserId,
             'CLIENT',
-            'Price Change Requested (Scope Mismatch)',
-            `Freelancer requested to update booking amount from ₹${job.budgetAmount} to ₹${requestedAmount}. Reason: ${fullReason}`,
+            'Price Change Requested',
+            `Freelancer requested to change the booking amount from ₹${currentPrice} to ₹${requestedAmount}. Reason: ${fullReason}`,
             'PRICE_CHANGE_REQUESTED',
             { jobId, requestedAmount, reason: fullReason }
         );
@@ -2353,6 +2709,13 @@ export async function respondToScopePriceChange(
                 'jobs.id',
                 'jobs.jobTitle',
                 'jobs.budgetAmount',
+                'jobs.negotiatedAmount',
+                'jobs.discountAmount',
+                'jobs.jobStatus',
+                'jobs.includedRevisions',
+                'jobs.projectType',
+                'jobs.location',
+                'jobs.submittedWorkData',
                 'jobs.paymentMethod',
                 'jobs.isAmountReserved',
                 'jobs.priceChangeRequested',
@@ -2377,7 +2740,10 @@ export async function respondToScopePriceChange(
             if (!job.priceChangeRequested) throw new Error('No price change request pending');
 
             const newAmountNum = parseFloat(job.priceChangeRequested.toString());
-            const currentAmountNum = parseFloat(job.budgetAmount.toString());
+            // Compare against the price currently agreed (negotiated), not the original budget
+            const currentAmountNum = job.negotiatedAmount
+                ? parseFloat(job.negotiatedAmount.toString())
+                : parseFloat(job.budgetAmount.toString());
             const diff = newAmountNum - currentAmountNum;
 
             if (diff <= 0) {
@@ -2425,23 +2791,41 @@ export async function respondToScopePriceChange(
                     .execute();
             }
 
-            // Reset 5-minute post-OTP emergency cancellation window from acceptance time
-            const postOtpWindow = new Date(now.getTime() + 5 * 60 * 1000);
-
+            // The original budget is kept as the record; the agreed price moves to the revised amount.
+            // The post-OTP emergency window is NOT reopened: accepting new work must not give a free exit.
             const updatedJob = await trx
                 .updateTable('jobs')
                 .set({
-                    budgetAmount: newAmountNum.toString(),
                     negotiatedAmount: newAmountNum.toString(),
+                    // Remote additional work agreed by price change adds one revision round for the extra scope
+                    ...(isOnSiteJob(job)
+                        ? {}
+                        : { includedRevisions: (job.includedRevisions ?? DEFAULT_INCLUDED_REVISIONS) + 1 }),
                     isAmountReserved: job.paymentMethod === 'PLATFORM' ? true : job.isAmountReserved,
                     priceChangeRequested: null,
                     priceChangeReason: null,
-                    postOtpCancellationWindowExpiresAt: postOtpWindow,
                     updatedAt: now,
                 })
                 .where('id', '=', jobId)
                 .returningAll()
                 .executeTakeFirstOrThrow();
+
+            await recordJobStatusHistory(
+                trx,
+                jobId,
+                job.jobStatus,
+                clientUserId,
+                'CLIENT',
+                'ACCEPT_PRICE_CHANGE',
+                `Client accepted revised price. Original ₹${parseFloat(job.budgetAmount.toString()).toFixed(2)}, previously agreed ₹${currentAmountNum.toFixed(2)}, revised ₹${newAmountNum.toFixed(2)}. Reason: ${job.priceChangeReason || 'n/a'}`,
+                {
+                    originalBudget: job.budgetAmount.toString(),
+                    previousAmount: currentAmountNum,
+                    revisedAmount: newAmountNum,
+                    difference: diff,
+                    reason: job.priceChangeReason,
+                }
+            );
 
             // Update chatThreads agreedAmount
             await trx
@@ -2489,6 +2873,52 @@ export async function respondToScopePriceChange(
 
             return updatedJob;
         } else {
+            // Remote work already delivered: declining the extra price makes the delivered version final.
+            // The job completes and the freelancer is paid the agreed amount (no further versions).
+            if (!isOnSiteJob(job) && job.submittedWorkData) {
+                const paymentResult = await processJobPaymentInTransaction(trx, jobId);
+
+                const completedJob = await trx
+                    .updateTable('jobs')
+                    .set({
+                        jobStatus: 'COMPLETED',
+                        completedAt: now,
+                        paymentStatus: 'COMPLETED',
+                        amountPaid: paymentResult.clientChargeAmount.toFixed(2),
+                        isAmountReserved: false,
+                        priceChangeRequested: null,
+                        priceChangeReason: null,
+                        clientReviewPeriodExpiresAt: null,
+                        updatedAt: now,
+                    })
+                    .where('id', '=', jobId)
+                    .returningAll()
+                    .executeTakeFirstOrThrow();
+
+                await recordJobStatusHistory(
+                    trx,
+                    jobId,
+                    'COMPLETED',
+                    clientUserId,
+                    'CLIENT',
+                    'DECLINE_PRICE_CHANGE_FINAL',
+                    'Client declined the additional price. The delivered version is final; job completed and paid.'
+                );
+
+                if (job.freelancerUserId) {
+                    sendNotification(
+                        job.freelancerUserId,
+                        'FREELANCER',
+                        'Job Completed - Final Version',
+                        `The client declined the additional price for "${job.jobTitle}". The delivered version is final and payment has been released.`,
+                        'JOB_COMPLETED',
+                        { jobId }
+                    );
+                }
+
+                return completedJob;
+            }
+
             // Client declines -> Cancel booking due to scope mismatch with 0 penalty for both!
             if (job.isAmountReserved && job.paymentMethod === 'PLATFORM') {
                 await releaseReservedAmountInTransaction(trx, job.clientUserId, jobId);

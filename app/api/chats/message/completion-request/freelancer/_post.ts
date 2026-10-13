@@ -1,4 +1,5 @@
 import { db } from '@/lib/db';
+import { isOnSiteJob } from '@/lib/job-type';
 import { getAuthUser } from '@/lib/auth';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -54,7 +55,7 @@ export async function POST(request: Request) {
             }
 
             // On-site jobs require OTP verification before completion request
-            const isOnSite = job.projectType === 'On-site' && job.location?.toLowerCase() !== 'remote';
+            const isOnSite = isOnSiteJob(job);
             if (isOnSite && !job.otpVerifiedAt) {
                 return {
                     success: true,
@@ -99,7 +100,7 @@ export async function POST(request: Request) {
         });
 
         // If OTP pending, return early without sending a message
-        if (requestMessage?.otpPending) {
+        if (requestMessage && 'otpPending' in requestMessage && requestMessage.otpPending) {
             return NextResponse.json({
                 success: true,
                 otpPending: true,

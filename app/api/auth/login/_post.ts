@@ -27,7 +27,7 @@ export async function POST(request: Request) {
             .where('email', '=', email)
             .executeTakeFirst();
 
-        if (!user || !(await bcrypt.compare(password, user.password))) {
+        if (!user || !user.password || !(await bcrypt.compare(password, user.password))) {
             return NextResponse.json({ success: false, message: 'Invalid email or password' }, { status: 401 });
         }
 

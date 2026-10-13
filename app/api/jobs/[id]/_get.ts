@@ -63,8 +63,11 @@ export async function GET(
                 'jobs.postOtpCancellationWindowExpiresAt',
                 'jobs.negotiatedAmount',
                 'jobs.priceChangeRequested',
+                'jobs.revisionCount',
+                'jobs.includedRevisions',
                 'jobs.priceChangeReason',
                 'jobs.submittedWorkData',
+                'clientUser.id as clientUserId',
                 'clientUser.fullName as clientName',
                 'clientUser.email as clientEmail',
                 'clients.id as clientId',
@@ -123,8 +126,12 @@ export async function GET(
 
         const hasPriceChangeBeenRequested = Boolean(priceChangeHistoryExists || job.priceChangeRequested);
 
+        // The OTP is only for the client to show the freelancer on arrival; never expose it to anyone else
+        const isClient = job.clientUserId === user.id;
+
         const data = {
             ...job,
+            otpCode: isClient ? job.otpCode : null,
             hasPriceChangeBeenRequested,
             client: {
                 id: job.clientId,
