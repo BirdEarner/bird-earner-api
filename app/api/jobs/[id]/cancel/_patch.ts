@@ -4,6 +4,9 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { validateParams } from '@/lib/validation';
 
+/** Service messages that describe a refused cancellation, not a server fault */
+const EXPECTED_REFUSAL = /can no longer be cancelled|Normal cancellation|already arrived|already been submitted|reason is required|raise a dispute/i;
+
 const cancelSchema = z.object({
     reason: z.string().optional(),
 });
@@ -31,10 +34,23 @@ export async function PATCH(
             data: job
         });
     } catch (error: any) {
+        const message: string = error.message || 'Failed to cancel job';
+
+        // Expected refusals from the service are client errors, not server failures
+        if (message.startsWith('Unauthorized')) {
+            return NextResponse.json({ success: false, message }, { status: 403 });
+        }
+        if (message === 'Job not found') {
+            return NextResponse.json({ success: false, message }, { status: 404 });
+        }
+        if (EXPECTED_REFUSAL.test(message)) {
+            return NextResponse.json({ success: false, message }, { status: 400 });
+        }
+
         console.error('Cancel job error:', error);
         return NextResponse.json({
             success: false,
-            message: error.message || 'Failed to cancel job'
+            message
         }, { status: 500 });
     }
 }

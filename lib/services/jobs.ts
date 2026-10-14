@@ -905,10 +905,20 @@ export async function cancelJob(jobId: string, userId: string, reason?: string) 
             throw new Error('Normal cancellation is not available for on-site jobs after OTP verification. Please Raise a Dispute.');
         }
 
-        // Once the freelancer has arrived on-site, a normal cancellation is not allowed (outside the
+        // Once the freelancer has arrived on-site, a normal cancellation is not allowed (even inside the
         // 5-minute grace window). Either party must raise a dispute instead.
-        if (isOnSite && job.jobStatus === 'ARRIVED' && !isWithin5MinGrace) {
+        if (isOnSite && job.jobStatus === 'ARRIVED') {
             throw new Error('The freelancer has already arrived. Cancellation is not available; please raise a dispute.');
+        }
+
+        // Submitted work goes through client review or dispute, so the client cannot cancel it (even inside the 5-minute grace window)
+        if (job.clientUserId === userId && job.submittedWorkData) {
+            throw new Error('Work has already been submitted. Cancellation is not available; please raise a dispute.');
+        }
+
+        // Emergency cancellation inside the post-OTP window must give a reason (the app always sends one)
+        if (isOnSite && job.otpVerifiedAt && isWithinPostOtpWindow && !reason?.trim()) {
+            throw new Error('A reason is required to cancel the job during the emergency cancellation window.');
         }
 
         const isClientCancelling = job.clientUserId === userId;
@@ -1889,6 +1899,10 @@ export async function updatePhysicalJobProgress(
 
             if (job.otpCode !== payload.otpCode.trim()) {
                 await recordJobStatusHistory(db, jobId, 'ARRIVED', userId, 'FREELANCER', 'VERIFY_OTP_FAILED', 'Invalid OTP attempt');
+                // The fifth wrong attempt locks the job straight away
+                if (Number(failedAttempts?.count ?? 0) + 1 >= MAX_OTP_ATTEMPTS) {
+                    throw new Error('Too many invalid OTP attempts. Please raise a dispute.');
+                }
                 throw new Error('Invalid OTP code');
             }
 

@@ -1,7 +1,10 @@
 import { getAuthUser } from '@/lib/auth';
 import { submitDigitalWork, respondToDigitalWork } from '@/lib/services/jobs';
 import { NextResponse } from 'next/server';
-import { z } from 'zod';
+import { z, ZodError } from 'zod';
+
+/** Service messages that describe a refused submission or response, not a server fault */
+const EXPECTED_REFUSAL = /can only be submitted|dispute is open|no submitted work|included revisions|Invalid action|Invalid submission type/i;
 
 const submissionSchema = z.object({
     type: z.enum(['SUBMIT', 'RESPOND']),
@@ -55,9 +58,26 @@ export async function POST(
 
         throw new Error('Invalid submission type');
     } catch (error: any) {
+        const message: string = error.message || 'Failed to process work submission';
+
+        // Malformed request body is a client error
+        if (error instanceof ZodError) {
+            return NextResponse.json({ success: false, message }, { status: 400 });
+        }
+        // Expected refusals from the service are client errors, not server failures
+        if (message.startsWith('Unauthorized')) {
+            return NextResponse.json({ success: false, message }, { status: 403 });
+        }
+        if (message === 'Job not found') {
+            return NextResponse.json({ success: false, message }, { status: 404 });
+        }
+        if (EXPECTED_REFUSAL.test(message)) {
+            return NextResponse.json({ success: false, message }, { status: 400 });
+        }
+
         console.error('Work submission error:', error);
         return NextResponse.json(
-            { success: false, message: error.message || 'Failed to process work submission' },
+            { success: false, message },
             { status: 500 }
         );
     }
