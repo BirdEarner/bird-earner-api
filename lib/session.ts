@@ -6,7 +6,7 @@ import type { User } from '@/types/types';
 
 // Issues a JWT for the user and builds the login response (profiles + role + token cookie).
 // Shared by password login and the two-factor verification step so both return the same shape.
-export async function buildLoginResponse(user: Selectable<User>): Promise<NextResponse> {
+export async function buildLoginResponse(user: Selectable<User>, deviceId?: string): Promise<NextResponse> {
     const freelancerProfile = await db.selectFrom('freelancers').select('id').where('userId', '=', user.id).executeTakeFirst();
     const clientProfile = await db.selectFrom('clients').select('id').where('userId', '=', user.id).executeTakeFirst();
 
@@ -16,6 +16,7 @@ export async function buildLoginResponse(user: Selectable<User>): Promise<NextRe
         id: user.id,
         email: user.email,
         role,
+        deviceId,
     });
 
     const { password: _, ...userWithoutPassword } = user;

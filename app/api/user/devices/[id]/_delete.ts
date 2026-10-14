@@ -25,7 +25,7 @@ export async function DELETE(
             return NextResponse.json({ success: false, message: 'Device not found' }, { status: 404 });
         }
 
-        return NextResponse.json({ success: true, message: 'Device removed' });
+        return NextResponse.json({ success: true, message: 'Device removed and signed out' });
     } catch (error) {
         console.error('Remove user device error:', error);
         return NextResponse.json({ success: false, message: 'Internal server error' }, { status: 500 });

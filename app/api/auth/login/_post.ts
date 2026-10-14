@@ -66,7 +66,7 @@ export async function POST(request: Request) {
 
         await recordUserDevice(user.id, device);
 
-        return buildLoginResponse(user);
+        return buildLoginResponse(user, deviceId);
     } catch (error) {
         console.error('Login error:', error);
         return NextResponse.json({ success: false, message: 'Internal server error' }, { status: 500 });

@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken';
 import { cookies, headers } from 'next/headers';
+import { isKnownUserDevice } from '@/lib/user-devices';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret';
 
@@ -7,6 +8,8 @@ export interface AuthUser {
     id: string;
     email: string;
     role: string;
+    // Set on sessions tied to a login device; the session ends when that device is removed
+    deviceId?: string;
 }
 
 export async function getAuthUser(): Promise<AuthUser | null> {
@@ -19,6 +22,12 @@ export async function getAuthUser(): Promise<AuthUser | null> {
         if (!token) return null;
 
         const decoded = jwt.verify(token, JWT_SECRET) as AuthUser;
+
+        // Removing a device from Manage Trusted Devices signs that device out
+        if (decoded.deviceId && !(await isKnownUserDevice(decoded.id, decoded.deviceId))) {
+            return null;
+        }
+
         return decoded;
     } catch (error) {
         return null;

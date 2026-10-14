@@ -45,7 +45,7 @@ export async function POST(request: Request) {
             platform: result.challenge.platform ?? undefined,
         });
 
-        return buildLoginResponse(user);
+        return buildLoginResponse(user, result.challenge.deviceId ?? undefined);
     } catch (error) {
         console.error('Two-factor login error:', error);
         return NextResponse.json({ success: false, message: 'Internal server error' }, { status: 500 });
