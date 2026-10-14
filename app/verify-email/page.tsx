@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 
 function VerifyEmailContent() {
@@ -80,31 +80,15 @@ function VerifyEmailContent() {
   );
 }
 
+// The root layout already renders <html> and <body>; this page only supplies its own content.
+// useSearchParams needs a Suspense boundary, otherwise the page can't be prerendered.
 export default function VerifyEmailPage() {
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  if (!mounted) {
-    return (
-      <html lang="en">
-        <body style={bodyStyle}>
-          <div style={cardStyle}>
-            <p style={msgStyle}>Verifying your email...</p>
-          </div>
-        </body>
-      </html>
-    );
-  }
-
   return (
-    <html lang="en">
-      <body style={bodyStyle}>
+    <div style={bodyStyle}>
+      <Suspense fallback={<div style={cardStyle}><p style={msgStyle}>Verifying your email...</p></div>}>
         <VerifyEmailContent />
-      </body>
-    </html>
+      </Suspense>
+    </div>
   );
 }
 
