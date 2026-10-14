@@ -583,6 +583,30 @@ export type User = {
     profilePhoto: string | null;
     dob: Timestamp | null;
     gender: string | null;
+    twoFactorEnabled: Generated<boolean>;
+};
+export type UserDevice = {
+    id: Generated<string>;
+    userId: string;
+    deviceId: string;
+    deviceName: string | null;
+    platform: string | null;
+    lastLoginAt: Generated<Timestamp>;
+    createdAt: Generated<Timestamp>;
+    updatedAt: Timestamp;
+};
+export type TwoFactorChallenge = {
+    id: Generated<string>;
+    userId: string;
+    purpose: string;
+    codeHash: string;
+    deviceId: string | null;
+    deviceName: string | null;
+    platform: string | null;
+    attempts: Generated<number>;
+    expiresAt: Timestamp;
+    consumedAt: Timestamp | null;
+    createdAt: Generated<Timestamp>;
 };
 export type UserAddress = {
     id: string;
@@ -680,6 +704,8 @@ export type DB = {
     services: Service;
     suggestedServices: SuggestedService;
     userAddresses: UserAddress;
+    userDevices: UserDevice;
+    twoFactorChallenges: TwoFactorChallenge;
     userEggs: UserEgg;
     userMedia: UserMedia;
     users: User;

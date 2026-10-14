@@ -67,34 +67,37 @@ model Contact {
 }
 
 model User {
-  id                       String              @id @default(uuid())
-  email                    String              @unique
+  id                       String                @id @default(uuid())
+  email                    String                @unique
   password                 String?
-  fullName                 String?             @map("fullName")
-  isTestAccount            Boolean             @default(false) @map("isTestAccount")
-  createdAt                DateTime            @default(now()) @map("createdAt")
-  updatedAt                DateTime            @updatedAt @map("updatedAt")
-  resetPasswordExpires     BigInt?             @map("resetPasswordExpires")
-  resetPasswordToken       String?             @map("resetPasswordToken") @db.VarChar(255)
-  mobile                   String?             @unique @db.VarChar(20)
-  isEmailVerified          Boolean             @default(false) @map("isEmailVerified")
-  emailVerificationToken   String?             @map("emailVerificationToken") @db.VarChar(255)
-  emailVerificationExpires BigInt?             @map("emailVerificationExpires")
-  provider                 String              @default("email") @db.VarChar(255)
-  providerAccountId        String?             @unique @db.VarChar(255)
-  profilePhoto             String?             @map("profilePhoto")
+  fullName                 String?               @map("fullName")
+  isTestAccount            Boolean               @default(false) @map("isTestAccount")
+  createdAt                DateTime              @default(now()) @map("createdAt")
+  updatedAt                DateTime              @updatedAt @map("updatedAt")
+  resetPasswordExpires     BigInt?               @map("resetPasswordExpires")
+  resetPasswordToken       String?               @map("resetPasswordToken") @db.VarChar(255)
+  mobile                   String?               @unique @db.VarChar(20)
+  isEmailVerified          Boolean               @default(false) @map("isEmailVerified")
+  emailVerificationToken   String?               @map("emailVerificationToken") @db.VarChar(255)
+  emailVerificationExpires BigInt?               @map("emailVerificationExpires")
+  provider                 String                @default("email") @db.VarChar(255)
+  providerAccountId        String?               @unique @db.VarChar(255)
+  profilePhoto             String?               @map("profilePhoto")
   dob                      DateTime?
   gender                   String?
+  twoFactorEnabled         Boolean               @default(false)
   bankAccount              BankAccount?
   client                   Client?
   freelancer               Freelancer?
   jobBookmarks             JobBookmark[]
-  receivedMessages         Message[]           @relation("UserReceiver")
-  sentMessages             Message[]           @relation("UserSender")
-  reviewsReceived          Review[]            @relation("UserReviewsReceived")
-  reviewsGiven             Review[]            @relation("UserReviewsGiven")
+  receivedMessages         Message[]             @relation("UserReceiver")
+  sentMessages             Message[]             @relation("UserSender")
+  reviewsReceived          Review[]              @relation("UserReviewsReceived")
+  reviewsGiven             Review[]              @relation("UserReviewsGiven")
   suggestedServices        SuggestedService[]
+  twoFactorChallenges      twoFactorChallenges[]
   addresses                UserAddress[]
+  userDevices              userDevices[]
   walletTransactions       WalletTransaction[]
 
   @@map("users")
@@ -293,6 +296,7 @@ model Job {
   priceChangeAcceptedAt              DateTime?
   clientReviewReminderSentAt         DateTime?
   clientReviewFinalReminderSentAt    DateTime?
+  includedRevisions                  Int                 @default(2)
   chatThreads                        ChatThread[]        @relation("JobChatThreads")
   earnings                           Earning[]
   bookmarks                          JobBookmark[]
@@ -830,6 +834,38 @@ model adminOffers {
 
   @@index([isActive], map: "AdminOfferIsActiveIdx")
   @@index([serviceId], map: "AdminOfferServiceIdIdx")
+}
+
+model twoFactorChallenges {
+  id         String    @id
+  userId     String
+  purpose    String    @db.VarChar(20)
+  codeHash   String    @db.VarChar(255)
+  deviceId   String?   @db.VarChar(255)
+  deviceName String?   @db.VarChar(255)
+  platform   String?   @db.VarChar(50)
+  attempts   Int       @default(0)
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+  users      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model userDevices {
+  id          String   @id
+  userId      String
+  deviceId    String   @db.VarChar(255)
+  deviceName  String?  @db.VarChar(255)
+  platform    String?  @db.VarChar(50)
+  lastLoginAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime
+  users       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, deviceId])
+  @@index([userId])
 }
 
 enum AdminRole {

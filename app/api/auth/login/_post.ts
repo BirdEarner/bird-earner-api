@@ -1,6 +1,8 @@
 import { db } from '@/lib/db';
 import { validateBody } from '@/lib/validation';
-import { generateToken } from '@/lib/auth';
+import { buildLoginResponse } from '@/lib/session';
+import { issueTwoFactorChallenge } from '@/lib/two-factor';
+import { isKnownUserDevice, recordUserDevice } from '@/lib/user-devices';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import bcrypt from 'bcryptjs';
@@ -8,6 +10,10 @@ import bcrypt from 'bcryptjs';
 const loginSchema = z.object({
     email: z.string().email(),
     password: z.string().min(6),
+    // Optional so existing clients keep working; devices without an id are not tracked
+    deviceId: z.string().min(1).max(255).optional(),
+    deviceName: z.string().max(255).optional(),
+    platform: z.string().max(50).optional(),
 });
 
 export async function POST(request: Request) {
@@ -19,7 +25,8 @@ export async function POST(request: Request) {
             return NextResponse.json({ success: false, message: validation.error }, { status: 400 });
         }
 
-        const { email, password } = validation.data;
+        const { email, password, deviceId, deviceName, platform } = validation.data;
+        const device = { deviceId, deviceName, platform };
 
         const user = await db
             .selectFrom('users')
@@ -31,48 +38,35 @@ export async function POST(request: Request) {
             return NextResponse.json({ success: false, message: 'Invalid email or password' }, { status: 401 });
         }
 
-        // Detect role
-        const freelancerProfile = await db.selectFrom('freelancers').select('id').where('userId', '=', user.id).executeTakeFirst();
-        const clientProfile = await db.selectFrom('clients').select('id').where('userId', '=', user.id).executeTakeFirst();
+        // Accounts with two-factor on need a code when signing in from a device they haven't verified before
+        const deviceIsKnown = deviceId ? await isKnownUserDevice(user.id, deviceId) : false;
 
-        const role = freelancerProfile ? 'FREELANCER' : (clientProfile ? 'CLIENT' : 'USER');
+        if (user.twoFactorEnabled && !deviceIsKnown) {
+            if (!user.mobile) {
+                return NextResponse.json(
+                    { success: false, message: 'Two-factor authentication requires a mobile number on your account' },
+                    { status: 400 }
+                );
+            }
 
-        const token = generateToken({
-            id: user.id,
-            email: user.email,
-            role,
-        });
+            const { challengeId, maskedMobile } = await issueTwoFactorChallenge({
+                userId: user.id,
+                mobile: user.mobile,
+                purpose: 'login',
+                device,
+            });
 
-        const { password: _, ...userWithoutPassword } = user;
+            return NextResponse.json({
+                success: true,
+                requiresTwoFactor: true,
+                message: 'Enter the verification code sent to your mobile number',
+                data: { challengeId, maskedMobile },
+            });
+        }
 
-        // Fetch related profiles
-        const fullFreelancerProfile = await db.selectFrom('freelancers').selectAll().where('userId', '=', user.id).executeTakeFirst();
-        const fullClientProfile = await db.selectFrom('clients').selectAll().where('userId', '=', user.id).executeTakeFirst();
+        await recordUserDevice(user.id, device);
 
-        const response = NextResponse.json({
-            success: true,
-            message: 'Login successful',
-            data: {
-                ...userWithoutPassword,
-                role,
-                ...(fullFreelancerProfile ? { freelancer: fullFreelancerProfile } : {}),
-                ...(fullClientProfile ? { client: fullClientProfile } : {}),
-                token,
-            },
-        });
-
-        // Set the token in a cookie
-        response.cookies.set({
-            name: 'token',
-            value: token,
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'lax',
-            path: '/',
-            maxAge: 60 * 60 * 24, // 24 hours
-        });
-
-        return response;
+        return buildLoginResponse(user);
     } catch (error) {
         console.error('Login error:', error);
         return NextResponse.json({ success: false, message: 'Internal server error' }, { status: 500 });
