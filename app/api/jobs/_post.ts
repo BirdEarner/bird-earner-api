@@ -10,10 +10,11 @@ const createJobSchema = z.object({
         .string()
         .trim()
         .min(5, 'Job title must be at least 5 characters'),
+    // Minimum length is checked after parsing: a voice note can replace the text description
     jobDescription: z
         .string()
         .trim()
-        .min(20, 'Job description must be at least 20 characters'),
+        .default(''),
     jobCategory: z.string().min(1, 'Job category is required'),
     jobSubCategory: z.string().min(1, 'Job subcategory is required'),
     skillsRequired: z.array(z.string().trim().min(1, 'Skills cannot be empty')).optional(),
@@ -54,6 +55,16 @@ export async function POST(request: Request) {
         const validation = await validateParams(Promise.resolve(body), createJobSchema);
         if (!validation.success) {
             return NextResponse.json({ message: validation.error }, { status: 400 });
+        }
+
+        // A job needs either a voice note or a description of at least 20 characters
+        const parsed = validation.data as { jobDescription: string; attachedFiles?: string[] };
+        const hasVoiceNote = (parsed.attachedFiles || []).some((url) => url.includes('/job_voice_notes/'));
+        if (!hasVoiceNote && parsed.jobDescription.length < 20) {
+            return NextResponse.json(
+                { message: 'Add a voice note or a job description of at least 20 characters' },
+                { status: 400 }
+            );
         }
 
         const job = await createJob(validation.data, user.id, client.id);

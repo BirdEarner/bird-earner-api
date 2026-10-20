@@ -18,6 +18,7 @@ const uploadCategories: Record<string, string> = {
     freelancer_cover_photos: "bird_earner/freelancer_cover_photos",
     freelancer_portfolios: "bird_earner/freelancer_portfolios",
     job_portfolios: "bird_earner/job_portfolios",
+    job_voice_notes: "bird_earner/job_voice_notes",
     service_images: "bird_earner/service_images",
     chat_media: "bird_earner/chat_media",
     file_manager: "bird_earner/file_manager",

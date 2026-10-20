@@ -24,7 +24,7 @@ export async function GET(request: Request) {
                 // Include service details
                 jsonArrayFrom(
                     eb.selectFrom('services')
-                        .select(['id', 'name', 'category'])
+                        .select(['id', 'name', 'category', 'imageUrl'])
                         .whereRef('services.id', '=', 'jobs.serviceId')
                 ).as('service'),
                 // Include client details
@@ -54,6 +54,30 @@ export async function GET(request: Request) {
             } : null
         }));
 
+        // Mark bookmarked jobs the freelancer has already applied to, so they cannot be applied for again
+        const bookmarkedJobIds = transformedBookmarks.map((b) => b.id);
+        const appliedJobIds = new Set<string>();
+        if (bookmarkedJobIds.length > 0) {
+            const freelancer = await db
+                .selectFrom('freelancers')
+                .select('id')
+                .where('userId', '=', user.id)
+                .executeTakeFirst();
+            if (freelancer) {
+                const applications = await db
+                    .selectFrom('chatThreads')
+                    .select('jobId')
+                    .where('freelancerId', '=', freelancer.id)
+                    .where('jobId', 'in', bookmarkedJobIds)
+                    .execute();
+                applications.forEach((app) => appliedJobIds.add(app.jobId));
+            }
+        }
+        const bookmarksWithStatus = transformedBookmarks.map((b) => ({
+            ...b,
+            hasApplied: appliedJobIds.has(b.id),
+        }));
+
         const totalResult = await db
             .selectFrom('jobBookmarks')
             .select(db.fn.count('id').as('count'))
@@ -65,7 +89,7 @@ export async function GET(request: Request) {
         return NextResponse.json({
             success: true,
             message: 'Bookmarked jobs retrieved successfully',
-            data: transformedBookmarks,
+            data: bookmarksWithStatus,
             pagination: {
                 total,
                 page,
