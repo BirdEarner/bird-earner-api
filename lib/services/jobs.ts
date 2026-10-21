@@ -3,6 +3,7 @@ import { calculateBirdFee } from '../utils/fee';
 import { reserveAmountForJobInTransaction, processJobPaymentInTransaction, releaseReservedAmountInTransaction } from './wallet';
 import { sendNotification } from './notifications';
 import { recordJobStatusHistory } from './timers';
+import { getOfferConfirmationState } from './offerConfirmation';
 import { DB, JobStatus } from '../../types/types';
 import { isOnSiteJob } from '../job-type';
 import { Transaction, sql } from 'kysely';
@@ -399,11 +400,11 @@ export async function assignFreelancer(jobId: string, freelancerId: string, clie
             .select(['id', 'clientOffer', 'freelancerOffer', 'agreedAmount', 'clientDays', 'freelancerDays', 'agreedDays'])
             .where('jobId', '=', jobId)
             .where('freelancerId', '=', freelancerId)
+            // Lock the thread so no offer or confirmation can change between this check and the assignment
+            .forUpdate()
             .executeTakeFirst();
 
-        // If the price was negotiated, both sides must have accepted it (chat accept sets agreedAmount)
-        // The latest recorded offer is the price on the table. The client's assignment is their confirmation of it
-        // (the app has no separate accept step for freelancers), so the agreed price is that latest offer.
+        // The latest recorded offer is the price on the table; it must be confirmed by both sides (checked below)
         const latestOffer = thread?.id
             ? await trx
                 .selectFrom('negotiationHistory')
@@ -413,6 +414,23 @@ export async function assignFreelancer(jobId: string, freelancerId: string, clie
                 .orderBy('createdAt', 'desc')
                 .executeTakeFirst()
             : undefined;
+
+        // If the price was negotiated, both client and freelancer must have confirmed the latest offer
+        // (confirmations made before a later offer do not count)
+        if (thread?.id && latestOffer) {
+            // Both sides' amount and duration must match exactly
+            const sameAmount = Number(thread.clientOffer) === Number(thread.freelancerOffer);
+            const sameDays = (thread.clientDays ?? null) === (thread.freelancerDays ?? null);
+            const confirmation = await getOfferConfirmationState(trx, thread.id);
+            if (!sameAmount || !sameDays || !confirmation.ready) {
+                // Not an error: nothing has been changed yet, so return a result the app can show as a message
+                return {
+                    requiresConfirmation: true,
+                    code: 'OFFER_NOT_CONFIRMED',
+                    message: 'Offer mismatch: both client and freelancer must confirm the latest offer before the job can be assigned.',
+                } as any;
+            }
+        }
 
         const finalAmountStr = latestOffer?.amount?.toString() || thread?.agreedAmount || thread?.freelancerOffer || thread?.clientOffer || job.budgetAmount.toString();
         const finalAmountNum = parseFloat(finalAmountStr);

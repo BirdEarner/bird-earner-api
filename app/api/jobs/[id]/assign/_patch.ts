@@ -40,6 +40,15 @@ export async function PATCH(
             }, { status: 200 });
         }
 
+        // Offers not confirmed by both sides: nothing was assigned, the app shows this as a message
+        if (result && (result as any).requiresConfirmation) {
+            return NextResponse.json({
+                success: false,
+                code: (result as any).code,
+                message: (result as any).message
+            }, { status: 200 });
+        }
+
         return NextResponse.json({
             success: true,
             message: 'Freelancer assigned successfully',
