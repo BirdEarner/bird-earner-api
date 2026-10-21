@@ -36,6 +36,11 @@ export async function POST(request: Request) {
             data: result
         });
     } catch (error: any) {
+        // A control for a superseded submission state is a conflict, not a server fault
+        if (/updated with newer files/.test(error.message || '')) {
+            return NextResponse.json({ success: false, message: error.message }, { status: 409 });
+        }
+
         console.error('Work submission respond error:', error);
         return NextResponse.json({
             success: false,

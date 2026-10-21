@@ -2335,12 +2335,69 @@ export async function updatePhysicalJobProgress(
 /**
  * Handle Remote Service Work Submission
  */
+export type WorkSubmissionFile = {
+    fileUrl: string;
+    originalFileUrl?: string | null;
+    name?: string;
+    mimeType?: string;
+    size?: number;
+    publicId?: string | null;
+    originalPublicId?: string | null;
+};
+
+type StoredWorkSubmission = {
+    version?: number;
+    revision?: number;
+    fileUrl?: string;
+    originalFileUrl?: string | null;
+    files: WorkSubmissionFile[];
+    notes?: string;
+    watermarkText?: string;
+    submittedAt?: string;
+};
+
+/** Reads submittedWorkData, including records saved before the files list existed */
+const parseStoredWorkSubmission = (raw: unknown): StoredWorkSubmission | null => {
+    let data: any = raw;
+    try {
+        if (typeof raw === 'string') data = JSON.parse(raw);
+    } catch (e) {
+        return null;
+    }
+    if (!data || typeof data !== 'object') return null;
+    const files: WorkSubmissionFile[] = Array.isArray(data.files)
+        ? data.files
+        : data.fileUrl
+            ? [{ fileUrl: data.fileUrl, originalFileUrl: data.originalFileUrl || null }]
+            : [];
+    return { ...data, files };
+};
+
+/**
+ * Work submission for a remote job.
+ * - Job is CONFIRMED or REVISION_REQUESTED: opens a new version (revisionCount + 1).
+ * - Job is WORK_SUBMITTED and options.allowAppend is set: the files are added to the version the client has not
+ *   reviewed yet. The version number does not change and the review window is not restarted.
+ * Pass options.trx to run inside a transaction the caller already holds, so chat bookkeeping shares the same lock.
+ */
 export async function submitDigitalWork(
     jobId: string,
     freelancerUserId: string,
-    workData: { fileUrl: string; originalFileUrl?: string; notes?: string; watermarkText?: string; version?: number }
+    workData: { fileUrl: string; originalFileUrl?: string; notes?: string; watermarkText?: string; version?: number; files?: WorkSubmissionFile[] },
+    options: { allowAppend?: boolean; trx?: Transaction<DB> } = {}
 ) {
-    return await db.transaction().execute(async (trx) => {
+    const run = async (trx: Transaction<DB>) => {
+        // Lock the job row first so concurrent submissions and client reviews are applied one after another.
+        // Done in its own query because FOR UPDATE cannot target the nullable side of the outer join below.
+        const locked = await trx
+            .selectFrom('jobs')
+            .select(['jobs.id', 'jobs.submittedWorkData'])
+            .where('jobs.id', '=', jobId)
+            .forUpdate()
+            .executeTakeFirst();
+        if (!locked) throw new Error('Job not found');
+        const previous = parseStoredWorkSubmission(locked.submittedWorkData);
+
         const job = await trx
             .selectFrom('jobs')
             .innerJoin('clients', 'clients.id', 'jobs.clientId')
@@ -2358,60 +2415,104 @@ export async function submitDigitalWork(
 
         if (!job) throw new Error('Job not found');
         if (job.freelancerUserId !== freelancerUserId) throw new Error('Unauthorized');
+
+        // Files added while the client has not reviewed the current version join that version
+        const appendTo = job.jobStatus === 'WORK_SUBMITTED' && options.allowAppend ? previous : null;
+
         // Work is only delivered on an active booking (not cancelled, completed, or under dispute)
-        if (job.jobStatus !== 'CONFIRMED' && job.jobStatus !== 'REVISION_REQUESTED') {
+        if (!appendTo && job.jobStatus !== 'CONFIRMED' && job.jobStatus !== 'REVISION_REQUESTED') {
             throw new Error('Work can only be submitted while the booking is active.');
         }
 
         const now = new Date();
-        const clientReviewPeriodExpiresAt = new Date(now.getTime() + 12 * 60 * 60 * 1000); // 12-hour review period
+        const incoming: WorkSubmissionFile[] = workData.files?.length
+            ? workData.files
+            : [{ fileUrl: workData.fileUrl, originalFileUrl: workData.originalFileUrl || null }];
+        // Every submission or revision gets a new revision number, so chat controls can tell which one they belong to
+        const revision = (previous?.revision ?? 0) + 1;
 
-        const versionNumber = (job.revisionCount || 0) + 1;
-        const submissionPayload = {
-            version: versionNumber,
-            fileUrl: workData.fileUrl,
-            originalFileUrl: workData.originalFileUrl || null,
-            notes: workData.notes || '',
-            watermarkText: workData.watermarkText || 'BirdEarner Watermarked Preview',
-            submittedAt: now.toISOString(),
-        };
+        let submissionPayload: Record<string, unknown>;
+        let historyNote: string;
+        let notification: { title: string; message: string };
 
+        if (appendTo) {
+            const files = [...appendTo.files];
+            for (const file of incoming) {
+                if (!files.some((existing) => existing.fileUrl === file.fileUrl)) files.push(file);
+            }
+            const versionNumber = appendTo.version ?? (job.revisionCount || 0) + 1;
+            const addedCount = files.length - appendTo.files.length;
+            submissionPayload = {
+                ...appendTo,
+                version: versionNumber,
+                revision,
+                files,
+                fileUrl: files[0].fileUrl,
+                originalFileUrl: files[0].originalFileUrl || null,
+                notes: workData.notes || appendTo.notes || '',
+                updatedAt: now.toISOString(),
+            };
+            historyNote = `Added ${addedCount} file(s) to Version ${versionNumber} before client review`;
+            notification = {
+                title: 'Work Submission Updated',
+                message: `Your Freelancer added more files to Version ${versionNumber} of the work for "${job.jobTitle}". Please review the latest submission.`,
+            };
+        } else {
+            const versionNumber = (job.revisionCount || 0) + 1;
+            const clientReviewPeriodExpiresAt = new Date(now.getTime() + 12 * 60 * 60 * 1000); // 12-hour review period
+            submissionPayload = {
+                version: versionNumber,
+                revision,
+                fileUrl: incoming[0].fileUrl,
+                originalFileUrl: incoming[0].originalFileUrl || null,
+                files: incoming,
+                notes: workData.notes || '',
+                watermarkText: workData.watermarkText || 'BirdEarner Watermarked Preview',
+                submittedAt: now.toISOString(),
+            };
+            historyNote = `Submitted Version ${versionNumber} work for client review`;
+            notification = {
+                title: 'Work Submitted for Review',
+                message: `Your Freelancer has submitted work for review for "${job.jobTitle}". Please review the submitted work.`,
+            };
+
+            const updatedJob = await trx
+                .updateTable('jobs')
+                .set({
+                    jobStatus: 'WORK_SUBMITTED',
+                    submittedWorkData: JSON.stringify(submissionPayload),
+                    clientReviewPeriodExpiresAt: clientReviewPeriodExpiresAt,
+                    clientReviewReminderSentAt: null,
+                    clientReviewFinalReminderSentAt: null,
+                    updatedAt: now,
+                })
+                .where('id', '=', jobId)
+                .returningAll()
+                .executeTakeFirstOrThrow();
+
+            await recordJobStatusHistory(trx, jobId, 'WORK_SUBMITTED', freelancerUserId, 'FREELANCER', 'SUBMIT_WORK', historyNote, submissionPayload);
+            sendNotification(job.clientUserId, 'CLIENT', notification.title, notification.message, 'WORK_SUBMITTED', { jobId });
+            return updatedJob;
+        }
+
+        // Adding files keeps the status, the version and the review window as they are
         const updatedJob = await trx
             .updateTable('jobs')
             .set({
-                jobStatus: 'WORK_SUBMITTED',
                 submittedWorkData: JSON.stringify(submissionPayload),
-                clientReviewPeriodExpiresAt: clientReviewPeriodExpiresAt,
-                clientReviewReminderSentAt: null,
-                clientReviewFinalReminderSentAt: null,
                 updatedAt: now,
             })
             .where('id', '=', jobId)
             .returningAll()
             .executeTakeFirstOrThrow();
 
-        await recordJobStatusHistory(
-            trx,
-            jobId,
-            'WORK_SUBMITTED',
-            freelancerUserId,
-            'FREELANCER',
-            'SUBMIT_WORK',
-            `Submitted Version ${versionNumber} work for client review`,
-            submissionPayload
-        );
-
-        sendNotification(
-            job.clientUserId,
-            'CLIENT',
-            'Work Submitted for Review',
-            `Your Freelancer has submitted work for review for "${job.jobTitle}". Please review the submitted work.`,
-            'WORK_SUBMITTED',
-            { jobId }
-        );
+        await recordJobStatusHistory(trx, jobId, 'WORK_SUBMITTED', freelancerUserId, 'FREELANCER', 'SUBMIT_WORK', historyNote, submissionPayload);
+        sendNotification(job.clientUserId, 'CLIENT', notification.title, notification.message, 'WORK_SUBMITTED', { jobId });
 
         return updatedJob;
-    });
+    };
+
+    return options.trx ? run(options.trx) : db.transaction().execute(run);
 }
 
 /**
@@ -2421,9 +2522,13 @@ export async function respondToDigitalWork(
     jobId: string,
     clientUserId: string,
     decision: 'ACCEPT' | 'REQUEST_REVISION',
-    notes?: string
+    notes?: string,
+    expectedRevision?: number
 ) {
     return await db.transaction().execute(async (trx) => {
+        // Lock the job so a review cannot race with files being added to the same submission
+        await trx.selectFrom('jobs').select('jobs.id').where('jobs.id', '=', jobId).forUpdate().execute();
+
         const job = await trx
             .selectFrom('jobs')
             .innerJoin('clients', 'clients.id', 'jobs.clientId')
@@ -2437,6 +2542,7 @@ export async function respondToDigitalWork(
                 'jobs.negotiatedAmount',
                 'jobs.revisionCount',
                 'jobs.includedRevisions',
+                'jobs.submittedWorkData',
                 'clients.userId as clientUserId',
                 'freelancers.id as freelancerId',
                 'freelancers.userId as freelancerUserId',
@@ -2451,6 +2557,10 @@ export async function respondToDigitalWork(
         }
         if (job.jobStatus !== 'WORK_SUBMITTED') {
             throw new Error('There is no submitted work to accept or revise.');
+        }
+        // The control was shown for an older state of this submission (files were added since), so it is stale
+        if (expectedRevision !== undefined && parseStoredWorkSubmission(job.submittedWorkData)?.revision !== expectedRevision) {
+            throw new Error('This submission was updated with newer files. Please use the latest Accept / Request Revision control.');
         }
 
         const now = new Date();

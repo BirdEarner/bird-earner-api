@@ -453,139 +453,151 @@ export async function sendMessage(data: any) {
 
     const isSubmissionMessage = Boolean(finalMessageData.isWorkSubmission);
 
-    let jobSubmissionVersion: number | undefined;
-
-    if (isSubmissionMessage) {
-        // Work submission is ONLY through a file attachment
-        let parsedAttachments: any[] = [];
-        try {
-            if (Array.isArray(attachments)) parsedAttachments = attachments;
-            else if (typeof attachments === 'string' && attachments) parsedAttachments = JSON.parse(attachments);
-        } catch (e) {
-            parsedAttachments = [];
-        }
-
-        const associatedAttachments = Array.isArray(finalMessageData.submissionAttachments)
-            ? finalMessageData.submissionAttachments
-            : [];
-        const primaryFile = associatedAttachments[0] || parsedAttachments[0];
-        if (!primaryFile || !primaryFile.attachmentUrl) {
-            throw new Error('Work submission must include a file attachment');
-        }
-
-        // A new version is only accepted when the client has asked for changes (or on first delivery).
-        // While a version is waiting for the client's review, the freelancer must wait for their response.
-        if (thread.jobStatus === 'WORK_SUBMITTED') {
-            throw new Error('Your previous version is waiting for the client\'s review. Wait for their response before sending another version.');
-        }
-        const submittableStatuses = ['CONFIRMED', 'REVISION_REQUESTED'];
-        if (!submittableStatuses.includes(thread.jobStatus)) {
-            throw new Error(`Work cannot be submitted while job status is ${thread.jobStatus}`);
-        }
-
-        const { submitDigitalWork } = await import('./jobs');
-        const updatedJob = await submitDigitalWork(thread.jobId, senderId, {
-            fileUrl: primaryFile.attachmentUrl,
-            originalFileUrl: primaryFile.attachmentOriginalUrl || undefined,
-            notes: messageContent || '',
-        });
-
-        let jobSwd: any = updatedJob.submittedWorkData;
-        try {
-            if (typeof jobSwd === 'string') jobSwd = JSON.parse(jobSwd);
-        } catch (e) {}
-        if (jobSwd && typeof jobSwd.version === 'number') {
-            jobSubmissionVersion = jobSwd.version;
-        }
-
-        // Find existing work submission messages in this chatThreadId
-        const existingMsgs = await db
-            .selectFrom('messages')
-            .select(['id', 'messageData', 'attachments', 'createdAt'])
-            .where('chatThreadId', '=', chatThreadId)
-            .orderBy('createdAt', 'asc')
-            .execute();
-
-        const submissions: Array<{
-            id: string;
-            version: number;
-            submissionStatus: string;
-            reviewed: boolean;
-            msgData: any;
-            createdAt: Date;
-        }> = [];
-
-        for (const msg of existingMsgs) {
-            let mData: any = {};
+    // The submission bookkeeping and the message insert share one transaction. submitDigitalWork locks the job row,
+    // so concurrent sends are applied one after another and cannot create duplicate or conflicting versions.
+    const message = await db.transaction().execute(async (trx) => {
+        if (isSubmissionMessage) {
+            // Work submission is ONLY through a file attachment
+            let parsedAttachments: any[] = [];
             try {
-                if (msg.messageData) mData = typeof msg.messageData === 'string' ? JSON.parse(msg.messageData) : msg.messageData;
-            } catch (e) {}
-
-            if (mData.isWorkSubmission || mData.version !== undefined) {
-                const version = typeof mData.version === 'number' ? mData.version : 1;
-                const submissionStatus = mData.submissionStatus || 'PENDING';
-                const reviewed = Boolean(mData.reviewed || submissionStatus === 'ACCEPTED' || submissionStatus === 'REVISE_REQUESTED');
-
-                submissions.push({
-                    id: msg.id,
-                    version,
-                    submissionStatus,
-                    reviewed,
-                    msgData: mData,
-                    createdAt: msg.createdAt,
-                });
+                if (Array.isArray(attachments)) parsedAttachments = attachments;
+                else if (typeof attachments === 'string' && attachments) parsedAttachments = JSON.parse(attachments);
+            } catch (e) {
+                parsedAttachments = [];
             }
-        }
 
-        let targetVersion = 1;
+            const associatedAttachments = Array.isArray(finalMessageData.submissionAttachments)
+                ? finalMessageData.submissionAttachments
+                : [];
+            const submittedFiles = (associatedAttachments.length ? associatedAttachments : parsedAttachments)
+                .filter((file: any) => file?.attachmentUrl)
+                .map((file: any) => ({
+                    fileUrl: file.attachmentUrl,
+                    originalFileUrl: file.attachmentOriginalUrl || null,
+                    name: file.attachmentName,
+                    mimeType: file.attachmentMime,
+                    size: file.attachmentSize,
+                    publicId: file.attachmentPublicId || null,
+                    originalPublicId: file.attachmentOriginalPublicId || null,
+                }));
+            if (submittedFiles.length === 0) {
+                throw new Error('Work submission must include a file attachment');
+            }
 
-        if (submissions.length > 0) {
-            const latestSub = submissions[submissions.length - 1];
-            targetVersion = latestSub.version;
+            // Only the statuses where work can be delivered. submitDigitalWork re-checks them under the job lock.
+            const submittableStatuses = ['CONFIRMED', 'REVISION_REQUESTED', 'WORK_SUBMITTED'];
+            if (!submittableStatuses.includes(thread.jobStatus)) {
+                throw new Error(`Work cannot be submitted while job status is ${thread.jobStatus}`);
+            }
 
-            if (!latestSub.reviewed) {
-                // CASE A: Latest submission version is UNREVIEWED -> Keep same version (targetVersion)
-                // Disable previous review controls on all messages belonging to this unreviewed version
-                for (const sub of submissions) {
-                    if (sub.version === targetVersion) {
-                        const updatedData = {
-                            ...sub.msgData,
-                            isLatestForVersion: false,
-                            reviewControlActive: false,
-                        };
-                        await db
-                            .updateTable('messages')
-                            .set({
-                                messageData: JSON.stringify(updatedData),
-                                updatedAt: new Date(),
-                            })
-                            .where('id', '=', sub.id)
-                            .execute();
+            // Unreviewed version: the files join it and the version number stays. After a client revision request,
+            // submitDigitalWork opens the next version. The job record holds the full file list for the version.
+            const { submitDigitalWork } = await import('./jobs');
+            const updatedJob = await submitDigitalWork(thread.jobId, senderId, {
+                fileUrl: submittedFiles[0].fileUrl,
+                originalFileUrl: submittedFiles[0].originalFileUrl || undefined,
+                notes: messageContent || '',
+                files: submittedFiles,
+            }, { allowAppend: true, trx });
+
+            let jobSwd: any = updatedJob.submittedWorkData;
+            try {
+                if (typeof jobSwd === 'string') jobSwd = JSON.parse(jobSwd);
+            } catch (e) {}
+            const jobVersion: number = typeof jobSwd?.version === 'number' ? jobSwd.version : 1;
+            const jobRevision: number | undefined = typeof jobSwd?.revision === 'number' ? jobSwd.revision : undefined;
+
+            // Every file in this version, so the control shows the whole submission
+            const versionFiles: any[] = Array.isArray(jobSwd?.files) ? jobSwd.files : submittedFiles;
+            const versionAttachments = versionFiles.map((file: any) => ({
+                attachmentUrl: file.fileUrl,
+                attachmentOriginalUrl: file.originalFileUrl || null,
+                attachmentName: file.name || 'attachment',
+                attachmentMime: file.mimeType || 'application/octet-stream',
+                attachmentSize: file.size || 0,
+                attachmentPublicId: file.publicId || null,
+                attachmentOriginalPublicId: file.originalPublicId || null,
+            }));
+
+            // Find existing work submission messages in this chatThreadId
+            const existingMsgs = await trx
+                .selectFrom('messages')
+                .select(['id', 'messageData', 'attachments', 'createdAt'])
+                .where('chatThreadId', '=', chatThreadId)
+                .orderBy('createdAt', 'asc')
+                .execute();
+
+            const submissions: Array<{
+                id: string;
+                version: number;
+                submissionStatus: string;
+                reviewed: boolean;
+                msgData: any;
+                createdAt: Date;
+            }> = [];
+
+            for (const msg of existingMsgs) {
+                let mData: any = {};
+                try {
+                    if (msg.messageData) mData = typeof msg.messageData === 'string' ? JSON.parse(msg.messageData) : msg.messageData;
+                } catch (e) {}
+
+                if (mData.isWorkSubmission || mData.version !== undefined) {
+                    const version = typeof mData.version === 'number' ? mData.version : 1;
+                    const submissionStatus = mData.submissionStatus || 'PENDING';
+                    const reviewed = Boolean(mData.reviewed || submissionStatus === 'ACCEPTED' || submissionStatus === 'REVISE_REQUESTED');
+
+                    submissions.push({
+                        id: msg.id,
+                        version,
+                        submissionStatus,
+                        reviewed,
+                        msgData: mData,
+                        createdAt: msg.createdAt,
+                    });
+                }
+            }
+
+            if (submissions.length > 0) {
+                const latestSub = submissions[submissions.length - 1];
+
+                if (!latestSub.reviewed) {
+                    // Unreviewed version: its earlier review controls are superseded (hidden in the app and rejected by the backend)
+                    for (const sub of submissions) {
+                        if (sub.version === latestSub.version) {
+                            const updatedData = {
+                                ...sub.msgData,
+                                isLatestForVersion: false,
+                                reviewControlActive: false,
+                            };
+                            await trx
+                                .updateTable('messages')
+                                .set({
+                                    messageData: JSON.stringify(updatedData),
+                                    updatedAt: new Date(),
+                                })
+                                .where('id', '=', sub.id)
+                                .execute();
+                        }
                     }
                 }
-            } else {
-                // CASE B: Latest submission version HAS BEEN REVIEWED -> Create Version + 1
-                targetVersion = latestSub.version + 1;
             }
-        } else {
-            // First submission -> Version 1
-            targetVersion = 1;
+
+            finalMessageData = {
+                ...finalMessageData,
+                isWorkSubmission: true,
+                version: jobVersion,
+                submissionRevision: jobRevision,
+                submissionAttachments: versionAttachments,
+                submissionStatus: 'PENDING',
+                reviewed: false,
+                reviewedAt: null,
+                reviewedBy: null,
+                isLatestForVersion: true,
+                reviewControlActive: true,
+            };
         }
 
-        finalMessageData = {
-            ...finalMessageData,
-            isWorkSubmission: true,
-            version: jobSubmissionVersion ?? targetVersion,
-            submissionStatus: 'PENDING',
-            reviewed: false,
-            reviewedAt: null,
-            reviewedBy: null,
-            isLatestForVersion: true,
-            reviewControlActive: true,
-        };
-    }
-
-    const message = await db.transaction().execute(async (trx) => {
         const inserted = await trx
             .insertInto('messages')
             .values({
@@ -680,18 +692,25 @@ export async function respondToWorkSubmissionMessage(
         throw new Error('Decision has already been selected for this submission version.');
     }
 
+    // A control hidden because newer files were added to the same version is no longer actionable
+    if (parsedData.isLatestForVersion === false || parsedData.reviewControlActive === false) {
+        throw new Error('This submission was updated with newer files. Please use the latest Accept / Request Revision control.');
+    }
+
     const targetVersion = typeof parsedData.version === 'number' ? parsedData.version : 1;
+    const expectedRevision = typeof parsedData.submissionRevision === 'number' ? parsedData.submissionRevision : undefined;
     const newStatus = decision === 'ACCEPT' ? 'ACCEPTED' : 'REVISE_REQUESTED';
     const reviewedAt = new Date().toISOString();
 
     // Apply the decision to the job first (this enforces the revision cap and the active-status rules).
     // Only when it succeeds are the chat messages marked, so a refused request leaves no trace in chat.
+    // expectedRevision is checked again under the job lock, so files added at the same moment are not missed.
     const { respondToDigitalWork } = await import('./jobs');
 
     if (decision === 'ACCEPT') {
-        await respondToDigitalWork(msg.jobId, clientUserId, 'ACCEPT');
+        await respondToDigitalWork(msg.jobId, clientUserId, 'ACCEPT', undefined, expectedRevision);
     } else {
-        await respondToDigitalWork(msg.jobId, clientUserId, 'REQUEST_REVISION', revisionNotes);
+        await respondToDigitalWork(msg.jobId, clientUserId, 'REQUEST_REVISION', revisionNotes, expectedRevision);
     }
 
     // Query all messages in this chatThreadId to update all messages belonging to targetVersion
