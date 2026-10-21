@@ -437,6 +437,7 @@ export async function processJobTimers() {
                                 .updateTable('freelancers')
                                 .set((eb) => ({
                                     withdrawableAmount: newBalance.toString(),
+                                    totalEarnings: eb('totalEarnings', '-', deductedPenalty.toString()),
                                     totalPenaltyDeducted: eb('totalPenaltyDeducted', '+', deductedPenalty.toString()),
                                     cancellationStrikes: eb('cancellationStrikes', '+', 1),
                                     cooldownExpiresAt: cooldownExpiry,
@@ -578,6 +579,7 @@ export async function processJobTimers() {
                                 .updateTable('freelancers')
                                 .set((eb) => ({
                                     withdrawableAmount: newBalance.toString(),
+                                    totalEarnings: eb('totalEarnings', '-', deductedPenalty.toString()),
                                     totalPenaltyDeducted: eb('totalPenaltyDeducted', '+', deductedPenalty.toString()),
                                     cancellationStrikes: eb('cancellationStrikes', '+', 1),
                                     cooldownExpiresAt: cooldownExpiry,

@@ -121,9 +121,14 @@ export async function POST(request: Request) {
             const penaltyAmt = parseFloat(thread.clientPenaltyAmount?.toString() || '0');
             let newBalance = currentBalance - birdFeeAmount;
 
+            // Total earnings: the full job amount (client's cash + BirdEarner coupon), as for platform jobs
             await trx
                 .updateTable('freelancers')
-                .set({ withdrawableAmount: newBalance.toString(), updatedAt: new Date() })
+                .set((eb) => ({
+                    withdrawableAmount: newBalance.toString(),
+                    totalEarnings: eb('totalEarnings', '+', finalJobAmount.toFixed(2)),
+                    updatedAt: new Date()
+                }))
                 .where('id', '=', thread.freelancerId)
                 .execute();
 
@@ -144,7 +149,7 @@ export async function POST(request: Request) {
                 })
                 .execute();
 
-            // Deduct client cancellation penalty from freelancer's wallet (cash payment flow)
+            // Deduct the freelancer penalty from the freelancer's wallet and total earnings (cash payment flow)
             if (penaltyAmt > 0) {
                 const balanceBeforePenalty = newBalance;
                 newBalance = newBalance - penaltyAmt;
@@ -153,6 +158,7 @@ export async function POST(request: Request) {
                     .updateTable('freelancers')
                     .set((eb) => ({
                         withdrawableAmount: newBalance.toString(),
+                        totalEarnings: eb('totalEarnings', '-', penaltyAmt.toString()),
                         totalPenaltyReceived: eb('totalPenaltyReceived', '+', penaltyAmt.toString()),
                         totalPenaltyDeducted: eb('totalPenaltyDeducted', '+', penaltyAmt.toString()),
                         updatedAt: new Date()
@@ -171,7 +177,7 @@ export async function POST(request: Request) {
                         transactionType: 'PENALTY',
                         balanceBefore: balanceBeforePenalty.toString(),
                         balanceAfter: newBalance.toString(),
-                        description: `Client cancellation penalty deducted - ${thread.jobTitle}`,
+                        description: `Freelancer penalty deducted - ${thread.jobTitle}`,
                         updatedAt: new Date()
                     })
                     .execute();

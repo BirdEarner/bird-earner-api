@@ -95,41 +95,47 @@ export async function POST(
                 if (isCashJob) {
                     // CASH JOB: Client pays agreed budget directly to freelancer in CASH in person.
                     // Deduct platform fee from freelancer wallet if applicable.
-                    if (job.assignedFreelancerId && job.freelancerUserId && birdFeeAmount > 0) {
+                    if (job.assignedFreelancerId && job.freelancerUserId) {
                         const freelancer = await trx
                             .selectFrom('freelancers')
-                            .select(['withdrawableAmount'])
+                            .select(['withdrawableAmount', 'totalEarnings'])
                             .where('id', '=', job.assignedFreelancerId)
                             .executeTakeFirst();
 
                         const currentWithdrawable = parseFloat(freelancer?.withdrawableAmount?.toString() || '0');
+                        const currentTotal = parseFloat(freelancer?.totalEarnings?.toString() || '0');
                         const newWithdrawable = currentWithdrawable - birdFeeAmount;
+                        // Total earnings gets the cash job amount, less the platform fee (the cash itself never goes to the withdrawable balance)
+                        const newTotal = currentTotal + budget - birdFeeAmount;
 
                         await trx
                             .updateTable('freelancers')
                             .set({
                                 withdrawableAmount: newWithdrawable.toString(),
+                                totalEarnings: newTotal.toString(),
                                 updatedAt: now,
                             })
                             .where('id', '=', job.assignedFreelancerId)
                             .execute();
 
-                        await trx
-                            .insertInto('walletTransactions')
-                            .values({
-                                id: crypto.randomUUID(),
-                                userId: job.freelancerUserId,
-                                userType: 'FREELANCER',
-                                jobId: id,
-                                amount: (-birdFeeAmount).toString(),
-                                balanceBefore: currentWithdrawable.toString(),
-                                balanceAfter: newWithdrawable.toString(),
-                                transactionType: 'PLATFORM_FEE' as any,
-                                description: `Platform fee for cash job dispute resolution: ${resolutionNotes}`,
-                                createdAt: now,
-                                updatedAt: now,
-                            })
-                            .execute();
+                        if (birdFeeAmount > 0) {
+                            await trx
+                                .insertInto('walletTransactions')
+                                .values({
+                                    id: crypto.randomUUID(),
+                                    userId: job.freelancerUserId,
+                                    userType: 'FREELANCER',
+                                    jobId: id,
+                                    amount: (-birdFeeAmount).toString(),
+                                    balanceBefore: currentWithdrawable.toString(),
+                                    balanceAfter: newWithdrawable.toString(),
+                                    transactionType: 'PLATFORM_FEE' as any,
+                                    description: `Platform fee for cash job dispute resolution: ${resolutionNotes}`,
+                                    createdAt: now,
+                                    updatedAt: now,
+                                })
+                                .execute();
+                        }
                     }
                 } else {
                     // ONLINE PLATFORM PAYMENT JOB: Release client reserved funds and pay freelancer
@@ -145,12 +151,14 @@ export async function POST(
 
                         const currentWithdrawable = parseFloat(freelancer?.withdrawableAmount?.toString() || '0');
                         const currentTotal = parseFloat(freelancer?.totalEarnings?.toString() || '0');
+                        // Both balances are credited with the budget after the platform fee
+                        const netPayout = budget - birdFeeAmount;
 
                         await trx
                             .updateTable('freelancers')
                             .set({
-                                withdrawableAmount: (currentWithdrawable + budget).toString(),
-                                totalEarnings: (currentTotal + budget).toString(),
+                                withdrawableAmount: (currentWithdrawable + netPayout).toString(),
+                                totalEarnings: (currentTotal + netPayout).toString(),
                                 updatedAt: now,
                             })
                             .where('id', '=', job.assignedFreelancerId)
@@ -163,9 +171,9 @@ export async function POST(
                                 userId: job.freelancerUserId,
                                 userType: 'FREELANCER',
                                 jobId: id,
-                                amount: budget.toString(),
+                                amount: netPayout.toString(),
                                 balanceBefore: currentWithdrawable.toString(),
-                                balanceAfter: (currentWithdrawable + budget).toString(),
+                                balanceAfter: (currentWithdrawable + netPayout).toString(),
                                 transactionType: 'JOB_RELEASE' as any,
                                 description: `Payment released via dispute resolution: ${resolutionNotes}`,
                                 createdAt: now,

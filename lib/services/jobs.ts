@@ -1176,6 +1176,7 @@ export async function cancelJob(jobId: string, userId: string, reason?: string) 
                     .updateTable('freelancers')
                     .set((eb) => ({
                         withdrawableAmount: newBalance.toString(),
+                        totalEarnings: eb('totalEarnings', '-', deductedPenalty.toString()),
                         totalPenaltyDeducted: eb('totalPenaltyDeducted', '+', deductedPenalty.toString()),
                         cancellationStrikes: eb('cancellationStrikes', '+', 1),
                         cooldownExpiresAt: cooldownExpiry,
@@ -1603,6 +1604,7 @@ export async function reportFreelancerNonSubmission(jobId: string, userId: strin
                 .updateTable('freelancers')
                 .set((eb) => ({
                     withdrawableAmount: newBalance.toString(),
+                    totalEarnings: eb('totalEarnings', '-', deductedPenalty.toString()),
                     totalPenaltyDeducted: eb('totalPenaltyDeducted', '+', deductedPenalty.toString()),
                     cancellationStrikes: eb('cancellationStrikes', '+', 1),
                     cooldownExpiresAt: cooldownExpiry,
