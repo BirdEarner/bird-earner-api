@@ -29,9 +29,12 @@ export async function GET() {
         if (freelancer?.selectedServices) {
             let services: string[] = [];
             try {
-                services = typeof freelancer.selectedServices === 'string'
+                const raw = typeof freelancer.selectedServices === 'string'
                     ? JSON.parse(freelancer.selectedServices)
                     : freelancer.selectedServices;
+                services = Array.isArray(raw)
+                    ? raw.filter((s): s is string => typeof s === 'string')
+                    : [];
             } catch { services = []; }
 
             const suggestedIds = services
@@ -57,7 +60,7 @@ export async function GET() {
                         .set({ selectedServices: JSON.stringify(cleaned), updatedAt: new Date() })
                         .where('userId', '=', userId)
                         .execute();
-                    freelancer.selectedServices = JSON.stringify(cleaned);
+                    freelancer.selectedServices = cleaned;
                 }
             }
         }
