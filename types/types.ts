@@ -403,7 +403,6 @@ export type Job = {
     otpVerifiedAt: Timestamp | null;
     submittedWorkData: unknown | null;
     revisionCount: Generated<number>;
-    includedRevisions: Generated<number>;
     clientReviewPeriodExpiresAt: Timestamp | null;
     freelancerGracePeriodExpiresAt: Timestamp | null;
     cancellationReason: string | null;
@@ -420,6 +419,7 @@ export type Job = {
     priceChangeAcceptedAt: Timestamp | null;
     clientReviewReminderSentAt: Timestamp | null;
     clientReviewFinalReminderSentAt: Timestamp | null;
+    includedRevisions: Generated<number>;
 };
 export type JobBookmark = {
     id: string;
@@ -564,6 +564,19 @@ export type SuggestedService = {
     createdAt: Generated<Timestamp>;
     updatedAt: Timestamp;
 };
+export type twoFactorChallenges = {
+    id: string;
+    userId: string;
+    purpose: string;
+    codeHash: string;
+    deviceId: string | null;
+    deviceName: string | null;
+    platform: string | null;
+    attempts: Generated<number>;
+    expiresAt: Timestamp;
+    consumedAt: Timestamp | null;
+    createdAt: Generated<Timestamp>;
+};
 export type User = {
     id: string;
     email: string;
@@ -585,29 +598,6 @@ export type User = {
     gender: string | null;
     twoFactorEnabled: Generated<boolean>;
 };
-export type UserDevice = {
-    id: Generated<string>;
-    userId: string;
-    deviceId: string;
-    deviceName: string | null;
-    platform: string | null;
-    lastLoginAt: Generated<Timestamp>;
-    createdAt: Generated<Timestamp>;
-    updatedAt: Timestamp;
-};
-export type TwoFactorChallenge = {
-    id: Generated<string>;
-    userId: string;
-    purpose: string;
-    codeHash: string;
-    deviceId: string | null;
-    deviceName: string | null;
-    platform: string | null;
-    attempts: Generated<number>;
-    expiresAt: Timestamp;
-    consumedAt: Timestamp | null;
-    createdAt: Generated<Timestamp>;
-};
 export type UserAddress = {
     id: string;
     userId: string;
@@ -622,6 +612,16 @@ export type UserAddress = {
     longitude: string | null;
     isDefault: Generated<boolean>;
     lastUsedAt: Timestamp | null;
+    createdAt: Generated<Timestamp>;
+    updatedAt: Timestamp;
+};
+export type userDevices = {
+    id: string;
+    userId: string;
+    deviceId: string;
+    deviceName: string | null;
+    platform: string | null;
+    lastLoginAt: Generated<Timestamp>;
     createdAt: Generated<Timestamp>;
     updatedAt: Timestamp;
 };
@@ -703,9 +703,9 @@ export type DB = {
     reviews: Review;
     services: Service;
     suggestedServices: SuggestedService;
+    twoFactorChallenges: twoFactorChallenges;
     userAddresses: UserAddress;
-    userDevices: UserDevice;
-    twoFactorChallenges: TwoFactorChallenge;
+    userDevices: userDevices;
     userEggs: UserEgg;
     userMedia: UserMedia;
     users: User;

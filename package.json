@@ -17,6 +17,7 @@
     "cloudinary": "^2.5.1",
     "fuse.js": "^7.1.0",
     "google-auth-library": "^9.15.1",
+    "jose": "^6.2.14",
     "jsonwebtoken": "^9.0.2",
     "jszip": "^3.10.2",
     "kysely": "^0.28.9",
