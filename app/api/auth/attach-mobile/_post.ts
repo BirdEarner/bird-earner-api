@@ -42,11 +42,16 @@ export async function POST(request: Request) {
             return NextResponse.json({ success: false, message: 'User not found' }, { status: 404 });
         }
 
+        // Idempotent: account already has a verified mobile — return success so the
+        // client can leave the phone gate (stale sessions re-hit this screen).
         if (currentUser.mobile) {
-            return NextResponse.json(
-                { success: false, message: 'A mobile number is already linked to this account' },
-                { status: 400 }
-            );
+            const { password: _, ...userWithoutPassword } = currentUser;
+            return NextResponse.json({
+                success: true,
+                message: 'Mobile number already linked to this account',
+                data: userWithoutPassword,
+                alreadyLinked: true,
+            });
         }
 
         const otpRecord = await db
