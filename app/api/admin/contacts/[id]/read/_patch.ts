@@ -2,6 +2,7 @@ import { getAdminUser } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { NextResponse } from 'next/server';
 
+/** Mark a contact as viewed only — does NOT change status to resolved. */
 export async function PATCH(
     request: Request,
     { params }: { params: Promise<{ id: string }> }
@@ -21,7 +22,6 @@ export async function PATCH(
             .updateTable('contacts')
             .set({
                 isRead: true,
-                status: 'resolved',
                 adminId: admin.id,
                 updatedAt: new Date(),
             })
@@ -35,7 +35,7 @@ export async function PATCH(
 
         return NextResponse.json({
             success: true,
-            message: 'Marked as read and resolved',
+            message: 'Marked as viewed',
             data: updated,
         });
     } catch (error: any) {

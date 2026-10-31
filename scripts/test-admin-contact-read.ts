@@ -4,7 +4,7 @@ import fetch from 'node-fetch';
 import jwt from 'jsonwebtoken';
 
 async function testAdminContactRead() {
-    console.log('--- TESTING ADMIN CONTACT MARK READ & RESOLVE ---');
+    console.log('--- TESTING ADMIN CONTACT MARK AS VIEWED (read only) ---');
 
     // 1. Get an admin or user to test with
     const testAdmin = await db
@@ -67,11 +67,15 @@ async function testAdminContactRead() {
 
     console.log(`[VERIFY DB] Contact status after update: ${updatedContact?.status}, isRead: ${updatedContact?.isRead}`);
 
-    if (res.ok && updatedContact?.status === 'resolved' && updatedContact?.isRead === true) {
-        console.log('🎉 ADMIN CONTACT MARK READ & RESOLVE TEST 100% PASSED! 🎉');
+    if (
+        res.ok &&
+        updatedContact?.isRead === true &&
+        updatedContact?.status === 'pending'
+    ) {
+        console.log('🎉 ADMIN CONTACT MARK AS VIEWED TEST PASSED (status stays pending)! 🎉');
         process.exit(0);
     } else {
-        console.error('❌ Admin contact mark read test FAILED!');
+        console.error('❌ Admin contact mark as viewed test FAILED!');
         process.exit(1);
     }
 }
