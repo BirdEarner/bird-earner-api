@@ -898,3 +898,96 @@ export async function depositClientFunds(
         };
     });
 }
+
+/**
+ * Admin-controlled refund/compensation credit into a client wallet.
+ *
+ * - Requires an existing Client profile (throws otherwise), so credits can
+ *   never be sent to a user without one.
+ * - Records a JOB_REFUND wallet transaction (userType CLIENT), which appears
+ *   in the client's transaction history through getTransactionHistory.
+ * - Idempotent on referenceId: replaying the same admin credit reference is a
+ *   no-op instead of a double credit.
+ * - Pure credit: unlike depositClientFunds it does not auto-deduct pending
+ *   penalties — refunds/compensation must land in full and penalty handling
+ *   stays where it already exists.
+ * - Funds remain in the client wallet and are only usable by existing
+ *   in-platform flows (escrow/reserve). No withdrawal or transfer path exists
+ *   for client balances.
+ */
+export async function creditClientRefund(
+    userId: string,
+    amount: number,
+    description = 'Refund credited to client wallet',
+    referenceId: string | null = null
+) {
+    if (!Number.isFinite(amount) || amount <= 0) {
+        throw new Error('Credit amount must be a positive number');
+    }
+
+    return await db.transaction().execute(async (trx) => {
+        // Idempotency check: one wallet transaction per reference
+        if (referenceId) {
+            const existingTx = await trx
+                .selectFrom('walletTransactions')
+                .select('id')
+                .where('referenceId', '=', referenceId)
+                .executeTakeFirst();
+
+            if (existingTx) {
+                return {
+                    success: true,
+                    message: 'Transaction already processed',
+                    transactionId: existingTx.id,
+                    duplicate: true
+                };
+            }
+        }
+
+        const client = await trx
+            .selectFrom('clients')
+            .select(['id', 'wallet', 'reservedAmount'])
+            .where('userId', '=', userId)
+            .executeTakeFirst();
+
+        if (!client) {
+            throw new Error('Client not found');
+        }
+
+        const currentWallet = parseFloat(client.wallet);
+        const newWallet = currentWallet + amount;
+
+        const transaction = await trx
+            .insertInto('walletTransactions')
+            .values({
+                id: crypto.randomUUID(),
+                userId,
+                userType: 'CLIENT',
+                transactionType: 'JOB_REFUND',
+                amount: amount.toString(),
+                balanceBefore: currentWallet.toString(),
+                balanceAfter: newWallet.toString(),
+                description,
+                referenceId,
+                createdAt: new Date(),
+                updatedAt: new Date()
+            })
+            .returningAll()
+            .executeTakeFirstOrThrow();
+
+        await trx
+            .updateTable('clients')
+            .set({
+                wallet: newWallet.toString(),
+                updatedAt: new Date()
+            })
+            .where('id', '=', client.id)
+            .execute();
+
+        return {
+            success: true,
+            newBalance: newWallet,
+            transactionId: transaction.id
+        };
+    });
+}

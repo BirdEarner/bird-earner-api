@@ -207,6 +207,8 @@ export type Client = {
     phase2Completed: Generated<boolean>;
     organizationType: string | null;
     companyName: string | null;
+    addressLine1: string | null;
+    addressLine2: string | null;
     city: string | null;
     state: string | null;
     zipcode: number | null;

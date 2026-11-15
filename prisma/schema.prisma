@@ -204,6 +204,8 @@ model Client {
   phase2Completed       Boolean            @default(false) @map("phase2Completed")
   organizationType      String?            @map("organizationType")
   companyName           String?            @map("companyName")
+  addressLine1          String?            @map("addressLine1")
+  addressLine2          String?            @map("addressLine2")
   city                  String?
   state                 String?
   zipcode               Int?

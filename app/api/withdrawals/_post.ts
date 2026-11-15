@@ -34,6 +34,11 @@ export async function POST(request: Request) {
                 .where('userId', '=', user.id)
                 .executeTakeFirst();
 
+            // Profile-based authorization: withdrawals only ever read the
+            // freelancer's withdrawableAmount. Client wallet balances live in a
+            // separate table (clients.wallet / availableBalance) and can never
+            // enter this flow, so a user without a Freelancer profile is
+            // rejected here regardless of their JWT role or UI state.
             if (!freelancer) throw new Error('Freelancer profile not found');
 
             const withdrawableBalance = parseFloat(freelancer.withdrawableAmount);

@@ -14,7 +14,14 @@ function generateOtp(): string {
 
 export async function POST(request: Request) {
     try {
-        const body = await request.json();
+        // A malformed/empty body must not surface as a 500 with an opaque
+        // JSON.parse error — reject it as a client error instead.
+        let body: unknown;
+        try {
+            body = await request.json();
+        } catch {
+            return NextResponse.json({ success: false, message: 'Invalid or missing JSON body' }, { status: 400 });
+        }
         const validation = validateBody(body, sendOtpSchema);
 
         if (!validation.success) {

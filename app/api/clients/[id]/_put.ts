@@ -51,6 +51,8 @@ export async function PUT(
 
         if (clientUpdateData.organizationType !== undefined) updatePayload.organizationType = clientUpdateData.organizationType;
         if (clientUpdateData.companyName !== undefined) updatePayload.companyName = clientUpdateData.companyName;
+        if (clientUpdateData.addressLine1 !== undefined) updatePayload.addressLine1 = clientUpdateData.addressLine1;
+        if (clientUpdateData.addressLine2 !== undefined) updatePayload.addressLine2 = clientUpdateData.addressLine2;
         if (clientUpdateData.city !== undefined) updatePayload.city = clientUpdateData.city;
         if (clientUpdateData.state !== undefined) updatePayload.state = clientUpdateData.state;
         if (clientUpdateData.zipcode !== undefined) updatePayload.zipcode = clientUpdateData.zipcode;
