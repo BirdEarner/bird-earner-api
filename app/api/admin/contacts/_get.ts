@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getAdminUser } from '@/lib/auth';
 import { sql } from 'kysely';
+import type { Contact } from '@/types/types';
 
 function normalizePhone(value?: string | null) {
     const trimmed = String(value || '').trim();
@@ -45,7 +46,7 @@ export async function GET(request: Request) {
         const emails = [
             ...new Set(
                 contacts
-                    .map((c) => String(c.email || '').trim().toLowerCase())
+                    .map((c: Contact) => String(c.email || '').trim().toLowerCase())
                     .filter(Boolean)
             ),
         ];
@@ -69,7 +70,7 @@ export async function GET(request: Request) {
             }
         }
 
-        const enrichedContacts = contacts.map((contact) => {
+        const enrichedContacts = contacts.map((contact: Contact) => {
             const phone =
                 normalizePhone(contact.phone) ||
                 mobileByEmail.get(String(contact.email || '').trim().toLowerCase()) ||

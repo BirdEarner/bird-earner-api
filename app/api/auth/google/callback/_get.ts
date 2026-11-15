@@ -61,7 +61,11 @@ export async function GET(request: Request) {
         });
 
         if ('error' in result) {
-            return errorRedirect(result.error, 'signup_error');
+            // TS normalizes this union with `error?: undefined` on the success
+            // branch, so the `in` check keeps both members and `result.error`
+            // is typed `string | undefined`. Fall back to a generic message so
+            // the redirect always gets a string (only the code is used in the URL).
+            return errorRedirect(result.error || 'Could not complete sign-up.', 'signup_error');
         }
 
         const encodedData = encodeURIComponent(JSON.stringify(result.data));
