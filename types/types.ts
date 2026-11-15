@@ -207,8 +207,6 @@ export type Client = {
     phase2Completed: Generated<boolean>;
     organizationType: string | null;
     companyName: string | null;
-    addressLine1: string | null;
-    addressLine2: string | null;
     city: string | null;
     state: string | null;
     zipcode: number | null;
@@ -226,6 +224,8 @@ export type Client = {
     coverPhoto: string | null;
     pendingPenaltyAmount: Generated<string | null>;
     totalPenaltyPaid: Generated<string>;
+    addressLine1: string | null;
+    addressLine2: string | null;
 };
 export type Contact = {
     id: string;
@@ -327,7 +327,7 @@ export type Freelancer = {
     freelancerCategory: string | null;
     skills: unknown | null;
     languages: unknown | null;
-    cancellationStrikes: Generated<number | null>;
+    cancellationStrikes: Generated<number>;
     cooldownExpiresAt: Timestamp | null;
     workType: string | null;
     typeChangedAt: Timestamp | null;
@@ -418,10 +418,10 @@ export type Job = {
     workCompletedAt: Timestamp | null;
     clientConfirmedWorkAt: Timestamp | null;
     postOtpCancellationWindowExpiresAt: Timestamp | null;
-    priceChangeAcceptedAt: Timestamp | null;
     clientReviewReminderSentAt: Timestamp | null;
     clientReviewFinalReminderSentAt: Timestamp | null;
     includedRevisions: Generated<number>;
+    priceChangeAcceptedAt: Timestamp | null;
 };
 export type JobBookmark = {
     id: string;

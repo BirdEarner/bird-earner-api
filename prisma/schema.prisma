@@ -19,7 +19,7 @@ model FAQ {
   answer      String
   category    String  @default("General") @db.VarChar(50)
   keywords    String?
-  youtubeLink String? @map("youtubeLink")
+  youtubeLink String?
 
   @@index([question])
   @@index([keywords])
@@ -32,10 +32,10 @@ model Admin {
   email            String    @unique @db.VarChar(255)
   password         String    @db.VarChar(255)
   role             AdminRole
-  lastLoginAt      DateTime? @map("lastLoginAt")
-  lastLoginIp      String?   @map("lastLoginIp") @db.VarChar(45)
-  createdAt        DateTime  @default(now()) @map("createdAt")
-  updatedAt        DateTime  @updatedAt @map("updatedAt")
+  lastLoginAt      DateTime?
+  lastLoginIp      String?   @db.VarChar(45)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
   contactResponses Contact[] @relation("AdminContacts")
 
   @@map("admins")
@@ -43,26 +43,26 @@ model Admin {
 
 model Contact {
   id            String        @id @db.VarChar(36)
-  ticketId      String        @unique @map("ticketId") @db.VarChar(20)
+  ticketId      String        @unique @db.VarChar(20)
   name          String        @db.VarChar(255)
   email         String        @db.VarChar(255)
   phone         String?       @db.VarChar(50)
   subject       String        @db.VarChar(500)
   message       String
-  isRead        Boolean       @default(false) @map("isRead")
+  isRead        Boolean       @default(false)
   status        ContactStatus @default(pending)
-  adminResponse String?       @map("adminResponse")
-  adminId       Int?          @map("adminId")
-  createdAt     DateTime      @default(now()) @map("createdAt")
-  updatedAt     DateTime      @updatedAt @map("updatedAt")
+  adminResponse String?
+  adminId       Int?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
   admin         Admin?        @relation("AdminContacts", fields: [adminId], references: [id])
 
-  @@index([createdAt], map: "contactsCreatedAtIdx")
-  @@index([isRead], map: "contactsIsReadIdx")
-  @@index([email], map: "contactsEmailIdx")
-  @@index([status], map: "contactsStatusIdx")
-  @@index([ticketId], map: "contactsTicketIdIdx")
-  @@index([adminId], map: "contactsAdminIdIdx")
+  @@index([adminId])
+  @@index([createdAt])
+  @@index([email])
+  @@index([isRead])
+  @@index([status])
+  @@index([ticketId])
   @@map("contacts")
 }
 
@@ -70,19 +70,19 @@ model User {
   id                       String                @id @default(uuid())
   email                    String                @unique
   password                 String?
-  fullName                 String?               @map("fullName")
-  isTestAccount            Boolean               @default(false) @map("isTestAccount")
-  createdAt                DateTime              @default(now()) @map("createdAt")
-  updatedAt                DateTime              @updatedAt @map("updatedAt")
-  resetPasswordExpires     BigInt?               @map("resetPasswordExpires")
-  resetPasswordToken       String?               @map("resetPasswordToken") @db.VarChar(255)
+  fullName                 String?
+  isTestAccount            Boolean               @default(false)
+  createdAt                DateTime              @default(now())
+  updatedAt                DateTime              @updatedAt
+  resetPasswordExpires     BigInt?
+  resetPasswordToken       String?               @db.VarChar(255)
   mobile                   String?               @unique @db.VarChar(20)
-  isEmailVerified          Boolean               @default(false) @map("isEmailVerified")
-  emailVerificationToken   String?               @map("emailVerificationToken") @db.VarChar(255)
-  emailVerificationExpires BigInt?               @map("emailVerificationExpires")
-  provider                 String                @default("email") @db.VarChar(255)
-  providerAccountId        String?               @unique @db.VarChar(255)
-  profilePhoto             String?               @map("profilePhoto")
+  isEmailVerified          Boolean               @default(false)
+  emailVerificationToken   String?               @db.VarChar(255)
+  emailVerificationExpires BigInt?
+  provider                 String                @default("email")
+  providerAccountId        String?               @unique
+  profilePhoto             String?
   dob                      DateTime?
   gender                   String?
   twoFactorEnabled         Boolean               @default(false)
@@ -105,7 +105,7 @@ model User {
 
 model UserAddress {
   id         String    @id @default(uuid())
-  userId     String    @map("userId")
+  userId     String
   label      String    @db.VarChar(50)
   line1      String    @db.VarChar(500)
   line2      String?   @db.VarChar(500)
@@ -115,26 +115,26 @@ model UserAddress {
   country    String?   @default("India") @db.VarChar(100)
   latitude   Decimal?  @db.Decimal(10, 8)
   longitude  Decimal?  @db.Decimal(11, 8)
-  isDefault  Boolean   @default(false) @map("isDefault")
-  lastUsedAt DateTime? @map("lastUsedAt")
-  createdAt  DateTime  @default(now()) @map("createdAt")
-  updatedAt  DateTime  @updatedAt @map("updatedAt")
+  isDefault  Boolean   @default(false)
+  lastUsedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
   user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([userId], map: "userAddressesUserIdIdx")
-  @@index([userId, lastUsedAt], map: "userAddressesUserIdLastUsedAtIdx")
+  @@index([userId])
+  @@index([userId, lastUsedAt])
   @@map("userAddresses")
 }
 
 model BankAccount {
   id                String   @id @default(uuid())
-  userId            String   @unique @map("userId")
-  bankName          String   @map("bankName")
-  accountHolderName String   @map("accountHolderName")
-  accountNumber     String   @map("accountNumber")
-  ifscCode          String   @map("ifscCode")
-  createdAt         DateTime @default(now()) @map("createdAt")
-  updatedAt         DateTime @updatedAt @map("updatedAt")
+  userId            String   @unique
+  bankName          String
+  accountHolderName String
+  accountNumber     String
+  ifscCode          String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
   user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("bankAccounts")
@@ -142,45 +142,45 @@ model BankAccount {
 
 model Freelancer {
   id                    String              @id @default(uuid())
-  userId                String              @unique @map("userId")
-  phase1Completed       Boolean             @default(false) @map("phase1Completed")
-  phase2Completed       Boolean             @default(false) @map("phase2Completed")
-  selectedServices      Json?               @map("selectedServices")
-  highestQualification  String?             @map("highestQualification")
+  userId                String              @unique
+  phase1Completed       Boolean             @default(false)
+  phase2Completed       Boolean             @default(false)
+  selectedServices      Json?
+  highestQualification  String?
   experience            Int?
-  profileHeading        String?             @map("profileHeading")
+  profileHeading        String?
   city                  String?
   state                 String?
   zipcode               Int?
   country               String?
   certifications        Json?
-  socialMediaLinks      Json?               @map("socialMediaLinks")
-  profileDescription    String?             @map("profileDescription")
-  portfolioImages       Json?               @map("portfolioImages")
-  coverPhoto            String?             @map("coverPhoto")
-  currentlyAvailable    Boolean?            @default(true) @map("currentlyAvailable")
-  nextAvailable         String?             @map("nextAvailable")
-  termsAccepted         Boolean?            @map("termsAccepted")
+  socialMediaLinks      Json?
+  profileDescription    String?
+  portfolioImages       Json?
+  coverPhoto            String?
+  currentlyAvailable    Boolean?            @default(true)
+  nextAvailable         String?
+  termsAccepted         Boolean?
   flags                 Json?
   xp                    Int                 @default(0)
   level                 Int                 @default(1)
   rating                Int?
-  assignedJobs          Json?               @map("assignedJobs")
-  cancelledJobs         Json?               @map("cancelledJobs")
-  totalEarnings         Decimal             @default(0.00) @map("totalEarnings") @db.Decimal(10, 2)
-  monthlyEarnings       Decimal             @default(0.00) @map("monthlyEarnings") @db.Decimal(10, 2)
-  outstandingAmount     Decimal             @default(0.00) @map("outstandingAmount") @db.Decimal(10, 2)
-  withdrawableAmount    Decimal             @default(0.00) @map("withdrawableAmount") @db.Decimal(10, 2)
-  createdAt             DateTime            @default(now()) @map("createdAt")
-  updatedAt             DateTime            @updatedAt @map("updatedAt")
-  availabilityUpdatedAt DateTime?           @map("availabilityUpdatedAt")
-  totalPenaltyDeducted  Decimal             @default(0.00) @map("totalPenaltyDeducted") @db.Decimal(10, 2)
-  totalPenaltyReceived  Decimal             @default(0.00) @map("totalPenaltyReceived") @db.Decimal(10, 2)
-  freelancerCategory    String?             @map("freelancerCategory")
-  skills                Json?               @map("skills")
-  languages             Json?               @map("languages")
-  cancellationStrikes   Int?                @default(0) @map("cancellationStrikes")
-  cooldownExpiresAt     DateTime?           @map("cooldownExpiresAt") @db.Timestamp(6)
+  assignedJobs          Json?
+  cancelledJobs         Json?
+  totalEarnings         Decimal             @default(0.00) @db.Decimal(10, 2)
+  monthlyEarnings       Decimal             @default(0.00) @db.Decimal(10, 2)
+  outstandingAmount     Decimal             @default(0.00) @db.Decimal(10, 2)
+  withdrawableAmount    Decimal             @default(0.00) @db.Decimal(10, 2)
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+  availabilityUpdatedAt DateTime?
+  totalPenaltyDeducted  Decimal             @default(0.00) @db.Decimal(10, 2)
+  totalPenaltyReceived  Decimal             @default(0.00) @db.Decimal(10, 2)
+  freelancerCategory    String?
+  skills                Json?
+  languages             Json?
+  cancellationStrikes   Int                 @default(0)
+  cooldownExpiresAt     DateTime?
   workType              String?
   typeChangedAt         DateTime?
   chatThreads           ChatThread[]        @relation("FreelancerChatThreads")
@@ -199,30 +199,30 @@ model Freelancer {
 
 model Client {
   id                    String             @id @default(uuid())
-  userId                String             @unique @map("userId")
-  phase1Completed       Boolean            @default(false) @map("phase1Completed")
-  phase2Completed       Boolean            @default(false) @map("phase2Completed")
-  organizationType      String?            @map("organizationType")
-  companyName           String?            @map("companyName")
-  addressLine1          String?            @map("addressLine1")
-  addressLine2          String?            @map("addressLine2")
+  userId                String             @unique
+  phase1Completed       Boolean            @default(false)
+  phase2Completed       Boolean            @default(false)
+  organizationType      String?
+  companyName           String?
   city                  String?
   state                 String?
   zipcode               Int?
   country               String?
-  profileDescription    String?            @map("profileDescription")
-  termsAccepted         Boolean?           @map("termsAccepted")
+  profileDescription    String?
+  termsAccepted         Boolean?
   wallet                Decimal            @default(0.00) @db.Decimal(10, 2)
-  createdAt             DateTime           @default(now()) @map("createdAt")
-  updatedAt             DateTime           @updatedAt @map("updatedAt")
-  availableBalance      Decimal            @default(0.00) @map("availableBalance") @db.Decimal(10, 2)
-  reservedAmount        Decimal            @default(0.00) @map("reservedAmount") @db.Decimal(10, 2)
-  availabilityUpdatedAt DateTime?          @map("availabilityUpdatedAt")
-  currentlyAvailable    Boolean?           @default(true) @map("currentlyAvailable")
-  nextAvailable         String?            @map("nextAvailable")
-  coverPhoto            String?            @map("coverPhoto")
-  pendingPenaltyAmount  Decimal?           @default(0) @map("pendingPenaltyAmount") @db.Decimal(10, 2)
-  totalPenaltyPaid      Decimal            @default(0.00) @map("totalPenaltyPaid") @db.Decimal(10, 2)
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+  availableBalance      Decimal            @default(0.00) @db.Decimal(10, 2)
+  reservedAmount        Decimal            @default(0.00) @db.Decimal(10, 2)
+  availabilityUpdatedAt DateTime?
+  currentlyAvailable    Boolean?           @default(true)
+  nextAvailable         String?
+  coverPhoto            String?
+  pendingPenaltyAmount  Decimal?           @default(0) @db.Decimal(10, 2)
+  totalPenaltyPaid      Decimal            @default(0.00) @db.Decimal(10, 2)
+  addressLine1          String?
+  addressLine2          String?
   adminOfferClaims      adminOfferClaims[]
   cashbackOffer         CashbackOffer[]
   chatThreads           ChatThread[]       @relation("ClientChatThreads")
@@ -237,68 +237,68 @@ model Client {
 
 model Job {
   id                                 String              @id @default(uuid())
-  jobTitle                           String              @map("jobTitle")
-  jobDescription                     String              @map("jobDescription")
-  jobCategory                        String              @map("jobCategory")
-  jobSubCategory                     String              @map("jobSubCategory")
-  skillsRequired                     Json                @map("skillsRequired")
-  projectType                        String              @map("projectType")
-  budgetType                         String              @map("budgetType")
-  budgetAmount                       Decimal             @map("budgetAmount") @db.Decimal(10, 2)
-  clientId                           String              @map("clientId")
-  paymentMethod                      String              @default("PLATFORM") @map("paymentMethod")
-  birdFeeAmount                      Decimal?            @map("birdFeeAmount") @db.Decimal(10, 2)
-  birdFeePaid                        Boolean             @default(false) @map("birdFeePaid")
-  assignedFreelancerId               String?             @map("assignedFreelancerId")
-  createdBy                          String?             @map("createdBy")
-  serviceId                          String?             @map("serviceId")
-  jobStatus                          JobStatus           @default(OPEN) @map("jobStatus")
-  proposalCount                      Int                 @default(0) @map("proposalCount")
-  deadlineDate                       DateTime?           @map("deadlineDate")
-  assignedAt                         DateTime?           @map("assignedAt")
-  attachedFiles                      Json?               @map("attachedFiles")
+  jobTitle                           String
+  jobDescription                     String
+  jobCategory                        String
+  jobSubCategory                     String
+  skillsRequired                     Json
+  projectType                        String
+  budgetType                         String
+  budgetAmount                       Decimal             @db.Decimal(10, 2)
+  clientId                           String
+  paymentMethod                      String              @default("PLATFORM")
+  birdFeeAmount                      Decimal?            @db.Decimal(10, 2)
+  birdFeePaid                        Boolean             @default(false)
+  assignedFreelancerId               String?
+  createdBy                          String?
+  serviceId                          String?
+  jobStatus                          JobStatus           @default(OPEN)
+  proposalCount                      Int                 @default(0)
+  deadlineDate                       DateTime?
+  assignedAt                         DateTime?
+  attachedFiles                      Json?
   location                           String?
   latitude                           Decimal?            @db.Decimal(10, 8)
   longitude                          Decimal?            @db.Decimal(11, 8)
-  isUrgent                           Boolean?            @default(false) @map("isUrgent")
-  createdAt                          DateTime            @default(now()) @map("createdAt")
-  updatedAt                          DateTime            @updatedAt @map("updatedAt")
-  amountPaid                         Decimal?            @default(0.00) @map("amountPaid") @db.Decimal(10, 2)
-  isAmountReserved                   Boolean             @default(false) @map("isAmountReserved")
-  paymentStatus                      PaymentStatus       @default(PENDING) @map("paymentStatus")
-  completedAt                        DateTime?           @map("completedAt")
-  cashbackOfferId                    String?             @map("cashbackOfferId")
-  discountAmount                     Decimal?            @default(0) @map("discountAmount") @db.Decimal(10, 2)
-  deleted                            Boolean             @default(false) @map("deleted")
-  clientPenaltyAmount                Decimal?            @default(0) @map("clientPenaltyAmount") @db.Decimal(10, 2)
-  cancelledAt                        DateTime?           @map("cancelledAt")
-  applicationDeadline                DateTime?           @map("applicationDeadline")
-  applicationExtended                Boolean             @default(false) @map("applicationExtended")
-  workDurationDays                   Int?                @map("workDurationDays")
-  workDeadline                       DateTime?           @map("workDeadline")
-  confirmedAt                        DateTime?           @map("confirmedAt")
-  arrivedAt                          DateTime?           @map("arrivedAt")
-  otpCode                            String?             @map("otpCode") @db.VarChar(6)
-  otpVerifiedAt                      DateTime?           @map("otpVerifiedAt")
-  submittedWorkData                  Json?               @map("submittedWorkData")
-  revisionCount                      Int                 @default(0) @map("revisionCount")
-  clientReviewPeriodExpiresAt        DateTime?           @map("clientReviewPeriodExpiresAt")
-  freelancerGracePeriodExpiresAt     DateTime?           @map("freelancerGracePeriodExpiresAt")
-  cancellationReason                 String?             @map("cancellationReason")
-  priceChangeRequested               Decimal?            @map("priceChangeRequested") @db.Decimal(10, 2)
-  priceChangeReason                  String?             @map("priceChangeReason")
-  applicationDeadlineOriginal        DateTime?           @map("applicationDeadlineOriginal")
-  applicationExtensionCount          Int                 @default(0) @map("applicationExtensionCount")
-  negotiatedAmount                   Decimal?            @map("negotiatedAmount") @db.Decimal(10, 2)
-  travelStartedAt                    DateTime?           @map("travelStartedAt")
-  jobStartTime                       DateTime?           @map("jobStartTime")
-  workCompletedAt                    DateTime?           @map("workCompletedAt")
-  clientConfirmedWorkAt              DateTime?           @map("clientConfirmedWorkAt")
-  postOtpCancellationWindowExpiresAt DateTime?           @map("postOtpCancellationWindowExpiresAt")
-  priceChangeAcceptedAt              DateTime?
+  isUrgent                           Boolean?            @default(false)
+  createdAt                          DateTime            @default(now())
+  updatedAt                          DateTime            @updatedAt
+  amountPaid                         Decimal?            @default(0.00) @db.Decimal(10, 2)
+  isAmountReserved                   Boolean             @default(false)
+  paymentStatus                      PaymentStatus       @default(PENDING)
+  completedAt                        DateTime?
+  cashbackOfferId                    String?
+  discountAmount                     Decimal?            @default(0) @db.Decimal(10, 2)
+  deleted                            Boolean             @default(false)
+  clientPenaltyAmount                Decimal?            @default(0) @db.Decimal(10, 2)
+  cancelledAt                        DateTime?
+  applicationDeadline                DateTime?
+  applicationExtended                Boolean             @default(false)
+  workDurationDays                   Int?
+  workDeadline                       DateTime?
+  confirmedAt                        DateTime?
+  arrivedAt                          DateTime?
+  otpCode                            String?             @db.VarChar(6)
+  otpVerifiedAt                      DateTime?
+  submittedWorkData                  Json?
+  revisionCount                      Int                 @default(0)
+  clientReviewPeriodExpiresAt        DateTime?
+  freelancerGracePeriodExpiresAt     DateTime?
+  cancellationReason                 String?
+  priceChangeRequested               Decimal?            @db.Decimal(10, 2)
+  priceChangeReason                  String?
+  applicationDeadlineOriginal        DateTime?
+  applicationExtensionCount          Int                 @default(0)
+  negotiatedAmount                   Decimal?            @db.Decimal(10, 2)
+  travelStartedAt                    DateTime?
+  jobStartTime                       DateTime?
+  workCompletedAt                    DateTime?
+  clientConfirmedWorkAt              DateTime?
+  postOtpCancellationWindowExpiresAt DateTime?
   clientReviewReminderSentAt         DateTime?
   clientReviewFinalReminderSentAt    DateTime?
   includedRevisions                  Int                 @default(2)
+  priceChangeAcceptedAt              DateTime?
   chatThreads                        ChatThread[]        @relation("JobChatThreads")
   earnings                           Earning[]
   bookmarks                          JobBookmark[]
@@ -313,54 +313,54 @@ model Job {
   reviews                            Review[]
   walletTransactions                 WalletTransaction[]
 
-  @@index([assignedFreelancerId], map: "jobsAssignedFreelancerIdx")
-  @@index([clientId], map: "jobsClientIdIdx")
-  @@index([createdBy], map: "jobsCreatedByIdx")
-  @@index([serviceId], map: "jobsServiceIdIdx")
-  @@index([applicationDeadline], map: "jobsApplicationDeadlineIdx")
-  @@index([workDeadline], map: "jobsWorkDeadlineIdx")
+  @@index([applicationDeadline])
+  @@index([assignedFreelancerId])
+  @@index([clientId])
+  @@index([createdBy])
+  @@index([serviceId])
+  @@index([workDeadline])
   @@map("jobs")
 }
 
 model Message {
   id             String      @id @default(uuid())
-  senderId       String      @map("senderId")
-  receiverId     String      @map("receiverId")
-  jobId          String?     @map("jobId")
-  messageContent String      @map("messageContent")
-  messageType    String      @default("text") @map("messageType")
-  messageData    Json        @default("{}") @map("messageData")
+  senderId       String
+  receiverId     String
+  jobId          String?
+  messageContent String
+  messageType    String      @default("text")
+  messageData    Json        @default("{}")
   attachments    Json?
-  isRead         Boolean     @default(false) @map("isRead")
-  senderType     String      @map("senderType")
-  createdAt      DateTime    @default(now()) @map("createdAt")
-  updatedAt      DateTime    @updatedAt @map("updatedAt")
-  chatThreadId   String?     @map("chatThreadId")
+  isRead         Boolean     @default(false)
+  senderType     String
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  chatThreadId   String?
   chatThread     ChatThread? @relation("ChatThreadMessages", fields: [chatThreadId], references: [id])
   job            Job?        @relation(fields: [jobId], references: [id])
   receiver       User        @relation("UserReceiver", fields: [receiverId], references: [id], onDelete: Cascade)
   sender         User        @relation("UserSender", fields: [senderId], references: [id], onDelete: Cascade)
   userMedia      UserMedia[]
 
-  @@index([senderId], map: "messagesSenderIdIdx")
-  @@index([receiverId], map: "messagesReceiverIdIdx")
-  @@index([jobId], map: "messagesJobIdIdx")
-  @@index([createdAt], map: "messagesCreatedAtIdx")
-  @@index([chatThreadId], map: "messagesChatThreadIdIdx")
+  @@index([chatThreadId])
+  @@index([createdAt])
+  @@index([jobId])
+  @@index([receiverId])
+  @@index([senderId])
   @@map("messages")
 }
 
 model Review {
   id            String      @id @default(uuid())
-  reviewerId    String      @map("reviewerId")
-  revieweeId    String      @map("revieweeId")
-  jobId         String?     @map("jobId")
+  reviewerId    String
+  revieweeId    String
+  jobId         String?
   rating        Int
-  ratingDetails Json?       @map("ratingDetails")
-  reviewText    String?     @map("reviewText")
-  reviewType    String      @map("reviewType")
-  createdAt     DateTime    @default(now()) @map("createdAt")
-  updatedAt     DateTime    @updatedAt @map("updatedAt")
+  ratingDetails Json?
+  reviewText    String?
+  reviewType    String
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
   freelancerId  String?
   clientId      String?
   client        Client?     @relation(fields: [clientId], references: [id])
@@ -369,235 +369,235 @@ model Review {
   reviewee      User        @relation("UserReviewsReceived", fields: [revieweeId], references: [id], onDelete: Cascade)
   reviewer      User        @relation("UserReviewsGiven", fields: [reviewerId], references: [id], onDelete: Cascade)
 
-  @@index([reviewerId], map: "reviewsReviewerIdIdx")
-  @@index([revieweeId], map: "reviewsRevieweeIdIdx")
-  @@index([jobId], map: "reviewsJobIdIdx")
+  @@index([jobId])
+  @@index([revieweeId])
+  @@index([reviewerId])
   @@map("reviews")
 }
 
 model Earning {
   id           String        @id @default(uuid())
-  freelancerId String        @map("freelancerId")
-  jobId        String?       @map("jobId")
+  freelancerId String
+  jobId        String?
   amount       Decimal       @db.Decimal(10, 2)
-  earningType  String        @map("earningType")
+  earningType  String
   description  String?
   status       EarningStatus @default(PENDING)
-  createdAt    DateTime      @default(now()) @map("createdAt")
-  updatedAt    DateTime      @updatedAt @map("updatedAt")
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
   freelancer   Freelancer    @relation(fields: [freelancerId], references: [id], onDelete: Cascade)
   job          Job?          @relation(fields: [jobId], references: [id])
 
-  @@index([freelancerId], map: "earningsFreelancerIdIdx")
-  @@index([jobId], map: "earningsJobIdIdx")
-  @@index([status], map: "earningsStatusIdx")
+  @@index([freelancerId])
+  @@index([jobId])
+  @@index([status])
   @@map("earnings")
 }
 
 model WithdrawalRequest {
   id           String           @id @default(uuid())
-  freelancerId String           @map("freelancerId")
+  freelancerId String
   amount       Decimal          @db.Decimal(10, 2)
-  bankDetails  Json             @map("bankDetails")
+  bankDetails  Json
   status       WithdrawalStatus @default(PENDING)
-  processedAt  DateTime?        @map("processedAt")
+  processedAt  DateTime?
   notes        String?
-  createdAt    DateTime         @default(now()) @map("createdAt")
-  updatedAt    DateTime         @updatedAt @map("updatedAt")
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
   freelancer   Freelancer       @relation(fields: [freelancerId], references: [id], onDelete: Cascade)
 
-  @@index([freelancerId], map: "withdrawalRequestsFreelancerIdIdx")
-  @@index([status], map: "withdrawalRequestsStatusIdx")
+  @@index([freelancerId])
+  @@index([status])
   @@map("withdrawalRequests")
 }
 
 model PaymentHistory {
   id            String        @id @default(uuid())
-  clientId      String?       @map("clientId")
-  jobId         String?       @map("jobId")
+  clientId      String?
+  jobId         String?
   amount        Decimal       @db.Decimal(10, 2)
-  paymentMethod String        @map("paymentMethod")
-  transactionId String?       @map("transactionId")
+  paymentMethod String
+  transactionId String?
   status        PaymentStatus @default(PENDING)
   description   String?
-  createdAt     DateTime      @default(now()) @map("createdAt")
-  updatedAt     DateTime      @updatedAt @map("updatedAt")
-  freelancerId  String?       @map("freelancerId")
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  freelancerId  String?
   client        Client?       @relation(fields: [clientId], references: [id], onDelete: Cascade)
   freelancer    Freelancer?   @relation(fields: [freelancerId], references: [id], onDelete: Cascade)
 
-  @@index([clientId], map: "paymentHistoryClientIdIdx")
-  @@index([freelancerId], map: "paymentHistoryFreelancerIdIdx")
-  @@index([jobId], map: "paymentHistoryJobIdIdx")
-  @@index([status], map: "paymentHistoryStatusIdx")
+  @@index([clientId])
+  @@index([freelancerId])
+  @@index([jobId])
+  @@index([status])
   @@map("paymentHistory")
 }
 
 model WalletTransaction {
   id              String          @id @default(uuid())
-  userId          String          @map("userId")
-  userType        String          @map("userType")
-  jobId           String?         @map("jobId")
-  transactionType TransactionType @map("transactionType")
+  userId          String
+  userType        String
+  jobId           String?
+  transactionType TransactionType
   amount          Decimal         @db.Decimal(10, 2)
-  balanceBefore   Decimal         @map("balanceBefore") @db.Decimal(10, 2)
-  balanceAfter    Decimal         @map("balanceAfter") @db.Decimal(10, 2)
+  balanceBefore   Decimal         @db.Decimal(10, 2)
+  balanceAfter    Decimal         @db.Decimal(10, 2)
   description     String?
-  referenceId     String?         @map("referenceId")
-  createdAt       DateTime        @default(now()) @map("createdAt")
-  updatedAt       DateTime        @updatedAt @map("updatedAt")
+  referenceId     String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
   job             Job?            @relation(fields: [jobId], references: [id])
   user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([userId], map: "walletTransactionsUserIdIdx")
-  @@index([jobId], map: "walletTransactionsJobIdIdx")
-  @@index([transactionType], map: "walletTransactionsTypeIdx")
+  @@index([jobId])
+  @@index([transactionType])
+  @@index([userId])
   @@map("walletTransactions")
 }
 
 model PenaltyLog {
   id             String      @id @default(uuid())
-  jobId          String      @map("jobId")
-  clientId       String      @map("clientId")
-  freelancerId   String?     @map("freelancerId")
-  penaltyType    String      @map("penaltyType")
+  jobId          String
+  clientId       String
+  freelancerId   String?
+  penaltyType    String
   amount         Decimal     @db.Decimal(10, 2)
   status         String      @default("PENDING")
   description    String?
-  createdByJobId String?     @map("createdByJobId")
-  createdAt      DateTime    @default(now()) @map("createdAt")
-  updatedAt      DateTime    @updatedAt @map("updatedAt")
+  createdByJobId String?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
   client         Client      @relation(fields: [clientId], references: [id])
   sourceJob      Job?        @relation("PenaltySourceJob", fields: [createdByJobId], references: [id])
-  freelancer     Freelancer? @relation(fields: [freelancerId], references: [id], onDelete: Restrict)
+  freelancer     Freelancer? @relation(fields: [freelancerId], references: [id])
   job            Job         @relation(fields: [jobId], references: [id])
 
-  @@index([jobId], map: "penaltyLogsJobIdIdx")
-  @@index([clientId], map: "penaltyLogsClientIdIdx")
-  @@index([freelancerId], map: "penaltyLogsFreelancerIdIdx")
-  @@index([penaltyType], map: "penaltyLogsTypeIdx")
+  @@index([clientId])
+  @@index([freelancerId])
+  @@index([jobId])
+  @@index([penaltyType])
   @@map("penaltyLogs")
 }
 
 model UserEgg {
   id           String     @id @default(uuid())
-  freelancerId String     @map("freelancerId")
-  eggType      String     @map("eggType")
+  freelancerId String
+  eggType      String
   quantity     Int        @default(1)
-  earnedFrom   String?    @map("earnedFrom")
-  createdAt    DateTime   @default(now()) @map("createdAt")
-  updatedAt    DateTime   @updatedAt @map("updatedAt")
+  earnedFrom   String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
   freelancer   Freelancer @relation(fields: [freelancerId], references: [id], onDelete: Cascade)
 
-  @@index([freelancerId], map: "userEggsFreelancerIdIdx")
-  @@index([eggType], map: "userEggsEggTypeIdx")
+  @@index([eggType])
+  @@index([freelancerId])
   @@map("userEggs")
 }
 
 model BlockedUser {
   id          String   @id @default(uuid())
-  blockerId   String   @map("blockerId")
-  blockedId   String   @map("blockedId")
-  blockerType String   @map("blockerType")
-  blockedType String   @map("blockedType")
+  blockerId   String
+  blockedId   String
+  blockerType String
+  blockedType String
   reason      String?
-  createdAt   DateTime @default(now()) @map("createdAt")
+  createdAt   DateTime @default(now())
 
-  @@unique([blockerId, blockedId], map: "uniqueBlockRelationship")
-  @@index([blockerId], map: "blockedUsersBlockerIdIdx")
-  @@index([blockedId], map: "blockedUsersBlockedIdIdx")
+  @@unique([blockerId, blockedId])
+  @@index([blockedId])
+  @@index([blockerId])
   @@map("blockedUsers")
 }
 
 model Notification {
   id          String    @id @default(uuid())
-  userId      String    @map("userId")
-  userType    String    @map("userType")
+  userId      String
+  userType    String
   title       String
   message     String
   type        String
   data        Json?
-  isRead      Boolean   @default(false) @map("isRead")
-  createdAt   DateTime  @default(now()) @map("createdAt")
-  updatedAt   DateTime  @updatedAt @map("updatedAt")
-  scheduledAt DateTime? @map("scheduledAt")
+  isRead      Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  scheduledAt DateTime?
   status      String    @default("SENT")
 
-  @@index([userId], map: "notificationsUserIdIdx")
-  @@index([isRead], map: "notificationsIsReadIdx")
-  @@index([createdAt], map: "notificationsCreatedAtIdx")
-  @@index([status], map: "notificationsStatusIdx")
-  @@index([scheduledAt], map: "notificationsScheduledAtIdx")
+  @@index([createdAt])
+  @@index([isRead])
+  @@index([scheduledAt])
+  @@index([status])
+  @@index([userId])
   @@map("notifications")
 }
 
 model PushToken {
   id        String   @id @default(uuid())
-  userId    String   @map("userId")
-  userType  String   @map("userType")
+  userId    String
+  userType  String
   token     String   @unique
   platform  String
-  isActive  Boolean  @default(true) @map("isActive")
-  createdAt DateTime @default(now()) @map("createdAt")
-  updatedAt DateTime @updatedAt @map("updatedAt")
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  @@index([userId], map: "pushTokensUserIdIdx")
-  @@index([token], map: "pushTokensTokenIdx")
+  @@index([token])
+  @@index([userId])
   @@map("pushTokens")
 }
 
 model FileManagement {
   id           String   @id @default(uuid())
-  fileName     String   @map("fileName")
-  originalName String   @map("originalName")
-  fileUrl      String   @map("fileUrl")
-  fileSize     Int      @map("fileSize")
-  mimeType     String   @map("mimeType")
-  uploadedBy   String   @map("uploadedBy")
-  uploaderType String   @map("uploaderType")
+  fileName     String
+  originalName String
+  fileUrl      String
+  fileSize     Int
+  mimeType     String
+  uploadedBy   String
+  uploaderType String
   category     String?
-  isActive     Boolean  @default(true) @map("isActive")
-  createdAt    DateTime @default(now()) @map("createdAt")
-  updatedAt    DateTime @updatedAt @map("updatedAt")
-  jobId        String?  @map("jobId")
-  receiverId   String?  @map("receiverId")
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  jobId        String?
+  receiverId   String?
 
-  @@index([uploadedBy], map: "fileManagementUploadedByIdx")
-  @@index([receiverId], map: "fileManagementReceiverIdIdx")
-  @@index([jobId], map: "fileManagementJobIdIdx")
-  @@index([category], map: "fileManagementCategoryIdx")
-  @@index([createdAt], map: "fileManagementCreatedAtIdx")
+  @@index([category])
+  @@index([createdAt])
+  @@index([jobId])
+  @@index([receiverId])
+  @@index([uploadedBy])
   @@map("fileManagement")
 }
 
 model JobBookmark {
   id        String   @id @default(uuid())
-  userId    String   @map("userId")
-  jobId     String   @map("jobId")
-  createdAt DateTime @default(now()) @map("createdAt")
-  updatedAt DateTime @updatedAt @map("updatedAt")
+  userId    String
+  jobId     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
   job       Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, jobId], map: "uniqueUserJobBookmark")
-  @@index([userId], map: "jobBookmarksUserIdIdx")
-  @@index([jobId], map: "jobBookmarksJobIdIdx")
+  @@unique([userId, jobId])
+  @@index([jobId])
+  @@index([userId])
   @@map("jobBookmarks")
 }
 
 model DeleteRequest {
   id          String              @id @default(uuid())
-  userId      String              @map("userId")
-  userType    String              @map("userType")
+  userId      String
+  userType    String
   reason      String?
   status      DeleteRequestStatus @default(PENDING)
-  processedAt DateTime?           @map("processedAt")
-  processedBy String?             @map("processedBy")
-  createdAt   DateTime            @default(now()) @map("createdAt")
-  updatedAt   DateTime            @updatedAt @map("updatedAt")
+  processedAt DateTime?
+  processedBy String?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
 
-  @@index([userId], map: "deleteRequestsUserIdIdx")
-  @@index([status], map: "deleteRequestsStatusIdx")
+  @@index([status])
+  @@index([userId])
   @@map("deleteRequests")
 }
 
@@ -606,39 +606,39 @@ model Service {
   name              String             @unique
   category          ServiceCategory
   description       String?
-  imageUrl          String?            @map("imageUrl")
-  isActive          Boolean            @default(true) @map("isActive")
-  priorityConfig    Json?              @map("priorityConfig")
-  birdFee           Json?              @map("birdFee")
-  createdAt         DateTime           @default(now()) @map("createdAt")
-  updatedAt         DateTime           @updatedAt @map("updatedAt")
+  imageUrl          String?
+  isActive          Boolean            @default(true)
+  priorityConfig    Json?
+  birdFee           Json?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
   adminOffers       adminOffers[]
   cashbackOffers    CashbackOffer[]
   homePromos        HomePromo[]
   jobs              Job[]              @relation("JobService")
   suggestedServices SuggestedService[]
 
-  @@index([category], map: "servicesServiceCategoryIdx")
-  @@index([isActive], map: "servicesServiceActiveIdx")
+  @@index([category])
+  @@index([isActive])
   @@map("services")
 }
 
 model SuggestedService {
   id               String   @id @default(uuid())
-  userId           String   @map("userId")
-  serviceName      String   @map("serviceName")
+  userId           String
+  serviceName      String
   description      String?
   images           Json?
   status           String   @default("pending")
-  matchedServiceId String?  @map("matchedServiceId")
-  createdAt        DateTime @default(now()) @map("createdAt")
-  updatedAt        DateTime @updatedAt @map("updatedAt")
+  matchedServiceId String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
   matchedService   Service? @relation(fields: [matchedServiceId], references: [id])
   user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([userId], map: "suggestedServicesUserIdIdx")
-  @@index([matchedServiceId], map: "suggestedServicesMatchedServiceIdIdx")
-  @@index([status], map: "suggestedServicesStatusIdx")
+  @@index([matchedServiceId])
+  @@index([status])
+  @@index([userId])
   @@map("suggestedServices")
 }
 
@@ -648,99 +648,99 @@ model HomePromo {
   title                 String             @db.VarChar(200)
   subtitle              String?
   badge                 String?            @db.VarChar(50)
-  ctaLabel              String?            @map("ctaLabel") @db.VarChar(80)
-  imageUrl              String?            @map("imageUrl")
-  backgroundColor       String?            @map("backgroundColor") @db.VarChar(20)
-  textColor             String?            @map("textColor") @db.VarChar(20)
-  accentColor           String?            @map("accentColor") @db.VarChar(20)
-  sortOrder             Int                @default(0) @map("sortOrder")
-  isActive              Boolean            @default(true) @map("isActive")
-  startsAt              DateTime?          @map("startsAt")
-  endsAt                DateTime?          @map("endsAt")
-  serviceId             String?            @map("serviceId")
-  serviceType           String?            @map("serviceType") @db.VarChar(20)
-  prefillJobTitle       String?            @map("prefillJobTitle") @db.VarChar(200)
-  prefillJobDescription String?            @map("prefillJobDescription")
-  prefillBudget         String?            @map("prefillBudget") @db.VarChar(40)
-  prefillJobType        String?            @map("prefillJobType") @db.VarChar(20)
-  prefillPaymentMethod  String?            @map("prefillPaymentMethod") @db.VarChar(20)
-  prefillSkills         Json?              @map("prefillSkills")
-  createdAt             DateTime           @default(now()) @map("createdAt")
-  updatedAt             DateTime           @updatedAt @map("updatedAt")
+  ctaLabel              String?            @db.VarChar(80)
+  imageUrl              String?
+  backgroundColor       String?            @db.VarChar(20)
+  textColor             String?            @db.VarChar(20)
+  accentColor           String?            @db.VarChar(20)
+  sortOrder             Int                @default(0)
+  isActive              Boolean            @default(true)
+  startsAt              DateTime?
+  endsAt                DateTime?
+  serviceId             String?
+  serviceType           String?            @db.VarChar(20)
+  prefillJobTitle       String?            @db.VarChar(200)
+  prefillJobDescription String?
+  prefillBudget         String?            @db.VarChar(40)
+  prefillJobType        String?            @db.VarChar(20)
+  prefillPaymentMethod  String?            @db.VarChar(20)
+  prefillSkills         Json?
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
   service               Service?           @relation(fields: [serviceId], references: [id])
 
-  @@index([placement, isActive, sortOrder], map: "homePromosPlacementActiveSortIdx")
-  @@index([serviceId], map: "homePromosServiceIdIdx")
+  @@index([placement, isActive, sortOrder])
+  @@index([serviceId])
   @@map("homePromos")
 }
 
 model ChatThread {
   id                 String               @id @default(uuid())
-  jobId              String               @map("jobId")
-  freelancerId       String               @map("freelancerId")
-  clientId           String               @map("clientId")
-  characterLimit     Int                  @default(200) @map("characterLimit")
-  isAccepted         Boolean              @default(false) @map("isAccepted")
+  jobId              String
+  freelancerId       String
+  clientId           String
+  characterLimit     Int                  @default(200)
+  isAccepted         Boolean              @default(false)
   status             ChatStatus           @default(PENDING)
-  createdAt          DateTime             @default(now()) @map("createdAt")
-  deadline           DateTime?            @map("deadline")
-  updatedAt          DateTime             @updatedAt @map("updatedAt")
-  usedStorage        BigInt               @default(0) @map("usedStorage")
-  storageLimit       BigInt               @default(3221225472) @map("storageLimit")
-  clientOffer        Decimal?             @map("clientOffer") @db.Decimal(10, 2)
-  freelancerOffer    Decimal?             @map("freelancerOffer") @db.Decimal(10, 2)
-  agreedAmount       Decimal?             @map("agreedAmount") @db.Decimal(10, 2)
-  clientDays         Int?                 @map("clientDays")
-  freelancerDays     Int?                 @map("freelancerDays")
-  agreedDays         Int?                 @map("agreedDays")
+  createdAt          DateTime             @default(now())
+  deadline           DateTime?
+  updatedAt          DateTime             @updatedAt
+  usedStorage        BigInt               @default(0)
+  storageLimit       BigInt               @default(3221225472)
+  clientOffer        Decimal?             @db.Decimal(10, 2)
+  freelancerOffer    Decimal?             @db.Decimal(10, 2)
+  agreedAmount       Decimal?             @db.Decimal(10, 2)
+  clientDays         Int?
+  freelancerDays     Int?
+  agreedDays         Int?
   client             Client               @relation("ClientChatThreads", fields: [clientId], references: [id])
   freelancer         Freelancer           @relation("FreelancerChatThreads", fields: [freelancerId], references: [id])
   job                Job                  @relation("JobChatThreads", fields: [jobId], references: [id])
   messages           Message[]            @relation("ChatThreadMessages")
   negotiationHistory NegotiationHistory[] @relation("NegotiationThreadHistory")
 
-  @@unique([jobId, freelancerId, clientId], map: "uniqueJobFreelancerClientThread")
-  @@index([jobId], map: "chatThreadsJobIdIdx")
-  @@index([freelancerId], map: "chatThreadsFreelancerIdIdx")
-  @@index([clientId], map: "chatThreadsClientIdIdx")
+  @@unique([jobId, freelancerId, clientId])
+  @@index([clientId])
+  @@index([freelancerId])
+  @@index([jobId])
   @@map("chatThreads")
 }
 
 model NegotiationHistory {
   id             String     @id @default(uuid())
-  chatThreadId   String     @map("chatThreadId")
-  jobId          String     @map("jobId")
-  senderId       String     @map("senderId")
-  senderType     String     @map("senderType")
-  offerType      String     @map("offerType")
-  amount         Decimal    @map("amount") @db.Decimal(10, 2)
-  previousAmount Decimal?   @map("previousAmount") @db.Decimal(10, 2)
-  note           String?    @map("note")
-  createdAt      DateTime   @default(now()) @map("createdAt")
-  days           Int?       @map("days")
-  previousDays   Int?       @map("previousDays")
+  chatThreadId   String
+  jobId          String
+  senderId       String
+  senderType     String
+  offerType      String
+  amount         Decimal    @db.Decimal(10, 2)
+  previousAmount Decimal?   @db.Decimal(10, 2)
+  note           String?
+  createdAt      DateTime   @default(now())
+  days           Int?
+  previousDays   Int?
   chatThread     ChatThread @relation("NegotiationThreadHistory", fields: [chatThreadId], references: [id])
 
-  @@index([jobId], map: "negotiationHistoryJobIdIdx")
-  @@index([createdAt], map: "negotiationHistoryCreatedAtIdx")
-  @@index([chatThreadId], map: "negotiationHistory_chatThreadIdIdx")
+  @@index([chatThreadId])
+  @@index([createdAt])
+  @@index([jobId])
   @@map("negotiationHistory")
 }
 
 model UserMedia {
   id         String   @id @default(uuid())
-  fileName   String   @map("fileName")
-  fileSize   Int      @map("fileSize")
-  mimeType   String   @map("mimeType")
+  fileName   String
+  fileSize   Int
+  mimeType   String
   location   String
   path       String
-  uploaderId String   @map("uploaderId")
-  threadId   String   @map("threadId")
-  messageId  String   @map("messageId")
-  expiresAt  DateTime @map("expiresAt")
-  isExpired  Boolean  @default(false) @map("isExpired")
-  createdAt  DateTime @default(now()) @map("createdAt")
-  updatedAt  DateTime @updatedAt @map("updatedAt")
+  uploaderId String
+  threadId   String
+  messageId  String
+  expiresAt  DateTime
+  isExpired  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
   message    Message  @relation(fields: [messageId], references: [id])
 
   @@index([expiresAt])
@@ -755,20 +755,20 @@ model CashbackOffer {
   amountType       CashbackOfferAmountType
   discovered       Boolean                 @default(false)
   used             Boolean                 @default(false)
-  createdAt        DateTime                @default(now()) @map("createdAt")
-  updatedAt        DateTime                @map("updatedAt")
-  clientId         String                  @map("clientId")
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime
+  clientId         String
   minBooking       Float                   @default(0)
   maxDiscount      Float?
-  reservedJobId    String?                 @map("reservedJobId")
+  reservedJobId    String?
   code             String?                 @db.VarChar(50)
   serviceId        String?
   adminOfferClaims adminOfferClaims[]
   clients          Client                  @relation(fields: [clientId], references: [id], onDelete: Cascade, map: "CashbackOfferClientIdFkey")
   services         Service?                @relation(fields: [serviceId], references: [id], map: "CashbackOfferServiceIdFkey")
 
-  @@index([clientId], map: "CashbackOfferClientIdIdx")
-  @@index([serviceId], map: "CashbackOfferServiceIdIdx")
+  @@index([clientId])
+  @@index([serviceId])
   @@map("cashbackOffers")
 }
 
@@ -776,10 +776,10 @@ model OtpVerification {
   id        String    @id @default(uuid())
   mobile    String    @db.VarChar(255)
   code      String?   @db.VarChar(6)
-  expiresAt DateTime? @map("expiresAt")
+  expiresAt DateTime?
   verified  Boolean   @default(false)
-  createdAt DateTime  @default(now()) @map("createdAt")
-  updatedAt DateTime  @updatedAt @map("updatedAt")
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 
   @@index([mobile])
   @@index([expiresAt])
@@ -788,18 +788,18 @@ model OtpVerification {
 
 model JobStatusHistory {
   id        String   @id @default(uuid())
-  jobId     String   @map("jobId")
-  status    String   @map("status")
-  changedBy String?  @map("changedBy")
-  userType  String?  @map("userType")
-  action    String?  @map("action")
-  reason    String?  @map("reason")
-  metadata  Json?    @map("metadata")
-  createdAt DateTime @default(now()) @map("createdAt")
+  jobId     String
+  status    String
+  changedBy String?
+  userType  String?
+  action    String?
+  reason    String?
+  metadata  Json?
+  createdAt DateTime @default(now())
   job       Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
 
-  @@index([jobId], map: "jobStatusHistoryJobIdIdx")
-  @@index([createdAt], map: "jobStatusHistoryCreatedAtIdx")
+  @@index([createdAt])
+  @@index([jobId])
   @@map("jobStatusHistory")
 }
 
@@ -816,7 +816,7 @@ model adminOfferClaims {
   clients         Client         @relation(fields: [clientId], references: [id], onDelete: Cascade, map: "AdminOfferClaimClientIdFkey")
 
   @@unique([adminOfferId, clientId])
-  @@index([clientId], map: "AdminOfferClaimClientIdIdx")
+  @@index([clientId])
 }
 
 model adminOffers {
@@ -834,8 +834,8 @@ model adminOffers {
   adminOfferClaims adminOfferClaims[]
   services         Service                 @relation(fields: [serviceId], references: [id], onDelete: Cascade, map: "AdminOfferServiceIdFkey")
 
-  @@index([isActive], map: "AdminOfferIsActiveIdx")
-  @@index([serviceId], map: "AdminOfferServiceIdIdx")
+  @@index([isActive])
+  @@index([serviceId])
 }
 
 model twoFactorChallenges {
